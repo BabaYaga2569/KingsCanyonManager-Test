@@ -1,0 +1,50 @@
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase";
+
+/**
+ * Creates linked Contract, Invoice, and Job Folder from a Bid
+ * @param {object} bid - The bid object from Firestore
+ * @returns {Promise<object>} - { contractId, invoiceId, jobId }
+ */
+export async function createFullJobPackage(bid) {
+  // create one shared jobId so all docs tie together
+  const jobId = crypto.randomUUID();
+  const base = {
+    jobId,
+    clientName: bid.customerName || "Unnamed Client",
+    amount: bid.amount || 0,
+    description: bid.description || "",
+    materials: bid.materials || "",
+    notes: bid.notes || "",
+    createdAt: serverTimestamp(),
+    status: "Pending",
+  };
+
+  // 1️⃣ Contract
+  const contractRef = await addDoc(collection(db, "contracts"), {
+    ...base,
+    type: "contract",
+  });
+
+  // 2️⃣ Invoice
+  const invoiceRef = await addDoc(collection(db, "invoices"), {
+    ...base,
+    type: "invoice",
+    subtotal: bid.amount || 0,
+    tax: 0,
+    total: bid.amount || 0,
+  });
+
+  // 3️⃣ Job folder placeholder
+  const jobRef = await addDoc(collection(db, "jobs"), {
+    ...base,
+    type: "job",
+    photos: [],
+  });
+
+  return {
+    contractId: contractRef.id,
+    invoiceId: invoiceRef.id,
+    jobId: jobRef.id,
+  };
+}

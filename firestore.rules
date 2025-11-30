@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Bids collection
+    match /bids/{bidId} {
+      allow read, write: if true; // TODO: Add authentication
+    }
+    
+    // Contracts collection
+    match /contracts/{contractId} {
+      allow read, write: if true; // TODO: Add authentication
+    }
+    
+    // Invoices collection
+    match /invoices/{invoiceId} {
+      allow read, write: if true; // TODO: Add authentication
+    }
+    
+    // Jobs collection
+    match /jobs/{jobId} {
+      allow read, write: if true; // TODO: Add authentication
+    }
+    
+    // Settings collection (NEW - for goal tracker)
+    match /settings/{settingId} {
+      allow read, write: if true; // TODO: Add authentication
+    }
+    
+    // Customers collection (NEW - for customer management)
+    match /customers/{customerId} {
+      allow read, write: if true; // TODO: Add authentication
+    }
+    
+    // Default: deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
