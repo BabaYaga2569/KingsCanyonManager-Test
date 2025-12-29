@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import autoTable from 'jspdf-autotable';
 
 const COMPANY = {
   name: "Kings Canyon Landscaping LLC",
@@ -8,17 +9,23 @@ const COMPANY = {
 };
 
 /**
- * Generate a professional invoice PDF with all details
+ * Generate a professional invoice PDF with optional material breakdown
  * @param {object} invoice - The invoice object from Firestore
+ * @param {array} expenses - Optional: expenses for material breakdown
+ * @param {boolean} includeMaterialBreakdown - Whether to include material costs page
  * @returns {jsPDF} - The generated PDF document
  */
-export default async function generateInvoicePDF(invoice) {
+export default async function generateInvoicePDF(invoice, expenses = [], includeMaterialBreakdown = false) {
   const doc = new jsPDF({ unit: "pt", format: "letter" }); // 612 x 792
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
 
   // Get logo if provided
   const logoDataUrl = invoice.logoDataUrl;
+
+  // ============================================
+  // PAGE 1: INVOICE
+  // ============================================
 
   // Frame / border
   doc.setDrawColor(60);
@@ -87,116 +94,267 @@ export default async function generateInvoicePDF(invoice) {
 
   // Client address (if provided)
   if (invoice.clientAddress) {
-    const addressLines = doc.splitTextToSize(invoice.clientAddress, W - 80);
-    doc.text(addressLines, 40, y);
-    y += addressLines.length * 14 + 10;
+    const lines = doc.splitTextToSize(invoice.clientAddress, 220);
+    doc.text(lines, 40, y);
+    y += lines.length * 16;
   }
 
-  y += 10;
+  y += 20;
 
   // Description section
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
-  doc.text("Description:", 40, y);
+  doc.text("Description of Work:", 40, y);
   y += 18;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
-  if (invoice.description) {
-    const descLines = doc.splitTextToSize(invoice.description, W - 80);
-    doc.text(descLines, 40, y);
-    y += descLines.length * 14 + 10;
-  } else {
-    doc.text("No description provided", 40, y);
-    y += 24;
-  }
+  const descLines = doc.splitTextToSize(
+    invoice.description || "Professional landscaping services",
+    W - 100
+  );
+  doc.text(descLines, 40, y);
+  y += descLines.length * 16 + 10;
 
-  // Materials section (if provided)
+  // Materials (if any)
   if (invoice.materials) {
-    y += 10;
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
     doc.text("Materials:", 40, y);
-    y += 18;
+    y += 16;
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    const materialLines = doc.splitTextToSize(invoice.materials, W - 80);
-    doc.text(materialLines, 40, y);
-    y += materialLines.length * 14 + 10;
+    const matLines = doc.splitTextToSize(invoice.materials, W - 100);
+    doc.text(matLines, 40, y);
+    y += matLines.length * 16 + 10;
   }
 
-  // Pricing table
+  // Amount table
   y += 20;
-  const tableStartY = y;
-  
-  // Calculate values
   const subtotal = parseFloat(invoice.subtotal || invoice.amount || 0);
   const tax = parseFloat(invoice.tax || 0);
-  const total = parseFloat(invoice.total || subtotal + tax);
-  const taxRate = invoice.taxRate || 0;
+  const total = subtotal + tax;
 
-  // Draw pricing box
-  doc.setDrawColor(150);
+  const tableStartY = y;
+  const tableX = W - 280;
+  const colWidth = 120;
+
+  doc.setDrawColor(200);
   doc.setLineWidth(0.5);
-  
+
   // Subtotal
   doc.setFont("helvetica", "normal");
-  doc.text("Subtotal:", W - 200, y);
-  doc.text(`$${subtotal.toFixed(2)}`, W - 40, y, { align: "right" });
+  doc.text("Subtotal:", tableX, y);
+  doc.text(`$${subtotal.toFixed(2)}`, tableX + colWidth, y, { align: "right" });
   y += 20;
 
-  // Tax
-  const taxLabel = taxRate > 0 ? `Tax (${taxRate}%):` : "Tax:";
-  doc.text(taxLabel, W - 200, y);
-  doc.text(`$${tax.toFixed(2)}`, W - 40, y, { align: "right" });
-  y += 10;
+  // Tax (if any)
+  if (tax > 0) {
+    const taxLabel = invoice.taxRate 
+      ? `Tax (${invoice.taxRate}%):`
+      : "Tax:";
+    doc.text(taxLabel, tableX, y);
+    doc.text(`$${tax.toFixed(2)}`, tableX + colWidth, y, { align: "right" });
+    y += 20;
+  }
 
-  // Line above total
-  doc.line(W - 200, y, W - 40, y);
-  y += 16;
-
-  // Total
+  // Total line
+  doc.line(tableX, y - 5, tableX + colWidth + 10, y - 5);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Total:", W - 200, y);
-  doc.text(`$${total.toFixed(2)}`, W - 40, y, { align: "right" });
-
+  doc.setFontSize(13);
+  doc.text("TOTAL:", tableX, y + 4);
+  doc.text(`$${total.toFixed(2)}`, tableX + colWidth, y + 4, { align: "right" });
   y += 30;
 
-  // Payment Terms section
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Payment Terms", 40, y);
-  y += 18;
+  // Payment status (if any)
+  if (invoice.status) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    const statusUpper = invoice.status.toUpperCase();
+    doc.text(`Status: ${statusUpper}`, tableX, y);
+    y += 16;
+  }
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  
-  // Default payment terms if notes not provided
-  const paymentTerms = invoice.notes || 
-    "Payment is due within 14 days of invoice date. Please make checks payable to Kings Canyon Landscaping LLC. Thank you for your business!";
-  
-  const termsLines = doc.splitTextToSize(paymentTerms, W - 80);
-  doc.text(termsLines, 40, y);
-  y += termsLines.length * 12 + 20;
+  // Notes / Payment Instructions (if any)
+  if (invoice.notes) {
+    y += 30;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Payment Instructions:", 40, y);
+    y += 16;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    const notesLines = doc.splitTextToSize(invoice.notes, W - 100);
+    doc.text(notesLines, 40, y);
+  }
 
   // Footer
-  doc.setFontSize(10);
+  const footerY = H - 56;
+  doc.setFontSize(9);
   doc.setTextColor(100);
-  doc.setFont("helvetica", "italic");
   doc.text(
-    "Thank you for choosing Kings Canyon Landscaping!",
+    "Thank you for your business!",
     W / 2,
-    H - 50,
+    footerY,
     { align: "center" }
   );
-  doc.text(
-    "We appreciate your business.",
-    W / 2,
-    H - 36,
-    { align: "center" }
-  );
+
+  // ============================================
+  // PAGE 2: MATERIAL BREAKDOWN (Optional)
+  // ============================================
+
+  if (includeMaterialBreakdown && expenses.length > 0) {
+    doc.addPage();
+
+    // Header
+    doc.setTextColor(0);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text(COMPANY.name, W / 2, 60, { align: "center" });
+    
+    doc.setFontSize(16);
+    doc.text("MATERIAL COST BREAKDOWN", W / 2, 85, { align: "center" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(80);
+    doc.text(`Invoice No.: ${invoiceNum}`, W / 2, 105, { align: "center" });
+    doc.text(`Client: ${invoice.clientName || 'N/A'}`, W / 2, 120, { align: "center" });
+
+    let materialY = 150;
+
+    // Intro text
+    doc.setTextColor(0);
+    doc.setFontSize(11);
+    const introText = doc.splitTextToSize(
+      "Below is a detailed breakdown of actual material costs incurred for your project. " +
+      "These represent our actual expenses from vendors. The invoice total includes these " +
+      "materials plus labor, equipment, and other project costs.",
+      W - 100
+    );
+    doc.text(introText, 50, materialY);
+    materialY += introText.length * 16 + 20;
+
+    // Category breakdown
+    const materialExpenses = expenses.filter(e => 
+      e.category === 'materials' || e.category === 'supplies'
+    );
+
+    if (materialExpenses.length > 0) {
+      // Build table data
+      const tableData = materialExpenses
+        .sort((a, b) => new Date(a.date) - new Date(b.date))
+        .map(expense => {
+          const row = [
+            new Date(expense.date).toLocaleDateString(),
+            expense.vendor || '',
+            expense.description || '',
+            `$${parseFloat(expense.amount || 0).toFixed(2)}`,
+          ];
+
+          return row;
+        });
+
+      // Add materials table
+      autoTable(doc, {
+        startY: materialY,
+        head: [['Date', 'Vendor', 'Description', 'Amount']],
+        body: tableData,
+        foot: [[
+          '', 
+          '', 
+          'Total Material Costs:', 
+          `$${materialExpenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0).toFixed(2)}`
+        ]],
+        theme: 'striped',
+        headStyles: { 
+          fillColor: [41, 128, 185],
+          fontStyle: 'bold',
+        },
+        footStyles: { 
+          fillColor: [52, 73, 94],
+          fontStyle: 'bold',
+        },
+        columnStyles: {
+          0: { cellWidth: 80 },
+          1: { cellWidth: 120 },
+          2: { cellWidth: 240 },
+          3: { cellWidth: 80, halign: 'right' },
+        },
+        margin: { left: 40, right: 40 },
+      });
+
+      materialY = doc.lastAutoTable.finalY + 30;
+
+      // Itemized receipts (if any have line items)
+      const itemizedExpenses = materialExpenses.filter(e => 
+        e.lineItems && e.lineItems.length > 0
+      );
+
+      if (itemizedExpenses.length > 0) {
+        // Check if we need a new page
+        if (materialY > H - 200) {
+          doc.addPage();
+          materialY = 60;
+        }
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.text("ITEMIZED RECEIPT DETAILS", 50, materialY);
+        materialY += 20;
+
+        itemizedExpenses.forEach(expense => {
+          // Check if we need a new page
+          if (materialY > H - 150) {
+            doc.addPage();
+            materialY = 60;
+          }
+
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(11);
+          doc.text(
+            `${expense.vendor} - ${new Date(expense.date).toLocaleDateString()}`,
+            50,
+            materialY
+          );
+          materialY += 15;
+
+          const itemData = expense.lineItems.map(item => [
+            item.item || '',
+            item.quantity || '1',
+            `$${parseFloat(item.price || 0).toFixed(2)}`,
+            `$${(parseFloat(item.quantity || 1) * parseFloat(item.price || 0)).toFixed(2)}`,
+          ]);
+
+          autoTable(doc, {
+            startY: materialY,
+            head: [['Item', 'Qty', 'Unit Price', 'Total']],
+            body: itemData,
+            foot: [['', '', 'Receipt Total:', `$${parseFloat(expense.amount || 0).toFixed(2)}`]],
+            theme: 'plain',
+            headStyles: { fillColor: [189, 195, 199] },
+            footStyles: { fontStyle: 'bold' },
+            margin: { left: 70 },
+            columnStyles: {
+              0: { cellWidth: 280 },
+              1: { cellWidth: 50, halign: 'center' },
+              2: { cellWidth: 80, halign: 'right' },
+              3: { cellWidth: 80, halign: 'right' },
+            },
+          });
+
+          materialY = doc.lastAutoTable.finalY + 20;
+        });
+      }
+    }
+
+    // Footer note
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    const footerNote = "All costs listed are actual vendor charges. Invoice total includes materials, labor, equipment, and overhead.";
+    const footerLines = doc.splitTextToSize(footerNote, W - 100);
+    doc.text(footerLines, W / 2, H - 80, { align: "center" });
+  }
 
   return doc;
 }
