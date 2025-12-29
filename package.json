@@ -27,8 +27,9 @@
     "react-router-dom": "^7.9.4",
     "react-scripts": "^5.0.1",
     "react-signature-canvas": "^1.1.0-alpha.2",
-    "sweetalert2": "^11.26.3",
-    "web-vitals": "^2.1.4"
+    "sweetalert2": "^11.26.17",
+    "web-vitals": "^2.1.4",
+    "xlsx": "^0.18.5"
   },
   "scripts": {
     "start": "react-scripts start",
