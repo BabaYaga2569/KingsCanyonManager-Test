@@ -100,11 +100,29 @@ export default function InvoicesDashboard() {
         console.warn("Logo failed:", e);
       }
 
-      // Generate PDF
-      const pdfDoc = await generateInvoicePDF({
-        ...inv,
-        logoDataUrl,
-      });
+      // NEW: Load expenses for this job
+      let expenses = [];
+      if (inv.jobId) {
+        try {
+          const expensesSnap = await getDocs(collection(db, "expenses"));
+          expenses = expensesSnap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter((e) => e.jobId === inv.jobId);
+          console.log(`📊 Loaded ${expenses.length} expenses for invoice PDF`);
+        } catch (e) {
+          console.warn("Failed to load expenses:", e);
+        }
+      }
+
+      // Generate PDF with expenses and material breakdown flag
+      const pdfDoc = await generateInvoicePDF(
+        {
+          ...inv,
+          logoDataUrl,
+        },
+        expenses, // Pass expenses array
+        inv.includeMaterialBreakdown || false // Pass material breakdown flag
+      );
 
       // ✅ MOBILE-FRIENDLY PDF VIEWING
       const pdfBlob = pdfDoc.output("blob");
