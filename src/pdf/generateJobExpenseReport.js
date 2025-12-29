@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import moment from 'moment';
 
 /**
@@ -107,7 +107,7 @@ export const generateJobExpenseReport = async (job, expenses, invoice = null) =>
       `$${total.toFixed(2)}`
     ]);
   
-  doc.autoTable({
+  autoTable(doc, {
     startY: yPos,
     head: [['Category', 'Total']],
     body: categoryData,
@@ -140,7 +140,7 @@ export const generateJobExpenseReport = async (job, expenses, invoice = null) =>
       expense.receiptUrl ? 'Yes' : 'No',
     ]);
   
-  doc.autoTable({
+  autoTable(doc, {
     startY: yPos,
     head: [['Date', 'Vendor', 'Category', 'Description', 'Amount', 'Receipt']],
     body: expenseTableData,
@@ -197,7 +197,7 @@ export const generateJobExpenseReport = async (job, expenses, invoice = null) =>
         `$${(parseFloat(item.quantity || 1) * parseFloat(item.price || 0)).toFixed(2)}`,
       ]);
       
-      doc.autoTable({
+      autoTable(doc, {
         startY: yPos,
         head: [['Item', 'Qty', 'Unit Price', 'Total']],
         body: itemData,
