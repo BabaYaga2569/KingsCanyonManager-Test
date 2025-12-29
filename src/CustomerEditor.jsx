@@ -45,7 +45,7 @@ export default function CustomerEditor() {
     if (!isNewCustomer) {
       loadCustomer();
     }
-  }, [id]);
+  }, [id, isNewCustomer]);
 
   const loadCustomer = async () => {
     setLoading(true);
@@ -62,6 +62,7 @@ export default function CustomerEditor() {
     } catch (error) {
       console.error("Error loading customer:", error);
       Swal.fire("Error", "Failed to load customer", "error");
+      navigate("/customers");
     } finally {
       setLoading(false);
     }
@@ -92,22 +93,37 @@ export default function CustomerEditor() {
     setSaving(true);
     try {
       const customerData = {
-        ...customer,
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email || "",
+        address: customer.address || "",
+        city: customer.city || "",
+        state: customer.state || "AZ",
+        zip: customer.zip || "",
+        notes: customer.notes || "",
+        tags: customer.tags || [],
         updatedAt: new Date().toISOString(),
       };
 
       if (isNewCustomer) {
         customerData.createdAt = new Date().toISOString();
+        customerData.lifetimeValue = 0;
+        customerData.bidCount = 0;
+        customerData.contractCount = 0;
+        customerData.invoiceCount = 0;
+        customerData.jobCount = 0;
+        
         const docRef = await addDoc(collection(db, "customers"), customerData);
         
         await Swal.fire({
           icon: "success",
           title: "Customer Added!",
           text: `${customer.name} has been added to your customers.`,
-          confirmButtonText: "View Profile",
+          timer: 2000,
+          showConfirmButton: false,
         });
         
-        navigate(`/customer/${docRef.id}`);
+        navigate("/customers");
       } else {
         await updateDoc(doc(db, "customers", id), customerData);
         
@@ -115,9 +131,11 @@ export default function CustomerEditor() {
           icon: "success",
           title: "Customer Updated!",
           text: `${customer.name}'s information has been updated.`,
+          timer: 2000,
+          showConfirmButton: false,
         });
         
-        navigate(`/customer/${id}`);
+        navigate("/customers");
       }
     } catch (error) {
       console.error("Error saving customer:", error);

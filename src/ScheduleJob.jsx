@@ -1,115 +1,236 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
+import { doc, getDoc, collection, getDocs, addDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
-import { collection, addDoc, doc, getDoc } from "firebase/firestore";
 import {
   Container,
   Typography,
-  TextField,
   Button,
+  TextField,
   Box,
   Paper,
   Grid,
+  FormControl,
+  InputLabel,
+  Select,
   MenuItem,
+  Chip,
+  Checkbox,
+  FormControlLabel,
+  FormGroup,
+  Divider,
+  Alert,
   CircularProgress,
+  Autocomplete,
 } from "@mui/material";
 import Swal from "sweetalert2";
+import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 
 export default function ScheduleJob() {
   const [searchParams] = useSearchParams();
-  const contractId = searchParams.get("contractId");
   const navigate = useNavigate();
+  const location = useLocation();
+  const contractId = searchParams.get("contractId");
+  const dateParam = searchParams.get("date"); // NEW: Get date from calendar
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [contract, setContract] = useState(null);
+  const [allContracts, setAllContracts] = useState([]); // NEW: For manual selection
+  const [selectedContractId, setSelectedContractId] = useState(contractId || ""); // NEW
+  const [crews, setCrews] = useState([]);
+  const [equipment, setEquipment] = useState([]);
+  
   const [formData, setFormData] = useState({
-    customerName: "",
-    customerPhone: "",
-    customerAddress: "",
-    description: "",
-    materials: "",
-    amount: "",
-    contractId: "",
-    invoiceId: "",
-    jobId: "",
-    scheduledDate: "",
-    startTime: "09:00",
-    duration: 120,
-    status: "Scheduled",
+    startDate: dateParam || "", // NEW: Pre-fill date if coming from calendar
+    startTime: "08:00",
+    endDate: "",
+    endTime: "17:00",
+    selectedCrews: [],
+    selectedEquipment: [],
     notes: "",
+    priority: "normal",
   });
 
+  const [conflicts, setConflicts] = useState([]);
+
   useEffect(() => {
-    if (contractId) {
-      loadContractData(contractId);
-    }
+    loadData();
   }, [contractId]);
 
-  const loadContractData = async (id) => {
-    setLoading(true);
-    try {
-      const contractDoc = await getDoc(doc(db, "contracts", id));
-      if (contractDoc.exists()) {
-        const contract = contractDoc.data();
-        
-        // Try to find linked invoice
-        let invoiceId = "";
-        const invoicesSnap = await collection(db, "invoices");
-        const invoiceQuery = await getDoc(invoicesSnap);
-        // Simple approach: look for invoice with same jobId
-        if (contract.jobId) {
-          const allInvoices = await collection(db, "invoices");
-          // In real implementation, use a where query
-          invoiceId = contract.jobId; // Simplified
-        }
+  useEffect(() => {
+    // Check if contract was passed via navigation state
+    if (location.state?.contract) {
+      setContract(location.state.contract);
+      setSelectedContractId(location.state.contract.id);
+    }
+  }, [location.state]);
 
-        setFormData({
-          ...formData,
-          customerName: contract.clientName || "",
-          customerPhone: contract.clientPhone || "",
-          customerAddress: contract.clientAddress || "",
-          description: contract.description || "",
-          materials: contract.materials || "",
-          amount: contract.amount || "",
-          contractId: id,
-          invoiceId: invoiceId || "",
-          jobId: contract.jobId || "",
-        });
+  const loadData = async () => {
+    try {
+      // Load ALL contracts for dropdown
+      const contractsSnap = await getDocs(collection(db, "contracts"));
+      const contractsData = contractsSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+      setAllContracts(contractsData.filter(c => c.status !== "Cancelled"));
+
+      // Load specific contract if contractId provided
+      if (contractId) {
+        const contractDoc = await getDoc(doc(db, "contracts", contractId));
+        if (contractDoc.exists()) {
+          const contractData = { id: contractDoc.id, ...contractDoc.data() };
+          setContract(contractData);
+          setSelectedContractId(contractId);
+        }
       }
+
+      // Load crews
+      const crewsSnap = await getDocs(collection(db, "crews"));
+      const crewsData = crewsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setCrews(crewsData.filter((c) => c.isAvailable !== false));
+
+      // Load equipment
+      const equipSnap = await getDocs(collection(db, "equipment"));
+      const equipData = equipSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setEquipment(equipData.filter((e) => e.status === "available"));
+
+      setLoading(false);
     } catch (error) {
-      console.error("Error loading contract:", error);
-    } finally {
+      console.error("Error loading data:", error);
+      Swal.fire("Error", "Failed to load scheduling data", "error");
       setLoading(false);
     }
   };
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+  const checkConflicts = async () => {
+    if (!formData.startDate) return;
+
+    try {
+      const schedulesSnap = await getDocs(collection(db, "schedules"));
+      const existingSchedules = schedulesSnap.docs.map((d) => d.data());
+
+      const newConflicts = [];
+
+      // Check crew conflicts
+      formData.selectedCrews.forEach((crewId) => {
+        const crew = crews.find((c) => c.id === crewId);
+        const hasConflict = existingSchedules.some((s) => 
+          s.selectedCrews?.includes(crewId) &&
+          s.startDate === formData.startDate
+        );
+        if (hasConflict) {
+          newConflicts.push(`${crew.name} is already scheduled on this date`);
+        }
+      });
+
+      // Check equipment conflicts
+      formData.selectedEquipment.forEach((equipId) => {
+        const equip = equipment.find((e) => e.id === equipId);
+        const hasConflict = existingSchedules.some((s) => 
+          s.selectedEquipment?.includes(equipId) &&
+          s.startDate === formData.startDate
+        );
+        if (hasConflict) {
+          newConflicts.push(`${equip.name} is already reserved on this date`);
+        }
+      });
+
+      setConflicts(newConflicts);
+    } catch (error) {
+      console.error("Error checking conflicts:", error);
+    }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (formData.startDate && (formData.selectedCrews.length > 0 || formData.selectedEquipment.length > 0)) {
+      checkConflicts();
+    } else {
+      setConflicts([]);
+    }
+  }, [formData.startDate, formData.selectedCrews, formData.selectedEquipment]);
 
-    if (!formData.customerName || !formData.scheduledDate || !formData.startTime) {
-      Swal.fire("Missing Info", "Please fill in customer name, date, and time.", "warning");
+  const handleCrewToggle = (crewId) => {
+    setFormData((prev) => ({
+      ...prev,
+      selectedCrews: prev.selectedCrews.includes(crewId)
+        ? prev.selectedCrews.filter((id) => id !== crewId)
+        : [...prev.selectedCrews, crewId],
+    }));
+  };
+
+  const handleEquipmentToggle = (equipId) => {
+    setFormData((prev) => ({
+      ...prev,
+      selectedEquipment: prev.selectedEquipment.includes(equipId)
+        ? prev.selectedEquipment.filter((id) => id !== equipId)
+        : [...prev.selectedEquipment, equipId],
+    }));
+  };
+
+  const handleSchedule = async () => {
+    if (!formData.startDate) {
+      Swal.fire("Missing Info", "Please select a start date", "warning");
       return;
     }
 
-    try {
-      await addDoc(collection(db, "appointments"), {
-        ...formData,
-        createdAt: new Date().toISOString(),
+    if (!contract) {
+      Swal.fire("Missing Info", "Please select a client/contract", "warning");
+      return;
+    }
+
+    if (conflicts.length > 0) {
+      const result = await Swal.fire({
+        title: "Scheduling Conflicts Detected",
+        html: `<ul style="text-align:left">${conflicts.map((c) => `<li>${c}</li>`).join("")}</ul><p>Do you want to proceed anyway?</p>`,
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonText: "Yes, Schedule Anyway",
+        cancelButtonText: "Go Back",
       });
+      if (!result.isConfirmed) return;
+    }
+
+    try {
+      const scheduleData = {
+        contractId: selectedContractId || null,
+        clientName: contract?.clientName || "Unknown",
+        jobDescription: contract?.description || "",
+        startDate: formData.startDate,
+        startTime: formData.startTime,
+        endDate: formData.endDate || formData.startDate,
+        endTime: formData.endTime,
+        selectedCrews: formData.selectedCrews,
+        selectedEquipment: formData.selectedEquipment,
+        notes: formData.notes,
+        priority: formData.priority,
+        status: "scheduled",
+        createdAt: new Date().toISOString(),
+      };
+
+      const scheduleRef = await addDoc(collection(db, "schedules"), scheduleData);
+
+      // Update contract with schedule reference
+      if (selectedContractId) {
+        await updateDoc(doc(db, "contracts", selectedContractId), {
+          scheduleId: scheduleRef.id,
+          scheduledDate: formData.startDate,
+        });
+      }
+
+      // Update equipment status
+      for (const equipId of formData.selectedEquipment) {
+        await updateDoc(doc(db, "equipment", equipId), { status: "in-use" });
+      }
 
       Swal.fire({
         icon: "success",
         title: "Job Scheduled!",
-        text: `${formData.customerName}'s job is scheduled for ${formData.scheduledDate} at ${formData.startTime}`,
-        confirmButtonText: "View Calendar",
+        text: `${contract?.clientName}'s job has been scheduled for ${formData.startDate}`,
+        confirmButtonText: "View Schedule",
       }).then(() => {
-        navigate("/calendar");
+        navigate("/schedule-dashboard");
       });
     } catch (error) {
       console.error("Error scheduling job:", error);
@@ -117,261 +238,281 @@ export default function ScheduleJob() {
     }
   };
 
-  // Get today's date in YYYY-MM-DD format for min date
-  const today = new Date().toISOString().split("T")[0];
-
   if (loading) {
     return (
       <Container sx={{ mt: 4, textAlign: "center" }}>
         <CircularProgress />
-        <Typography variant="h6" sx={{ mt: 2 }}>
-          Loading contract data...
-        </Typography>
+        <Typography sx={{ mt: 2 }}>Loading scheduling data...</Typography>
+      </Container>
+    );
+  }
+
+  if (!contract && contractId) {
+    return (
+      <Container sx={{ mt: 4 }}>
+        <Alert severity="error">Contract not found</Alert>
+        <Button onClick={() => navigate("/contracts")} sx={{ mt: 2 }}>
+          Back to Contracts
+        </Button>
       </Container>
     );
   }
 
   return (
-    <Container sx={{ mt: { xs: 2, sm: 4 }, pb: 4, px: { xs: 2, sm: 3 } }}>
-      <Paper elevation={2} sx={{ p: { xs: 2, sm: 3 }, borderRadius: 2 }}>
-        <Typography
-          variant="h5"
-          gutterBottom
-          sx={{ fontSize: { xs: "1.5rem", sm: "2rem" }, mb: 3 }}
-        >
-          📅 Schedule Job
-        </Typography>
+    <Container sx={{ mt: 3, mb: 6 }}>
+      <Button
+        startIcon={<ArrowBackIcon />}
+        onClick={() => navigate("/contracts")}
+        sx={{ mb: 2 }}
+      >
+        Back to Contracts
+      </Button>
 
-        {contractId && (
-          <Box
-            sx={{
-              mb: 3,
-              p: 2,
-              backgroundColor: "#e3f2fd",
-              borderRadius: 2,
-              border: "1px solid #1976d2",
-            }}
-          >
-            <Typography variant="body2" color="primary" sx={{ fontWeight: 700 }}>
-              ✅ Auto-filled from Contract #{contractId.slice(-8)}
-            </Typography>
-            <Typography variant="caption">
-              Customer info, description, and amount pre-loaded. Just pick date & time!
-            </Typography>
+      <Paper sx={{ p: 3 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
+          <CalendarTodayIcon sx={{ fontSize: 40, color: "primary.main" }} />
+          <Box>
+            <Typography variant="h5">Schedule Job</Typography>
+            {contract && (
+              <Typography variant="body2" color="text.secondary">
+                {contract.clientName} - {contract.description}
+              </Typography>
+            )}
           </Box>
-        )}
-
-        <Box component="form" onSubmit={handleSubmit}>
-          <Grid container spacing={2}>
-            {/* Customer Information */}
-            <Grid item xs={12}>
-              <Typography variant="h6" sx={{ mb: 1, fontSize: "1.1rem" }}>
-                Customer Information
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                label="Customer Name"
-                name="customerName"
-                fullWidth
-                required
-                value={formData.customerName}
-                onChange={handleChange}
-                disabled={!!contractId}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                label="Phone Number"
-                name="customerPhone"
-                fullWidth
-                value={formData.customerPhone}
-                onChange={handleChange}
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                label="Address"
-                name="customerAddress"
-                fullWidth
-                value={formData.customerAddress}
-                onChange={handleChange}
-                helperText="Full address for GPS navigation"
-              />
-            </Grid>
-
-            {/* Job Details */}
-            <Grid item xs={12} sx={{ mt: 2 }}>
-              <Typography variant="h6" sx={{ mb: 1, fontSize: "1.1rem" }}>
-                Job Details
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                label="Description"
-                name="description"
-                multiline
-                rows={3}
-                fullWidth
-                required
-                value={formData.description}
-                onChange={handleChange}
-                disabled={!!contractId}
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                label="Materials"
-                name="materials"
-                multiline
-                rows={2}
-                fullWidth
-                value={formData.materials}
-                onChange={handleChange}
-                disabled={!!contractId}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                label="Amount"
-                name="amount"
-                type="number"
-                fullWidth
-                required
-                value={formData.amount}
-                onChange={handleChange}
-                InputProps={{
-                  startAdornment: <Typography sx={{ mr: 1 }}>$</Typography>,
-                }}
-                disabled={!!contractId}
-              />
-            </Grid>
-
-            {/* Schedule Information */}
-            <Grid item xs={12} sx={{ mt: 2 }}>
-              <Typography variant="h6" sx={{ mb: 1, fontSize: "1.1rem" }}>
-                Schedule ⏰
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                label="Date"
-                name="scheduledDate"
-                type="date"
-                fullWidth
-                required
-                value={formData.scheduledDate}
-                onChange={handleChange}
-                InputLabelProps={{ shrink: true }}
-                inputProps={{ min: today }}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                label="Start Time"
-                name="startTime"
-                type="time"
-                fullWidth
-                required
-                value={formData.startTime}
-                onChange={handleChange}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                select
-                label="Duration"
-                name="duration"
-                fullWidth
-                value={formData.duration}
-                onChange={handleChange}
-              >
-                <MenuItem value={60}>1 hour</MenuItem>
-                <MenuItem value={90}>1.5 hours</MenuItem>
-                <MenuItem value={120}>2 hours</MenuItem>
-                <MenuItem value={180}>3 hours</MenuItem>
-                <MenuItem value={240}>4 hours</MenuItem>
-                <MenuItem value={300}>5 hours</MenuItem>
-                <MenuItem value={360}>6 hours</MenuItem>
-                <MenuItem value={480}>Full day (8 hours)</MenuItem>
-              </TextField>
-            </Grid>
-
-            <Grid item xs={12}>
-              <TextField
-                label="Notes (Optional)"
-                name="notes"
-                multiline
-                rows={2}
-                fullWidth
-                value={formData.notes}
-                onChange={handleChange}
-                placeholder="Special instructions, parking info, gate code, etc."
-              />
-            </Grid>
-
-            {/* Submit Buttons */}
-            <Grid item xs={12} sx={{ mt: 2 }}>
-              <Box sx={{ display: "flex", gap: 2 }}>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  type="submit"
-                  fullWidth
-                  size="large"
-                  sx={{ py: 1.5 }}
-                >
-                  📅 Schedule Job
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="inherit"
-                  onClick={() => navigate(-1)}
-                  sx={{ minWidth: 100 }}
-                >
-                  Cancel
-                </Button>
-              </Box>
-            </Grid>
-          </Grid>
         </Box>
 
-        {/* Preview Card */}
-        {formData.customerName && formData.scheduledDate && (
-          <Box
-            sx={{
-              mt: 3,
-              p: 2,
-              backgroundColor: "#f5f5f5",
-              borderRadius: 2,
-              border: "1px solid #ddd",
-            }}
-          >
-            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
-              Preview:
+        <Divider sx={{ mb: 3 }} />
+
+        {/* Show contract info if selected/passed */}
+        {contract && (
+          <Box sx={{ mb: 3, p: 2, bgcolor: "#e3f2fd", borderRadius: 2 }}>
+            <Typography variant="subtitle1" fontWeight="bold">
+              Client: {contract.clientName}
             </Typography>
-            <Typography variant="body2">
-              📅 {formData.scheduledDate} at {formData.startTime}
+            <Typography variant="body2" color="text.secondary">
+              {contract.description}
             </Typography>
-            <Typography variant="body2">
-              👤 {formData.customerName}
-            </Typography>
-            <Typography variant="body2">
-              ⏱️ {formData.duration} minutes ({(formData.duration / 60).toFixed(1)} hours)
-            </Typography>
-            <Typography variant="body2">💰 ${formData.amount}</Typography>
           </Box>
         )}
+
+        {/* Client Selection dropdown (only if no contract selected) */}
+        {!contract && (
+          <Box sx={{ mb: 3 }}>
+            <FormControl fullWidth>
+              <InputLabel>Select Client / Contract *</InputLabel>
+              <Select
+                value={selectedContractId}
+                label="Select Client / Contract *"
+                onChange={(e) => {
+                  const selected = allContracts.find(c => c.id === e.target.value);
+                  setSelectedContractId(e.target.value);
+                  setContract(selected);
+                }}
+                required
+              >
+                {allContracts.map((c) => (
+                  <MenuItem key={c.id} value={c.id}>
+                    {c.clientName} - {c.description || "No description"}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        )}
+
+        {/* Date & Time Selection */}
+        <Grid container spacing={3}>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Start Date *"
+              type="date"
+              value={formData.startDate}
+              onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+              required
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Start Time"
+              type="time"
+              value={formData.startTime}
+              onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="End Date (Optional)"
+              type="date"
+              value={formData.endDate}
+              onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+              InputLabelProps={{ shrink: true }}
+              helperText="Leave blank for single-day job"
+              fullWidth
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="End Time"
+              type="time"
+              value={formData.endTime}
+              onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+            />
+          </Grid>
+        </Grid>
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* Crew Selection */}
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          👷 Assign Crew Members
+        </Typography>
+        {crews.length > 0 ? (
+          <FormGroup>
+            <Grid container spacing={1}>
+              {crews.map((crew) => (
+                <Grid item xs={12} sm={6} md={4} key={crew.id}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={formData.selectedCrews.includes(crew.id)}
+                        onChange={() => handleCrewToggle(crew.id)}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body2">{crew.name}</Typography>
+                        {crew.role && (
+                          <Typography variant="caption" color="text.secondary">
+                            {crew.role}
+                          </Typography>
+                        )}
+                      </Box>
+                    }
+                  />
+                </Grid>
+              ))}
+            </Grid>
+          </FormGroup>
+        ) : (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            No crew members available.{" "}
+            <Button size="small" onClick={() => navigate("/crew-manager")}>
+              Add Crew Members
+            </Button>
+          </Alert>
+        )}
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* Equipment Selection */}
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          🚛 Reserve Equipment
+        </Typography>
+        {equipment.length > 0 ? (
+          <FormGroup>
+            <Grid container spacing={1}>
+              {equipment.map((equip) => (
+                <Grid item xs={12} sm={6} md={4} key={equip.id}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={formData.selectedEquipment.includes(equip.id)}
+                        onChange={() => handleEquipmentToggle(equip.id)}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body2">{equip.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {equip.type}
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Grid>
+              ))}
+            </Grid>
+          </FormGroup>
+        ) : (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            No equipment available.{" "}
+            <Button size="small" onClick={() => navigate("/equipment-manager")}>
+              Add Equipment
+            </Button>
+          </Alert>
+        )}
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* Priority & Notes */}
+        <Grid container spacing={3}>
+          <Grid item xs={12} sm={6}>
+            <FormControl fullWidth>
+              <InputLabel>Priority</InputLabel>
+              <Select
+                value={formData.priority}
+                label="Priority"
+                onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+              >
+                <MenuItem value="low">Low</MenuItem>
+                <MenuItem value="normal">Normal</MenuItem>
+                <MenuItem value="high">High</MenuItem>
+                <MenuItem value="urgent">Urgent</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12}>
+            <TextField
+              label="Schedule Notes"
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              multiline
+              rows={4}
+              placeholder="Special instructions, delivery times, access notes, etc."
+              fullWidth
+            />
+          </Grid>
+        </Grid>
+
+        {/* Conflicts Warning */}
+        {conflicts.length > 0 && (
+          <Alert severity="warning" sx={{ mt: 3 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              ⚠️ Scheduling Conflicts:
+            </Typography>
+            <ul style={{ margin: 0, paddingLeft: 20 }}>
+              {conflicts.map((conflict, idx) => (
+                <li key={idx}>{conflict}</li>
+              ))}
+            </ul>
+          </Alert>
+        )}
+
+        {/* Action Buttons */}
+        <Box sx={{ display: "flex", gap: 2, mt: 4 }}>
+          <Button
+            variant="contained"
+            size="large"
+            onClick={handleSchedule}
+            disabled={!formData.startDate}
+            fullWidth
+          >
+            Schedule Job
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => navigate("/contracts")}
+            sx={{ minWidth: 120 }}
+          >
+            Cancel
+          </Button>
+        </Box>
       </Paper>
     </Container>
   );

@@ -4,32 +4,72 @@ service cloud.firestore {
     
     // Bids collection
     match /bids/{bidId} {
-      allow read, write: if true; // TODO: Add authentication
+      allow read, write: if true;
     }
     
     // Contracts collection
     match /contracts/{contractId} {
-      allow read, write: if true; // TODO: Add authentication
+      allow read, write: if true;
     }
     
     // Invoices collection
     match /invoices/{invoiceId} {
-      allow read, write: if true; // TODO: Add authentication
+      allow read, write: if true;
     }
     
     // Jobs collection
     match /jobs/{jobId} {
-      allow read, write: if true; // TODO: Add authentication
+      allow read, write: if true;
     }
     
-    // Settings collection (NEW - for goal tracker)
+    // Settings collection
     match /settings/{settingId} {
-      allow read, write: if true; // TODO: Add authentication
+      allow read, write: if true;
     }
     
-    // Customers collection (NEW - for customer management)
+    // Customers collection
     match /customers/{customerId} {
-      allow read, write: if true; // TODO: Add authentication
+      allow read, write: if true;
+    }
+    
+    // Crews collection
+    match /crews/{crewId} {
+      allow read, write: if true;
+    }
+    
+    // Equipment collection
+    match /equipment/{equipmentId} {
+      allow read, write: if true;
+    }
+    
+    // Schedules collection
+    match /schedules/{scheduleId} {
+      allow read, write: if true;
+    }
+    
+    // Payments collection
+    match /payments/{paymentId} {
+      allow read, write: if true;
+    }
+    
+    // Expenses collection
+    match /expenses/{expenseId} {
+      allow read, write: if true;
+    }
+    
+    // Crew Payments collection
+    match /crew_payments/{paymentId} {
+      allow read, write: if true;
+    }
+    
+    // NDAs collection
+    match /ndas/{ndaId} {
+      allow read, write: if true;
+    }
+    
+    // Job Time Entries collection (NEW!)
+    match /job_time_entries/{entryId} {
+      allow read, write: if true;
     }
     
     // Default: deny all other access

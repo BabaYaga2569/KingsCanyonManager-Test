@@ -25,6 +25,15 @@ import {
   CardActions,
   useMediaQuery,
   useTheme,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
+  Alert,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import generateContractPDF from "./pdf/generateContractPDF";
@@ -32,18 +41,25 @@ import { useNavigate } from "react-router-dom";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import EditIcon from "@mui/icons-material/Edit";
-import EventIcon from "@mui/icons-material/Event";
+import SendIcon from "@mui/icons-material/Send";
+import TouchAppIcon from "@mui/icons-material/TouchApp";
+import EmailIcon from "@mui/icons-material/Email";
+import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 
 const logo = "/logo-kcl.png";
+const COMPANY_PHONE = "(928) 450-5733";
 
 export default function ContractsDashboard() {
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [selectedContract, setSelectedContract] = useState(null);
+  const [signingMode, setSigningMode] = useState("remote"); // "remote" or "in-person"
+  const [customerEmail, setCustomerEmail] = useState("");
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
-  // Fetch contracts from Firestore
   const fetchContracts = async () => {
     try {
       const snap = await getDocs(collection(db, "contracts"));
@@ -61,7 +77,6 @@ export default function ContractsDashboard() {
     fetchContracts();
   }, []);
 
-  // Delete a contract
   const handleDeleteContract = async (id, clientName) => {
     const confirm = await Swal.fire({
       title: "Delete Contract?",
@@ -83,7 +98,6 @@ export default function ContractsDashboard() {
     }
   };
 
-  // Update contract status
   const handleStatusChange = async (contract, newStatus) => {
     try {
       await updateDoc(doc(db, "contracts", contract.id), { status: newStatus });
@@ -98,66 +112,122 @@ export default function ContractsDashboard() {
     }
   };
 
-  // ✅ Open PDF in new tab for BOTH mobile and desktop
-const handleGeneratePDF = async (contract) => {
-  try {
-    const img = new Image();
-    img.src = logo;
-    img.onload = async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-      const logoDataUrl = canvas.toDataURL("image/png");
+  const handleGeneratePDF = async (contract) => {
+    try {
+      const img = new Image();
+      img.src = logo;
+      img.onload = async () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        const logoDataUrl = canvas.toDataURL("image/png");
 
-      const pdf = await generateContractPDF(contract, logoDataUrl);
-      
-      // Create blob and open in new tab (works on mobile AND desktop)
-      const pdfBlob = pdf.output("blob");
-      const blobUrl = URL.createObjectURL(pdfBlob);
-      
-      // Open in new tab/window
-      const newWindow = window.open(blobUrl, "_blank");
-      
-      if (newWindow) {
-        // Successfully opened
-        Swal.fire({
-          icon: "success",
-          title: "PDF Opened!",
-          text: `Viewing contract for ${contract.clientName}`,
-          timer: 2000,
-          showConfirmButton: false,
-        });
-      } else {
-        // Blocked by pop-up blocker - offer download instead
-        const filenameSafe = (contract.clientName || "Contract")
-          .replace(/[^\w\- ]+/g, "_")
-          .replace(/\s+/g, "_");
-        pdf.save(`${filenameSafe}_Contract.pdf`);
+        const pdf = await generateContractPDF(contract, logoDataUrl);
         
-        Swal.fire({
-          icon: "info",
-          title: "PDF Downloaded",
-          text: "Pop-up was blocked. PDF downloaded to your device instead.",
-          timer: 3000,
-        });
-      }
-    };
-  } catch (error) {
-    console.error("PDF Generation Error:", error);
-    Swal.fire("Error", "Failed to generate PDF.", "error");
-  }
-};
+        const pdfBlob = pdf.output("blob");
+        const blobUrl = URL.createObjectURL(pdfBlob);
+        window.open(blobUrl, "_blank");
+      };
+    } catch (error) {
+      console.error("PDF Generation Error:", error);
+      Swal.fire("Error", "Failed to generate PDF.", "error");
+    }
+  };
 
-  // Navigate to the editor
   const handleViewEdit = (id) => {
     navigate(`/contract/${id}`);
   };
 
-  // Navigate to schedule page with contract data
+  const handleOpenSendDialog = (contract) => {
+    setSelectedContract(contract);
+    setCustomerEmail(contract.clientEmail || "");
+    setSendDialogOpen(true);
+  };
+
+  // Schedule job handler
   const handleScheduleJob = (contract) => {
-    navigate(`/schedule-job?contractId=${contract.id}`);
+    navigate("/schedule-job", { state: { contract } });
+  };
+
+  const handleSendForSignature = async () => {
+    if (signingMode === "remote" && !customerEmail) {
+      Swal.fire("Email Required", "Please enter customer's email address.", "warning");
+      return;
+    }
+
+    try {
+      // IMPORTANT: Use /public/ prefix so customers can't access your private app!
+      const signatureLink = `${window.location.origin}/public/sign/${selectedContract.id}`;
+      
+      if (signingMode === "remote") {
+        // Update contract with signature link
+        await updateDoc(doc(db, "contracts", selectedContract.id), {
+          signatureLink: signatureLink,
+          status: "Sent - Awaiting Client Signature",
+          sentAt: new Date().toISOString(),
+          clientEmail: customerEmail,
+        });
+
+        // Email will be sent via Cloud Function in Phase 2
+        // For now, show the link so you can copy/text it
+        console.log("Email would be sent to:", customerEmail);
+        console.log("Signature link:", signatureLink);
+
+        Swal.fire({
+          icon: "success",
+          title: "Contract Link Generated!",
+          html: `
+            <p><strong>Copy this link and text/email it to your customer:</strong></p>
+            <textarea readonly onclick="this.select()" 
+              style="width:100%; padding:10px; font-size:12px; margin:10px 0; border: 2px solid #1565c0; border-radius:4px;"
+              rows="3">${signatureLink}</textarea>
+            <p style="font-size:0.9em; color:#666; margin-top:10px;">
+              📱 <strong>Text message example:</strong><br>
+              "Hi ${selectedContract.clientName}, here's your contract to review and sign: ${signatureLink}"
+            </p>
+            <p style="font-size:0.85em; color:#999; margin-top:15px;">
+              ✅ This link is SAFE - customer can ONLY see their contract, nothing else in your system
+            </p>
+          `,
+          confirmButtonText: "OK",
+          width: '600px',
+        });
+
+        fetchContracts(); // Refresh list
+      } else {
+        // In-person signing - open contract editor
+        navigate(`/contract/${selectedContract.id}`);
+      }
+
+      setSendDialogOpen(false);
+    } catch (error) {
+      console.error("Error sending contract:", error);
+      Swal.fire("Error", "Failed to send contract.", "error");
+    }
+  };
+
+  const getStatusColor = (contract) => {
+    if (contract.clientSignature && contract.contractorSignature) {
+      return "success"; // Fully signed
+    } else if (contract.clientSignature) {
+      return "warning"; // Client signed, awaiting owner
+    } else if (contract.status === "Sent - Awaiting Client Signature") {
+      return "info"; // Sent but not signed
+    }
+    return "default"; // Pending
+  };
+
+  const getStatusLabel = (contract) => {
+    if (contract.clientSignature && contract.contractorSignature) {
+      return "✅ Fully Signed";
+    } else if (contract.clientSignature) {
+      return "🟡 Awaiting Owner Signature";
+    } else if (contract.status === "Sent - Awaiting Client Signature") {
+      return "📧 Sent - Not Signed Yet";
+    }
+    return contract.status || "Pending";
   };
 
   if (loading) {
@@ -182,7 +252,7 @@ const handleGeneratePDF = async (contract) => {
     );
   }
 
-  // MOBILE VIEW - Cards
+  // Mobile view
   if (isMobile) {
     return (
       <Box sx={{ p: 2 }}>
@@ -200,34 +270,30 @@ const handleGeneratePDF = async (contract) => {
                   Amount: ${Number(contract.amount || 0).toFixed(2)}
                 </Typography>
                 <Chip
-                  label={contract.status || "Pending"}
-                  color={
-                    contract.status === "Completed"
-                      ? "success"
-                      : contract.status === "Active"
-                      ? "info"
-                      : contract.status === "Cancelled"
-                      ? "error"
-                      : "warning"
-                  }
-                  onClick={() =>
-                    handleStatusChange(
-                      contract,
-                      contract.status === "Completed" ? "Pending" : "Completed"
-                    )
-                  }
-                  sx={{ cursor: "pointer", mt: 1 }}
+                  label={getStatusLabel(contract)}
+                  color={getStatusColor(contract)}
+                  sx={{ mt: 1 }}
                 />
               </CardContent>
               <CardActions sx={{ display: "flex", flexDirection: "column", gap: 1, p: 2 }}>
+                {contract.clientSignature && !contract.contractorSignature && (
+                  <Button
+                    variant="contained"
+                    color="warning"
+                    fullWidth
+                    startIcon={<TouchAppIcon />}
+                    onClick={() => handleViewEdit(contract.id)}
+                  >
+                    Sign Now (Darren)
+                  </Button>
+                )}
                 <Button
-                  variant="contained"
-                  color="success"
+                  variant="outlined"
                   fullWidth
-                  startIcon={<EventIcon />}
-                  onClick={() => handleScheduleJob(contract)}
+                  startIcon={<SendIcon />}
+                  onClick={() => handleOpenSendDialog(contract)}
                 >
-                  📅 Schedule This Job
+                  Send for Signature
                 </Button>
                 <Button
                   variant="outlined"
@@ -246,6 +312,15 @@ const handleGeneratePDF = async (contract) => {
                   View / Edit
                 </Button>
                 <Button
+                  variant="contained"
+                  color="success"
+                  fullWidth
+                  startIcon={<CalendarTodayIcon />}
+                  onClick={() => handleScheduleJob(contract)}
+                >
+                  Schedule Job
+                </Button>
+                <Button
                   variant="outlined"
                   color="error"
                   fullWidth
@@ -260,11 +335,69 @@ const handleGeneratePDF = async (contract) => {
             </Card>
           ))}
         </Box>
+
+        {/* Send Dialog */}
+        <Dialog open={sendDialogOpen} onClose={() => setSendDialogOpen(false)} fullWidth maxWidth="sm">
+          <DialogTitle>Send Contract for Signature</DialogTitle>
+          <DialogContent>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Choose how the contract will be signed
+            </Alert>
+            
+            <RadioGroup value={signingMode} onChange={(e) => setSigningMode(e.target.value)}>
+              <FormControlLabel 
+                value="in-person" 
+                control={<Radio />} 
+                label={
+                  <Box>
+                    <Typography variant="subtitle2">👋 Sign Now (In-Person)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Customer is here - hand them the tablet to sign now
+                    </Typography>
+                  </Box>
+                }
+              />
+              <FormControlLabel 
+                value="remote" 
+                control={<Radio />} 
+                label={
+                  <Box>
+                    <Typography variant="subtitle2">📧 Send Signature Link (Remote)</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Email a link - customer signs from their phone later
+                    </Typography>
+                  </Box>
+                }
+              />
+            </RadioGroup>
+
+            {signingMode === "remote" && (
+              <TextField
+                label="Customer Email"
+                type="email"
+                fullWidth
+                value={customerEmail}
+                onChange={(e) => setCustomerEmail(e.target.value)}
+                sx={{ mt: 2 }}
+                placeholder="customer@example.com"
+                helperText="We'll email a signature link to this address"
+              />
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setSendDialogOpen(false)}>Cancel</Button>
+            <Button variant="contained" onClick={handleSendForSignature} startIcon={
+              signingMode === "in-person" ? <TouchAppIcon /> : <EmailIcon />
+            }>
+              {signingMode === "in-person" ? "Open Contract" : "Send Email"}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     );
   }
 
-  // DESKTOP VIEW - Table
+  // Desktop view
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h5" gutterBottom>
@@ -298,40 +431,36 @@ const handleGeneratePDF = async (contract) => {
                 </TableCell>
                 <TableCell>
                   <Chip
-                    label={contract.status || "Pending"}
-                    color={
-                      contract.status === "Completed"
-                        ? "success"
-                        : contract.status === "Active"
-                        ? "info"
-                        : contract.status === "Cancelled"
-                        ? "error"
-                        : "warning"
-                    }
-                    onClick={() =>
-                      handleStatusChange(
-                        contract,
-                        contract.status === "Completed"
-                          ? "Pending"
-                          : "Completed"
-                      )
-                    }
-                    sx={{ cursor: "pointer" }}
+                    label={getStatusLabel(contract)}
+                    color={getStatusColor(contract)}
+                    size="small"
                   />
                 </TableCell>
 
                 <TableCell>
+                  {contract.clientSignature && !contract.contractorSignature && (
+                    <Button
+                      variant="contained"
+                      color="warning"
+                      size="small"
+                      startIcon={<TouchAppIcon />}
+                      onClick={() => handleViewEdit(contract.id)}
+                      sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                    >
+                      Sign Now
+                    </Button>
+                  )}
+                  
                   <Button
-                    variant="contained"
-                    color="success"
+                    variant="outlined"
                     size="small"
-                    startIcon={<EventIcon />}
-                    onClick={() => handleScheduleJob(contract)}
+                    startIcon={<SendIcon />}
+                    onClick={() => handleOpenSendDialog(contract)}
                     sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
                   >
-                    Schedule
+                    Send
                   </Button>
-                  
+
                   <Button
                     variant="outlined"
                     size="small"
@@ -351,6 +480,17 @@ const handleGeneratePDF = async (contract) => {
                   >
                     View / Edit
                   </Button>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    size="small"
+                    startIcon={<CalendarTodayIcon />}
+                    onClick={() => handleScheduleJob(contract)}
+                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                  >
+                    Schedule
+                  </Button>
+
 
                   <Button
                     variant="outlined"
@@ -372,6 +512,74 @@ const handleGeneratePDF = async (contract) => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Send Dialog */}
+      <Dialog open={sendDialogOpen} onClose={() => setSendDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Send Contract for Signature</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <strong>Customer:</strong> {selectedContract?.clientName}<br />
+            <strong>Amount:</strong> ${selectedContract?.amount?.toFixed(2)}<br />
+            <strong>Deposit (50%):</strong> ${(selectedContract?.amount * 0.5)?.toFixed(2)}
+          </Alert>
+          
+          <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
+            How will this contract be signed?
+          </Typography>
+          
+          <RadioGroup value={signingMode} onChange={(e) => setSigningMode(e.target.value)}>
+            <FormControlLabel 
+              value="in-person" 
+              control={<Radio />} 
+              label={
+                <Box>
+                  <Typography variant="subtitle2">👋 Sign Now (In-Person)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Customer is here with you - hand them the tablet/phone to sign immediately
+                  </Typography>
+                </Box>
+              }
+            />
+            <FormControlLabel 
+              value="remote" 
+              control={<Radio />} 
+              label={
+                <Box>
+                  <Typography variant="subtitle2">📧 Send Signature Link (Remote)</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Email a link - customer opens on their phone and signs remotely
+                  </Typography>
+                </Box>
+              }
+            />
+          </RadioGroup>
+
+          {signingMode === "remote" && (
+            <TextField
+              label="Customer Email Address"
+              type="email"
+              fullWidth
+              value={customerEmail}
+              onChange={(e) => setCustomerEmail(e.target.value)}
+              sx={{ mt: 3 }}
+              placeholder="customer@example.com"
+              helperText="We'll email the signature link to this address"
+              required
+            />
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button onClick={() => setSendDialogOpen(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleSendForSignature} 
+            startIcon={signingMode === "in-person" ? <TouchAppIcon /> : <EmailIcon />}
+            size="large"
+          >
+            {signingMode === "in-person" ? "Open Contract to Sign" : "Send Signature Email"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

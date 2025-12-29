@@ -36,19 +36,43 @@ import {
 
 import ContractsDashboard from "./ContractsDashboard";
 import CreateBid from "./CreateBid";
+import BidEditor from "./BidEditor";
 import ContractEditor from "./ContractEditor";
 import Dashboard from "./Dashboard";
 import InvoicesDashboard from "./InvoicesDashboard";
 import InvoiceEditor from "./InvoiceEditor";
 import JobsManager from "./JobsManager";
+import CustomersDashboard from "./CustomersDashboard";
+import CustomerProfile from "./CustomerProfile";
+import CustomerEditor from "./CustomerEditor";
+import ScheduleJob from "./ScheduleJob";
+import ScheduleDashboard from "./ScheduleDashboard";
+import CalendarView from "./CalendarView";
+import PaymentTracker from "./PaymentTracker";
+import PaymentsDashboard from "./PaymentsDashboard";
+import CrewManager from "./CrewManager";
+import EquipmentManager from "./EquipmentManager";
+import NDAEditor from "./NDAEditor";
+import NDASigningPage from "./NDASigningPage";
+import ExpensesManager from "./ExpensesManager";
+import CrewPayroll from "./CrewPayroll";
+import CrewPaymentHistory from "./CrewPaymentHistory";
+import TaxReport from "./TaxReport";
+import JobExpenses from "./JobExpenses";
+import JobTimeTracking from "./JobTimeTracking";
 import { createFullJobPackage } from "./utils/createFullJobPackage";
 import { useNavigate } from "react-router-dom";
 import generateBidPDF from "./pdf/generateBidPDF";
+import ContractSigningPage from "./ContractSigningPage";
+import PaymentPortal from "./PaymentPortal";
 
+// --------------------- BIDS LIST (was Home) ---------------------
 function BidsList() {
   const [bids, setBids] = useState([]);
   const [logoDataUrl, setLogoDataUrl] = useState(null);
+  const navigate = useNavigate();
 
+  // Load logo for PDF generation
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -88,63 +112,27 @@ function BidsList() {
   const handleCreateContract = async (bid) => {
     try {
       const result = await createFullJobPackage(bid);
+      
+      // createFullJobPackage returns null if user cancelled or opened existing
+      if (!result) return;
+      
+      const { contractId, invoiceId, jobId } = result;
 
-      if (result.wasExisting) {
-        const swalResult = await Swal.fire({
-          icon: "info",
-          title: "Job Package Already Exists",
-          html: `
-            <b>${bid.customerName}</b> already has a job package.<br><br>
-            <ul style="text-align:left">
-              <li>Contract: ${result.contractId}</li>
-              <li>Invoice: ${result.invoiceId || "Not found"}</li>
-              <li>Job: ${result.jobId || "Not found"}</li>
-            </ul>
-          `,
-          showCancelButton: true,
-          confirmButtonText: "Open Existing Contract",
-          cancelButtonText: "Create New Anyway",
-          confirmButtonColor: "#3085d6",
-          cancelButtonColor: "#d33",
-        });
-
-        if (swalResult.isConfirmed) {
-          window.location.assign(`/contract/${result.contractId}`);
-        } else if (swalResult.dismiss === Swal.DismissReason.cancel) {
-          const forceResult = await createFullJobPackage(bid, true);
-          Swal.fire({
-            icon: "success",
-            title: "New Job Package Created!",
-            html: `
-              <b>${bid.customerName}</b>'s new bid has been promoted.<br>
-              <ul style="text-align:left">
-                <li>Contract: ${forceResult.contractId}</li>
-                <li>Invoice: ${forceResult.invoiceId}</li>
-                <li>Job Folder: ${forceResult.jobId}</li>
-              </ul>
-            `,
-            confirmButtonText: "Open Contract",
-          }).then(() => {
-            window.location.assign(`/contract/${forceResult.contractId}`);
-          });
-        }
-      } else {
-        Swal.fire({
-          icon: "success",
-          title: "Job Package Created!",
-          html: `
-            <b>${bid.customerName}</b>'s bid has been promoted.<br>
-            <ul style="text-align:left">
-              <li>Contract: ${result.contractId}</li>
-              <li>Invoice: ${result.invoiceId}</li>
-              <li>Job Folder: ${result.jobId}</li>
-            </ul>
-          `,
-          confirmButtonText: "Open Contract",
-        }).then(() => {
-          window.location.assign(`/contract/${result.contractId}`);
-        });
-      }
+      Swal.fire({
+        icon: "success",
+        title: "Job Package Created!",
+        html: `
+          <b>${bid.customerName}</b>'s bid has been promoted.<br>
+          <ul style="text-align:left">
+            <li>Contract: ${contractId}</li>
+            <li>Invoice: ${invoiceId}</li>
+            <li>Job Folder: ${jobId}</li>
+          </ul>
+        `,
+        confirmButtonText: "Open Contract",
+      }).then(() => {
+        window.location.assign(`/contract/${contractId}`);
+      });
     } catch (error) {
       console.error("Error creating full job package:", error);
       Swal.fire({
@@ -159,9 +147,11 @@ function BidsList() {
     try {
       const pdf = await generateBidPDF(bid, logoDataUrl);
       
+      // Create blob URL for viewing in browser
       const pdfBlob = pdf.output('blob');
       const pdfUrl = URL.createObjectURL(pdfBlob);
       
+      // Open in new tab for preview
       window.open(pdfUrl, '_blank');
       
       Swal.fire({
@@ -187,6 +177,7 @@ function BidsList() {
         Bids List
       </Typography>
       
+      {/* Mobile: Card layout */}
       <Box sx={{ display: { xs: 'block', md: 'none' } }}>
         {bids.map((bid) => (
           <Box
@@ -209,6 +200,15 @@ function BidsList() {
                 Materials: {bid.materials}
               </Typography>
             )}
+              <Button
+                variant="outlined"
+                color="primary"
+                size="small"
+                onClick={() => navigate(`/bid/${bid.id}`)}
+                fullWidth
+              >
+                Edit
+              </Button>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Button
                 variant="outlined"
@@ -242,6 +242,7 @@ function BidsList() {
         ))}
       </Box>
 
+      {/* Desktop: Table layout */}
       <Box sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
         <table
           style={{
@@ -273,6 +274,15 @@ function BidsList() {
                 <td style={{ padding: 10 }}>{bid.description}</td>
                 <td style={{ padding: 10 }}>{bid.materials}</td>
                 <td style={{ padding: 10 }}>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    size="small"
+                    onClick={() => navigate(`/bid/${bid.id}`)}
+                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                  >
+                    Edit
+                  </Button>
                   <Button
                     variant="outlined"
                     color="primary"
@@ -309,6 +319,7 @@ function BidsList() {
   );
 }
 
+// ------------------------- APP CHROME -------------------------
 function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -317,6 +328,9 @@ function AppContent() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const isActive = (p) => location.pathname === p;
+  
+  // Check if we're on a public page (no navigation should show)
+  const isPublicPage = location.pathname.startsWith('/public/');
 
   const menuItems = [
     { label: "Dashboard", path: "/" },
@@ -325,6 +339,16 @@ function AppContent() {
     { label: "Contracts", path: "/contracts" },
     { label: "Invoices", path: "/invoices" },
     { label: "Jobs", path: "/jobs" },
+    { label: "Customers", path: "/customers" },
+    { label: "Schedule", path: "/schedule-dashboard" },
+    { label: "Calendar", path: "/calendar-view" },
+    { label: "Payments", path: "/payments-dashboard" },
+    { label: "Expenses", path: "/expenses-manager" },
+    { label: "Payroll", path: "/crew-payroll" },
+    { label: "Tax Report", path: "/tax-report" },
+    { label: "Crew", path: "/crew-manager" },
+    { label: "Equipment", path: "/equipment-manager" },
+    { label: "Job Tracking", path: "/job-tracking" },
   ];
 
   const handleDrawerToggle = () => {
@@ -338,98 +362,132 @@ function AppContent() {
 
   return (
     <>
-      <AppBar position="static" sx={{ backgroundColor: "#1565c0" }}>
-        <Toolbar sx={{ minHeight: { xs: 56, sm: 64 } }}>
-          <Typography variant="h6" sx={{ flexGrow: 1, fontSize: { xs: '1.1rem', sm: '1.25rem' } }}>
-            KCL Manager
-          </Typography>
+      {/* Only show navigation for private pages, hide for public pages */}
+      {!isPublicPage && (
+        <>
+          <AppBar position="static" sx={{ backgroundColor: "#1565c0" }}>
+            <Toolbar sx={{ minHeight: { xs: 56, sm: 64 } }}>
+              <Typography variant="h6" sx={{ flexGrow: 1, fontSize: { xs: '1.1rem', sm: '1.25rem' } }}>
+                KCL Manager
+              </Typography>
 
-          {isMobile ? (
-            <IconButton
-              color="inherit"
-              edge="end"
-              onClick={handleDrawerToggle}
-              sx={{ ml: 2 }}
-            >
-              <MenuIcon />
-            </IconButton>
-          ) : (
-            <ButtonGroup variant="text" sx={{ "& .MuiButton-root": { textTransform: "none" } }}>
+              {/* Mobile: Hamburger Menu */}
+              {isMobile ? (
+                <IconButton
+                  color="inherit"
+                  edge="end"
+                  onClick={handleDrawerToggle}
+                  sx={{ ml: 2 }}
+                >
+                  <MenuIcon />
+                </IconButton>
+              ) : (
+                // Desktop: Button Group
+                <ButtonGroup variant="text" sx={{ "& .MuiButton-root": { textTransform: "none" } }}>
+                  {menuItems.map((item) => (
+                    <Button
+                      key={item.path}
+                      component={Link}
+                      to={item.path}
+                      sx={{
+                        color: isActive(item.path) ? "#FFD700" : "#fff",
+                        fontWeight: isActive(item.path) ? 700 : 500,
+                      }}
+                    >
+                      {item.label}
+                    </Button>
+                  ))}
+                </ButtonGroup>
+              )}
+            </Toolbar>
+          </AppBar>
+
+          {/* Mobile Drawer */}
+          <Drawer
+            anchor="right"
+            open={drawerOpen}
+            onClose={handleDrawerToggle}
+            sx={{
+              '& .MuiDrawer-paper': {
+                width: 250,
+              },
+            }}
+          >
+            <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6">Menu</Typography>
+              <IconButton onClick={handleDrawerToggle}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            <List>
               {menuItems.map((item) => (
-                <Button
+                <ListItem
+                  button
                   key={item.path}
-                  component={Link}
-                  to={item.path}
+                  onClick={() => handleMenuClick(item.path)}
                   sx={{
-                    color: isActive(item.path) ? "#FFD700" : "#fff",
-                    fontWeight: isActive(item.path) ? 700 : 500,
+                    backgroundColor: isActive(item.path) ? '#e3f2fd' : 'transparent',
+                    '&:hover': {
+                      backgroundColor: '#f5f5f5',
+                    },
                   }}
                 >
-                  {item.label}
-                </Button>
+                  <ListItemText
+                    primary={item.label}
+                    sx={{
+                      '& .MuiTypography-root': {
+                        fontWeight: isActive(item.path) ? 700 : 400,
+                        color: isActive(item.path) ? '#1565c0' : 'inherit',
+                      },
+                    }}
+                  />
+                </ListItem>
               ))}
-            </ButtonGroup>
-          )}
-        </Toolbar>
-      </AppBar>
-
-      <Drawer
-        anchor="right"
-        open={drawerOpen}
-        onClose={handleDrawerToggle}
-        sx={{
-          '& .MuiDrawer-paper': {
-            width: 250,
-          },
-        }}
-      >
-        <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6">Menu</Typography>
-          <IconButton onClick={handleDrawerToggle}>
-            <CloseIcon />
-          </IconButton>
-        </Box>
-        <List>
-          {menuItems.map((item) => (
-            <ListItem
-              button
-              key={item.path}
-              onClick={() => handleMenuClick(item.path)}
-              sx={{
-                backgroundColor: isActive(item.path) ? '#e3f2fd' : 'transparent',
-                '&:hover': {
-                  backgroundColor: '#f5f5f5',
-                },
-              }}
-            >
-              <ListItemText
-                primary={item.label}
-                sx={{
-                  '& .MuiTypography-root': {
-                    fontWeight: isActive(item.path) ? 700 : 400,
-                    color: isActive(item.path) ? '#1565c0' : 'inherit',
-                  },
-                }}
-              />
-            </ListItem>
-          ))}
-        </List>
-      </Drawer>
+            </List>
+          </Drawer>
+        </>
+      )}
 
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/bids" element={<BidsList />} />
         <Route path="/create-bid" element={<CreateBid />} />
+        <Route path="/bid/:id" element={<BidEditor />} />
         <Route path="/contracts" element={<ContractsDashboard />} />
         <Route path="/contract/:id" element={<ContractEditor />} />
         <Route path="/invoices" element={<InvoicesDashboard />} />
         <Route path="/invoice/:id" element={<InvoiceEditor />} />
         <Route path="/jobs" element={<JobsManager />} />
+        <Route path="/customers" element={<CustomersDashboard />} />
+        <Route path="/customer/:id" element={<CustomerEditor />} />
+        <Route path="/customer-profile/:id" element={<CustomerProfile />} />
+        <Route path="/schedule-job" element={<ScheduleJob />} />
+        <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
+        <Route path="/calendar-view" element={<CalendarView />} />
+        <Route path="/payment-tracker/:id" element={<PaymentTracker />} />
+        <Route path="/payments-dashboard" element={<PaymentsDashboard />} />
+        <Route path="/crew-manager" element={<CrewManager />} />
+        <Route path="/equipment-manager" element={<EquipmentManager />} />
+        <Route path="/nda/:crewId" element={<NDAEditor />} />
+		<Route path="/public/nda/:crewId" element={<NDASigningPage />} />
+        
+        {/* Expenses & Payroll Routes */}
+        <Route path="/expenses-manager" element={<ExpensesManager />} />
+        <Route path="/crew-payroll" element={<CrewPayroll />} />
+        <Route path="/crew-payment-history" element={<CrewPaymentHistory />} />
+        <Route path="/tax-report" element={<TaxReport />} />
+        <Route path="/job-expenses/:id" element={<JobExpenses />} />
+        <Route path="/job-tracking" element={<JobTimeTracking />} />
+        
+        {/* PUBLIC ROUTES - Customer signature & payment pages (NO NAVIGATION SHOWN) */}
+        <Route path="/public/sign/:contractId" element={<ContractSigningPage />} />
+        <Route path="/public/pay/:invoiceId" element={<PaymentPortal />} />
       </Routes>
     </>
   );
 }
 
+// ------------------------- ROUTER WRAPPER -------------------------
 export default function App() {
   return (
     <Router>

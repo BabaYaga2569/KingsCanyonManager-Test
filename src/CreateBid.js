@@ -1,24 +1,39 @@
 import React, { useState, useEffect } from "react";
 import { addDoc, collection, getDocs } from "firebase/firestore";
-import { db, bidsCollection } from "./firebase";
-import { 
-  TextField, 
-  Button, 
-  Container, 
+import { db } from "./firebase";
+import {
+  TextField,
+  Button,
+  Container,
   Typography,
   Box,
   Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Card,
+  CardContent,
+  useMediaQuery,
+  useTheme,
   Autocomplete,
-  Link as MuiLink,
-  Alert,
+  Divider,
 } from "@mui/material";
-import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import Swal from "sweetalert2";
 import { useNavigate } from "react-router-dom";
+import DesignVisualizer from "./components/DesignVisualizer";
+import BrushIcon from "@mui/icons-material/Brush";
 
 export default function CreateBid() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const navigate = useNavigate();
+
+  // Customer selection state
   const [customers, setCustomers] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+
+  // Form state
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -27,26 +42,30 @@ export default function CreateBid() {
   const [description, setDescription] = useState("");
   const [materials, setMaterials] = useState("");
   const [notes, setNotes] = useState("");
-  const navigate = useNavigate();
+
+  // Design visualization state
+  const [designData, setDesignData] = useState(null);
+  const [showDesignDialog, setShowDesignDialog] = useState(false);
+  const [showDesignVisualizer, setShowDesignVisualizer] = useState(false);
 
   // Fetch customers for dropdown
   useEffect(() => {
     const fetchCustomers = async () => {
       try {
         const snap = await getDocs(collection(db, "customers"));
-        const customerList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setCustomers(customerList);
+        const data = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }));
+        setCustomers(data);
       } catch (error) {
         console.error("Error fetching customers:", error);
-        // If customers collection doesn't exist yet, that's okay
-        // User can still create bids manually
-        setCustomers([]);
       }
     };
     fetchCustomers();
   }, []);
 
-  // Auto-fill customer info when selected
+  // Auto-fill when customer selected
   const handleCustomerSelect = (event, value) => {
     setSelectedCustomer(value);
     if (value) {
@@ -62,43 +81,71 @@ export default function CreateBid() {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleContinueToSave = () => {
     if (!customerName || !amount) {
-      Swal.fire("Missing info", "Customer and Amount are required.", "warning");
+      Swal.fire("Missing info", "Customer Name and Amount are required.", "warning");
       return;
     }
+    setShowDesignDialog(true);
+  };
 
+  const handleSkipDesign = () => {
+    setShowDesignDialog(false);
+    saveBidWithoutDesign();
+  };
+
+  const handleAddDesign = () => {
+    setShowDesignDialog(false);
+    setShowDesignVisualizer(true);
+  };
+
+  const handleDesignSaved = (design) => {
+    setDesignData(design);
+    setShowDesignVisualizer(false);
+    saveBidWithDesign(design);
+  };
+
+  const handleCancelDesign = () => {
+    setShowDesignVisualizer(false);
+    setShowDesignDialog(true);
+  };
+
+  const saveBidWithoutDesign = async () => {
     try {
-      const bidData = {
+      let customerId = selectedCustomer?.id;
+
+      if (!customerId) {
+        const customerData = {
+          name: customerName,
+          email: customerEmail || "",
+          phone: customerPhone || "",
+          address: customerAddress || "",
+          createdAt: new Date().toISOString(),
+          lifetimeValue: 0,
+          bidCount: 1,
+          contractCount: 0,
+          invoiceCount: 0,
+        };
+        const customerRef = await addDoc(collection(db, "customers"), customerData);
+        customerId = customerRef.id;
+      }
+
+      await addDoc(collection(db, "bids"), {
+        customerId,
         customerName,
+        customerEmail: customerEmail || "",
+        customerPhone: customerPhone || "",
+        customerAddress: customerAddress || "",
         amount: parseFloat(amount),
         description: description || "",
         materials: materials || "",
         notes: notes || "",
         createdAt: new Date().toISOString(),
-      };
-
-      // Link to customer if one is selected
-      if (selectedCustomer) {
-        bidData.customerId = selectedCustomer.id;
-        bidData.customerEmail = customerEmail;
-        bidData.customerPhone = customerPhone;
-        bidData.customerAddress = customerAddress;
-      }
-
-      await addDoc(bidsCollection, bidData);
+        hasDesignVisualization: false,
+      });
 
       await Swal.fire("✅ Bid saved", "Your bid was created.", "success");
-      setCustomerName("");
-      setCustomerEmail("");
-      setCustomerPhone("");
-      setCustomerAddress("");
-      setAmount("");
-      setDescription("");
-      setMaterials("");
-      setNotes("");
-      setSelectedCustomer(null);
+      resetForm();
       navigate("/bids");
     } catch (err) {
       console.error("Error adding bid:", err);
@@ -106,80 +153,128 @@ export default function CreateBid() {
     }
   };
 
+  const saveBidWithDesign = async (design) => {
+    try {
+      let customerId = selectedCustomer?.id;
+
+      if (!customerId) {
+        const customerData = {
+          name: customerName,
+          email: customerEmail || "",
+          phone: customerPhone || "",
+          address: customerAddress || "",
+          createdAt: new Date().toISOString(),
+          lifetimeValue: 0,
+          bidCount: 1,
+          contractCount: 0,
+          invoiceCount: 0,
+        };
+        const customerRef = await addDoc(collection(db, "customers"), customerData);
+        customerId = customerRef.id;
+      }
+
+      await addDoc(collection(db, "bids"), {
+        customerId,
+        customerName,
+        customerEmail: customerEmail || "",
+        customerPhone: customerPhone || "",
+        customerAddress: customerAddress || "",
+        amount: parseFloat(amount),
+        description: description || "",
+        materials: materials || "",
+        notes: notes || "",
+        createdAt: new Date().toISOString(),
+        hasDesignVisualization: true,
+        designVisualization: design,
+      });
+
+      await Swal.fire("✅ Bid saved with design!", "Your bid with visualization was created.", "success");
+      resetForm();
+      navigate("/bids");
+    } catch (err) {
+      console.error("Error adding bid:", err);
+      Swal.fire("Error", "Could not save the bid.", "error");
+    }
+  };
+
+  const resetForm = () => {
+    setSelectedCustomer(null);
+    setCustomerName("");
+    setCustomerEmail("");
+    setCustomerPhone("");
+    setCustomerAddress("");
+    setAmount("");
+    setDescription("");
+    setMaterials("");
+    setNotes("");
+    setDesignData(null);
+  };
+
+  if (showDesignVisualizer) {
+    return (
+      <DesignVisualizer
+        customerName={customerName}
+        onSave={handleDesignSaved}
+        onCancel={handleCancelDesign}
+      />
+    );
+  }
+
   return (
     <Container sx={{ mt: { xs: 2, sm: 4 }, pb: { xs: 4, sm: 8 }, px: { xs: 2, sm: 3 } }}>
-      <Paper 
+      <Paper
         elevation={2}
-        sx={{ 
+        sx={{
           p: { xs: 2, sm: 3 },
-          borderRadius: 2
+          borderRadius: 2,
         }}
       >
-        <Typography 
-          variant="h5" 
+        <Typography
+          variant="h5"
           gutterBottom
-          sx={{ 
-            fontSize: { xs: '1.5rem', sm: '2rem' },
-            mb: 3
+          sx={{
+            fontSize: { xs: "1.5rem", sm: "2rem" },
+            mb: 3,
           }}
         >
           Create New Bid
         </Typography>
 
-        {customers.length === 0 && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            No customers found yet. You can create bids manually by entering customer information below, or visit the{" "}
-            <MuiLink
-              component="button"
-              onClick={() => navigate("/customers")}
-              sx={{ fontWeight: "bold" }}
-            >
-              Customers page
-            </MuiLink>{" "}
-            to import existing customers or add new ones.
-          </Alert>
-        )}
-        
-        <Box component="form" onSubmit={handleSubmit}>
+        <Box>
           {/* Customer Selection */}
-          {customers.length > 0 && (
-            <Box sx={{ mb: 2 }}>
-              <Autocomplete
-                options={customers}
-                getOptionLabel={(option) => option.name || ""}
-                value={selectedCustomer}
-                onChange={handleCustomerSelect}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Select Existing Customer (Optional)"
-                    helperText="Choose from existing customers or enter new customer details below"
-                  />
-                )}
-                fullWidth
-              />
-              <Button
-                size="small"
-                startIcon={<PersonAddIcon />}
-                onClick={() => navigate("/customer/new")}
-                sx={{ mt: 1 }}
-              >
-                Add New Customer
-              </Button>
-            </Box>
-          )}
+          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: "bold" }}>
+            Customer Information
+          </Typography>
 
-          {/* Customer Info */}
+          <Autocomplete
+            options={customers}
+            getOptionLabel={(option) => option.name}
+            value={selectedCustomer}
+            onChange={handleCustomerSelect}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Select Existing Customer (Optional)"
+                helperText="Choose a customer to auto-fill their info, or enter new customer below"
+              />
+            )}
+            sx={{ mb: 2 }}
+          />
+
+          <Divider sx={{ mb: 2 }}>
+            <Typography variant="caption" color="text.secondary">
+              OR ENTER NEW CUSTOMER
+            </Typography>
+          </Divider>
+
           <TextField
-            label="Customer Name"
+            label="Customer Name *"
             fullWidth
             margin="normal"
             value={customerName}
             onChange={(e) => setCustomerName(e.target.value)}
             required
             sx={{ mb: 2 }}
-            disabled={!!selectedCustomer}
-            helperText={selectedCustomer ? "Auto-filled from selected customer" : ""}
           />
 
           <TextField
@@ -190,7 +285,6 @@ export default function CreateBid() {
             value={customerEmail}
             onChange={(e) => setCustomerEmail(e.target.value)}
             sx={{ mb: 2 }}
-            disabled={!!selectedCustomer}
           />
 
           <TextField
@@ -200,7 +294,6 @@ export default function CreateBid() {
             value={customerPhone}
             onChange={(e) => setCustomerPhone(e.target.value)}
             sx={{ mb: 2 }}
-            disabled={!!selectedCustomer}
           />
 
           <TextField
@@ -209,13 +302,18 @@ export default function CreateBid() {
             margin="normal"
             value={customerAddress}
             onChange={(e) => setCustomerAddress(e.target.value)}
-            sx={{ mb: 2 }}
-            disabled={!!selectedCustomer}
+            sx={{ mb: 3 }}
           />
 
+          <Divider sx={{ my: 3 }} />
+
           {/* Bid Details */}
+          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: "bold" }}>
+            Bid Details
+          </Typography>
+
           <TextField
-            label="Amount ($)"
+            label="Amount ($) *"
             type="number"
             fullWidth
             margin="normal"
@@ -225,6 +323,7 @@ export default function CreateBid() {
             required
             sx={{ mb: 2 }}
           />
+
           <TextField
             label="Description"
             multiline
@@ -235,6 +334,7 @@ export default function CreateBid() {
             onChange={(e) => setDescription(e.target.value)}
             sx={{ mb: 2 }}
           />
+
           <TextField
             label="Materials"
             fullWidth
@@ -243,6 +343,7 @@ export default function CreateBid() {
             onChange={(e) => setMaterials(e.target.value)}
             sx={{ mb: 2 }}
           />
+
           <TextField
             label="Notes"
             multiline
@@ -253,21 +354,95 @@ export default function CreateBid() {
             onChange={(e) => setNotes(e.target.value)}
             sx={{ mb: 3 }}
           />
+
           <Button
             variant="contained"
             color="success"
-            type="submit"
+            onClick={handleContinueToSave}
             fullWidth
             size="large"
-            sx={{ 
+            sx={{
               py: 1.5,
-              fontSize: { xs: '1rem', sm: '1.1rem' }
+              fontSize: { xs: "1rem", sm: "1.1rem" },
             }}
           >
-            Save Bid
+            Continue to Save
           </Button>
         </Box>
       </Paper>
+
+      {/* Design Dialog */}
+      <Dialog
+        open={showDesignDialog}
+        onClose={() => setShowDesignDialog(false)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogTitle sx={{ textAlign: "center", pb: 1 }}>
+          🎨 Add Design Visualization?
+        </DialogTitle>
+        <DialogContent>
+          <Card sx={{ mb: 2, bgcolor: "#f5f5f5" }}>
+            <CardContent>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+                <BrushIcon sx={{ fontSize: 40, color: "primary.main", mr: 2 }} />
+                <Typography variant="h6">
+                  Show Your Customer What They're Getting!
+                </Typography>
+              </Box>
+
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                Take a photo of the jobsite and place design elements on it:
+              </Typography>
+
+              <Box component="ul" sx={{ pl: 2, mb: 2 }}>
+                <li>
+                  <Typography variant="body2">Pools, patios, fire pits</Typography>
+                </li>
+                <li>
+                  <Typography variant="body2">Lighting, structures, landscaping</Typography>
+                </li>
+                <li>
+                  <Typography variant="body2">50+ professional design elements</Typography>
+                </li>
+              </Box>
+
+              <Typography variant="body2" color="primary" fontWeight="bold">
+                Result: Higher close rates & happier customers!
+              </Typography>
+            </CardContent>
+          </Card>
+
+          <Card sx={{ bgcolor: "#fff3e0" }}>
+            <CardContent>
+              <Typography variant="subtitle2" gutterBottom>
+                ⚡ Quick Bid (No Design)
+              </Typography>
+              <Typography variant="body2">
+                Skip visualization for small jobs or maintenance work
+              </Typography>
+            </CardContent>
+          </Card>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, flexDirection: "column", gap: 1 }}>
+          <Button
+            variant="contained"
+            color="primary"
+            fullWidth
+            startIcon={<BrushIcon />}
+            onClick={handleAddDesign}
+          >
+            Yes, Add Design
+          </Button>
+          <Button variant="outlined" fullWidth onClick={handleSkipDesign}>
+            Skip for Now
+          </Button>
+          <Button variant="text" fullWidth onClick={() => setShowDesignDialog(false)}>
+            Go Back
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

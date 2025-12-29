@@ -19,7 +19,7 @@ import SignatureCanvas from "react-signature-canvas";
 const COMPANY = {
   name: "Kings Canyon Landscaping LLC",
   cityState: "Bullhead City, AZ",
-  phone: "(928) 296-0217",
+  phone: "(928) 450-5733",
   email: "kingscanyon775@gmail.com",
   logoPath: "/logo-kcl.png",
 };
@@ -154,6 +154,42 @@ const ContractEditor = () => {
     const sigData = contractorSigRef.current?.toDataURL();
     setContractorSignedAt(timestamp);
     setContractorSigData(sigData);
+  };
+
+  // Auto-sign for Darren (one-click)
+  const autoSignForDarren = () => {
+    const timestamp = new Date().toLocaleString();
+    const darrenSig = generateDarrenAutoSignature();
+    setContractorSignedAt(timestamp);
+    setContractorSigData(darrenSig);
+    
+    // Show success message
+    Swal.fire({
+      icon: "success",
+      title: "Auto-Signed!",
+      text: "Darren's signature has been applied.",
+      timer: 1500,
+      showConfirmButton: false,
+    });
+  };
+
+  // Generate Darren's auto-signature
+  const generateDarrenAutoSignature = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 100;
+    const ctx = canvas.getContext('2d');
+    
+    // White background
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, 400, 100);
+    
+    // Signature text in cursive style
+    ctx.font = '32px "Brush Script MT", cursive';
+    ctx.fillStyle = 'black';
+    ctx.fillText('Darren Bennett', 50, 60);
+    
+    return canvas.toDataURL('image/png');
   };
 
   const getDataUrlIfSigned = (sigData) => {
@@ -341,8 +377,8 @@ const ContractEditor = () => {
     docPDF.text(`Company: ${COMPANY.name}`, col2X, y);
     y += 12;
 
-    docPDF.text(`Signed: ${clientSignedAt || "—"}`, col1X, y);
-    docPDF.text(`Signed: ${contractorSignedAt || "—"}`, col2X, y);
+    docPDF.text(`Signed: ${clientSignedAt || "â€”"}`, col1X, y);
+    docPDF.text(`Signed: ${contractorSignedAt || "â€”"}`, col2X, y);
 
     // Footer
     docPDF.setFontSize(9);
@@ -393,7 +429,7 @@ const ContractEditor = () => {
   return (
     <Container sx={{ mt: 4, mb: 6 }}>
       <Typography variant="h5" gutterBottom>
-        Edit Contract — {contract.clientName || "Unnamed"}
+        Edit Contract â€” {contract.clientName || "Unnamed"}
       </Typography>
 
       <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 900 }}>
@@ -477,9 +513,18 @@ const ContractEditor = () => {
                 style: { border: "1px solid #ccc", borderRadius: 8, width: "100%" },
               }}
             />
-            <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+            <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
+              <Button 
+                size="small" 
+                variant="contained" 
+                color="success"
+                onClick={autoSignForDarren}
+                sx={{ flexGrow: 1 }}
+              >
+                ✍️ Auto-Sign for Darren
+              </Button>
               <Button size="small" variant="outlined" onClick={markContractorSigned}>
-                Save Timestamp
+                Save Manual Signature
               </Button>
               <Button size="small" variant="text" onClick={clearContractorSig}>
                 Clear

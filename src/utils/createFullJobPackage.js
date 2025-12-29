@@ -1,67 +1,75 @@
-import { collection, addDoc, serverTimestamp, query, where, getDocs } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebase";
+import Swal from "sweetalert2";
 
-async function checkExistingPackage(clientName) {
+/**
+ * Creates linked Contract, Invoice, and Job Folder from a Bid
+ * WITH DUPLICATE PREVENTION - checks if customer already has active contract
+ * @param {object} bid - The bid object from Firestore
+ * @returns {Promise<object>} - { contractId, invoiceId, jobId } or null if cancelled
+ */
+export async function createFullJobPackage(bid) {
+  const customerName = bid.customerName || "Unnamed Client";
+  
+  // 🛡️ CHECK FOR EXISTING CONTRACTS
   try {
     const contractsQuery = query(
       collection(db, "contracts"),
-      where("clientName", "==", clientName)
+      where("clientName", "==", customerName)
     );
-    const contractsSnap = await getDocs(contractsQuery);
+    const existingContracts = await getDocs(contractsQuery);
     
-    if (!contractsSnap.empty) {
-      const existingContract = contractsSnap.docs[0];
+    if (!existingContracts.empty) {
+      // Customer already has contract(s)
+      const existingContract = existingContracts.docs[0];
       const contractData = existingContract.data();
-      const sharedJobId = contractData.jobId;
       
-      const invoicesQuery = query(
-        collection(db, "invoices"),
-        where("jobId", "==", sharedJobId)
-      );
-      const jobsQuery = query(
-        collection(db, "jobs"),
-        where("jobId", "==", sharedJobId)
-      );
+      const result = await Swal.fire({
+        title: `${customerName} Already Has a Contract!`,
+        html: `
+          <div style="text-align: left; margin: 20px 0;">
+            <p><strong>Existing Contract:</strong></p>
+            <ul>
+              <li>Status: ${contractData.status || "Pending"}</li>
+              <li>Amount: $${contractData.amount || 0}</li>
+              <li>Description: ${contractData.description || "N/A"}</li>
+            </ul>
+            <p style="margin-top: 20px;"><strong>What would you like to do?</strong></p>
+          </div>
+        `,
+        icon: "question",
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: "Open Existing Contract",
+        denyButtonText: "Create New Package Anyway",
+        cancelButtonText: "Cancel",
+        confirmButtonColor: "#2196f3",
+        denyButtonColor: "#ff9800",
+      });
       
-      const [invoicesSnap, jobsSnap] = await Promise.all([
-        getDocs(invoicesQuery),
-        getDocs(jobsQuery)
-      ]);
-      
-      return {
-        exists: true,
-        contractId: existingContract.id,
-        invoiceId: invoicesSnap.empty ? null : invoicesSnap.docs[0].id,
-        jobId: jobsSnap.empty ? null : jobsSnap.docs[0].id,
-        sharedJobId: sharedJobId,
-      };
+      if (result.isConfirmed) {
+        // User wants to open existing contract
+        window.location.assign(`/contract/${existingContract.id}`);
+        return null; // Don't create new package
+      } else if (result.isDenied) {
+        // User wants to create new package anyway (for multiple projects)
+        // Continue with creation below
+      } else {
+        // User cancelled
+        return null;
+      }
     }
-    
-    return null;
   } catch (error) {
-    console.error("Error checking for existing package:", error);
-    return null;
-  }
-}
-
-export async function createFullJobPackage(bid, forceCreate = false) {
-  const clientName = bid.customerName || "Unnamed Client";
-  
-  if (!forceCreate) {
-    const existing = await checkExistingPackage(clientName);
-    if (existing) {
-      return {
-        ...existing,
-        wasExisting: true,
-        message: `${clientName} already has a job package. Opening existing contract.`,
-      };
-    }
+    console.error("Error checking for existing contracts:", error);
+    // Continue with creation if check fails
   }
   
-  const sharedJobId = crypto.randomUUID();
+  // 📦 CREATE NEW JOB PACKAGE
+  // create one shared jobId so all docs tie together
+  const jobId = crypto.randomUUID();
   const base = {
-    jobId: sharedJobId,
-    clientName: clientName,
+    jobId,
+    clientName: customerName,
     amount: bid.amount || 0,
     description: bid.description || "",
     materials: bid.materials || "",
@@ -70,11 +78,13 @@ export async function createFullJobPackage(bid, forceCreate = false) {
     status: "Pending",
   };
 
+  // 1️⃣ Contract
   const contractRef = await addDoc(collection(db, "contracts"), {
     ...base,
     type: "contract",
   });
 
+  // 2️⃣ Invoice
   const invoiceRef = await addDoc(collection(db, "invoices"), {
     ...base,
     type: "invoice",
@@ -83,6 +93,7 @@ export async function createFullJobPackage(bid, forceCreate = false) {
     total: bid.amount || 0,
   });
 
+  // 3️⃣ Job folder placeholder
   const jobRef = await addDoc(collection(db, "jobs"), {
     ...base,
     type: "job",
@@ -93,8 +104,5 @@ export async function createFullJobPackage(bid, forceCreate = false) {
     contractId: contractRef.id,
     invoiceId: invoiceRef.id,
     jobId: jobRef.id,
-    sharedJobId: sharedJobId,
-    wasExisting: false,
-    message: `New job package created for ${clientName}.`,
   };
 }

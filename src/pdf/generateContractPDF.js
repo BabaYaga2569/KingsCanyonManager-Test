@@ -3,7 +3,7 @@ import jsPDF from "jspdf";
 const COMPANY = {
   name: "Kings Canyon Landscaping LLC",
   cityState: "Bullhead City, AZ",
-  phone: "(928) 296-0217",
+  phone: "(928) 450-5733",
   email: "kingscanyon775@gmail.com",
 };
 
@@ -95,7 +95,7 @@ export default async function generateContractPDF(contract, logoDataUrl) {
   docPDF.setFontSize(10);
   y = writeParagraph(
     docPDF,
-    "Unless otherwise agreed, payment is due upon substantial completion of the project. Invoices are due within 14 days. A late payment fee of 5% may be applied to balances over 15 days past due.",
+    "A deposit of 50% of the total contract amount is required before work begins. The remaining balance is due upon substantial completion of the project. Invoices are due within 14 days. A late payment fee of 5% may be applied to balances over 15 days past due.",
     40,
     y,
     W - 80
@@ -181,8 +181,8 @@ export default async function generateContractPDF(contract, logoDataUrl) {
   docPDF.text(`Company: ${COMPANY.name}`, col2X, y);
   y += 12;
 
-  docPDF.text(`Signed: ${contract.clientSignedAt || "—"}`, col1X, y);
-  docPDF.text(`Signed: ${contract.contractorSignedAt || "—"}`, col2X, y);
+  docPDF.text(`Signed: ${contract.clientSignedAt || "â€”"}`, col1X, y);
+  docPDF.text(`Signed: ${contract.contractorSignedAt || "â€”"}`, col2X, y);
 
   // Footer
   docPDF.setFontSize(9);

@@ -1,22 +1,14 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    
-    // Job photos - allow anyone to read/write for now
-    match /jobs/{jobId}/{allPaths=**} {
+    // Receipts folder for expense tracking
+    match /receipts/{allPaths=**} {
       allow read, write: if true; // TODO: Add authentication
-      // Future: allow read, write: if request.auth != null;
-      
-      // Optional: Restrict file size to 10MB
-      // allow write: if request.resource.size < 10 * 1024 * 1024;
-      
-      // Optional: Only allow images
-      // allow write: if request.resource.contentType.matches('image/.*');
     }
     
-    // Default: deny all other access
+    // Allow all other storage access (no time limit!)
     match /{allPaths=**} {
-      allow read, write: if false;
+      allow read, write: if true; // TODO: Add authentication
     }
   }
 }

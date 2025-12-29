@@ -8,6 +8,7 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "./firebase";
+import { useNavigate } from "react-router-dom";  // ← NEW
 import {
   Box,
   Typography,
@@ -30,6 +31,7 @@ import {
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import CloseIcon from "@mui/icons-material/Close";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
+import EditIcon from "@mui/icons-material/Edit";
 import Swal from "sweetalert2";
 
 export default function JobsManager() {
@@ -41,6 +43,20 @@ export default function JobsManager() {
   const [capturedImage, setCapturedImage] = useState(null);
   const [uploading, setUploading] = useState(false);
   
+  // Edit dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingJob, setEditingJob] = useState(null);
+  const [editForm, setEditForm] = useState({
+    clientName: "",
+    description: "",
+    amount: "",
+    status: "",
+    startDate: "",
+    completionDate: "",
+    notes: "",
+  });
+  
+  const navigate = useNavigate();  // ← NEW
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -269,6 +285,60 @@ export default function JobsManager() {
     });
   };
 
+  // Edit job functions
+  const handleOpenEditDialog = (job) => {
+    setEditingJob(job);
+    setEditForm({
+      clientName: job.clientName || "",
+      description: job.description || "",
+      amount: job.amount || "",
+      status: job.status || "Pending",
+      startDate: job.startDate || "",
+      completionDate: job.completionDate || "",
+      notes: job.notes || "",
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleCloseEditDialog = () => {
+    setEditDialogOpen(false);
+    setEditingJob(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editForm.clientName) {
+      Swal.fire("Missing Info", "Client name is required", "warning");
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, "jobs", editingJob.id), {
+        clientName: editForm.clientName,
+        description: editForm.description,
+        amount: editForm.amount ? parseFloat(editForm.amount) : 0,
+        status: editForm.status,
+        startDate: editForm.startDate,
+        completionDate: editForm.completionDate,
+        notes: editForm.notes,
+        lastUpdated: new Date().toISOString(),
+      });
+
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === editingJob.id
+            ? { ...job, ...editForm, amount: editForm.amount ? parseFloat(editForm.amount) : 0 }
+            : job
+        )
+      );
+
+      Swal.fire("Saved!", "Job updated successfully.", "success");
+      handleCloseEditDialog();
+    } catch (error) {
+      console.error("Error updating job:", error);
+      Swal.fire("Error", "Failed to update job.", "error");
+    }
+  };
+
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
       case "active":
@@ -377,6 +447,17 @@ export default function JobsManager() {
 
             <CardActions sx={{ p: 2, pt: 0, flexDirection: 'column', gap: 1 }}>
               <Button
+                variant="contained"
+                color="primary"
+                startIcon={<EditIcon />}
+                onClick={() => handleOpenEditDialog(job)}
+                fullWidth
+                size="small"
+              >
+                ✏️ Edit Job
+              </Button>
+
+              <Button
                 variant="outlined"
                 startIcon={<CameraAltIcon />}
                 onClick={() => handleOpenCamera("before", job)}
@@ -405,6 +486,16 @@ export default function JobsManager() {
                 size="small"
               >
                 📷 View All Photos ({(job.beforePhotos || []).length + (job.afterPhotos || []).length})
+              </Button>
+
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => navigate(`/job-expenses/${job.id}`)}
+                fullWidth
+                size="small"
+              >
+                💰 View Expenses & Profit
               </Button>
 
               <Button
@@ -519,6 +610,91 @@ export default function JobsManager() {
               Cancel
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Job Dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onClose={handleCloseEditDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>✏️ Edit Job</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              label="Client Name *"
+              value={editForm.clientName}
+              onChange={(e) => setEditForm({ ...editForm, clientName: e.target.value })}
+              fullWidth
+            />
+            
+            <TextField
+              label="Description"
+              multiline
+              rows={3}
+              value={editForm.description}
+              onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+              fullWidth
+            />
+            
+            <TextField
+              label="Amount ($)"
+              type="number"
+              value={editForm.amount}
+              onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+              fullWidth
+              inputProps={{ min: 0, step: "0.01" }}
+            />
+            
+            <FormControl fullWidth>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={editForm.status}
+                label="Status"
+                onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+              >
+                <MenuItem value="Pending">Pending</MenuItem>
+                <MenuItem value="Active">Active</MenuItem>
+                <MenuItem value="Completed">Completed</MenuItem>
+                <MenuItem value="Cancelled">Cancelled</MenuItem>
+              </Select>
+            </FormControl>
+            
+            <TextField
+              label="Start Date"
+              type="date"
+              value={editForm.startDate}
+              onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+            
+            <TextField
+              label="Completion Date"
+              type="date"
+              value={editForm.completionDate}
+              onChange={(e) => setEditForm({ ...editForm, completionDate: e.target.value })}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+            
+            <TextField
+              label="Notes"
+              multiline
+              rows={3}
+              value={editForm.notes}
+              onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+              fullWidth
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseEditDialog}>Cancel</Button>
+          <Button onClick={handleSaveEdit} variant="contained" color="primary">
+            Save Changes
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
