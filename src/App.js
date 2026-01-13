@@ -1,3 +1,9 @@
+// COMPLETE APP.JS - WITH SORTING ON BIDS LIST + NOTES MANAGER
+// Supports CREW, ADMIN, and GOD roles
+// Crew members see limited menu and are redirected to Time Clock
+// Now includes sorting dropdown for Bids List!
+// ADDED: Notes Manager for tracking customer requests, materials, and tasks
+
 import React, { useState, useEffect } from "react";
 import {
   BrowserRouter as Router,
@@ -5,6 +11,7 @@ import {
   Route,
   Link,
   useLocation,
+  useNavigate,
 } from "react-router-dom";
 import {
   AppBar,
@@ -21,9 +28,15 @@ import {
   Box,
   useMediaQuery,
   useTheme,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
+import LogoutIcon from "@mui/icons-material/Logout";
+import SortIcon from "@mui/icons-material/Sort";
 import Swal from "sweetalert2";
 import { db } from "./firebase";
 import {
@@ -34,9 +47,11 @@ import {
   doc,
 } from "firebase/firestore";
 
+// Import AuthProvider
+import { AuthProvider, useAuth } from "./AuthProvider";
+
 import ContractsDashboard from "./ContractsDashboard";
 import CreateBid from "./CreateBid";
-import BidEditor from "./BidEditor";
 import ContractEditor from "./ContractEditor";
 import Dashboard from "./Dashboard";
 import InvoicesDashboard from "./InvoicesDashboard";
@@ -59,20 +74,26 @@ import CrewPayroll from "./CrewPayroll";
 import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
 import JobExpenses from "./JobExpenses";
-import JobTimeTracking from "./JobTimeTracking";
+import NotesManager from "./NotesManager"; // ← ADDED: Notes Manager
 import { createFullJobPackage } from "./utils/createFullJobPackage";
-import { useNavigate } from "react-router-dom";
 import generateBidPDF from "./pdf/generateBidPDF";
 import ContractSigningPage from "./ContractSigningPage";
 import PaymentPortal from "./PaymentPortal";
+import BidEditor from "./BidEditor";
 
-// --------------------- BIDS LIST (was Home) ---------------------
+// TIME CLOCK IMPORTS
+import TimeClock from "./TimeClock";
+import MyHours from "./MyHours";
+import ApproveTime from "./ApproveTime";
+
+// --------------------- BIDS LIST WITH SORTING ---------------------
 function BidsList() {
   const [bids, setBids] = useState([]);
+  const [sortedBids, setSortedBids] = useState([]);
+  const [sortOrder, setSortOrder] = useState("newest");
   const [logoDataUrl, setLogoDataUrl] = useState(null);
   const navigate = useNavigate();
 
-  // Load logo for PDF generation
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -104,16 +125,54 @@ function BidsList() {
     fetchBids();
   }, []);
 
+  // Sort bids whenever bids or sortOrder changes
+  useEffect(() => {
+    const sorted = [...bids].sort((a, b) => {
+      switch (sortOrder) {
+        case "newest":
+          return new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0);
+        case "oldest":
+          return new Date(a.createdAt || a.date || 0) - new Date(b.createdAt || b.date || 0);
+        case "name-asc":
+          return (a.customerName || "").localeCompare(b.customerName || "");
+        case "name-desc":
+          return (b.customerName || "").localeCompare(a.customerName || "");
+        case "amount-high":
+          return parseFloat(b.amount || 0) - parseFloat(a.amount || 0);
+        case "amount-low":
+          return parseFloat(a.amount || 0) - parseFloat(b.amount || 0);
+        default:
+          return 0;
+      }
+    });
+    setSortedBids(sorted);
+  }, [bids, sortOrder]);
+
   const handleDelete = async (bid) => {
-    await deleteDoc(doc(db, "bids", bid.id));
-    setBids(bids.filter((b) => b.id !== bid.id));
+    const confirm = await Swal.fire({
+      title: `Delete bid for ${bid.customerName}?`,
+      text: "This action cannot be undone.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, delete",
+      cancelButtonText: "Cancel",
+    });
+
+    if (confirm.isConfirmed) {
+      await deleteDoc(doc(db, "bids", bid.id));
+      setBids(bids.filter((b) => b.id !== bid.id));
+      Swal.fire("Deleted!", "Bid has been removed.", "success");
+    }
+  };
+
+  const handleEdit = (bid) => {
+    navigate(`/bid/${bid.id}`);
   };
 
   const handleCreateContract = async (bid) => {
     try {
       const result = await createFullJobPackage(bid);
       
-      // createFullJobPackage returns null if user cancelled or opened existing
       if (!result) return;
       
       const { contractId, invoiceId, jobId } = result;
@@ -147,11 +206,9 @@ function BidsList() {
     try {
       const pdf = await generateBidPDF(bid, logoDataUrl);
       
-      // Create blob URL for viewing in browser
       const pdfBlob = pdf.output('blob');
       const pdfUrl = URL.createObjectURL(pdfBlob);
       
-      // Open in new tab for preview
       window.open(pdfUrl, '_blank');
       
       Swal.fire({
@@ -173,13 +230,36 @@ function BidsList() {
 
   return (
     <Container sx={{ mt: 3, px: { xs: 1, sm: 2 } }}>
-      <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-        Bids List
-      </Typography>
+      {/* Header with Sort Dropdown */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
+        <Typography variant="h6" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+          Bids List ({sortedBids.length})
+        </Typography>
+        
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="sort-label">
+            <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'middle' }} />
+            Sort By
+          </InputLabel>
+          <Select
+            labelId="sort-label"
+            value={sortOrder}
+            label="Sort By"
+            onChange={(e) => setSortOrder(e.target.value)}
+          >
+            <MenuItem value="newest">📅 Newest First</MenuItem>
+            <MenuItem value="oldest">📅 Oldest First</MenuItem>
+            <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
+            <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
+            <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
+            <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
       
-      {/* Mobile: Card layout */}
+      {/* MOBILE VIEW - Card Layout */}
       <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-        {bids.map((bid) => (
+        {sortedBids.map((bid) => (
           <Box
             key={bid.id}
             sx={{
@@ -200,16 +280,21 @@ function BidsList() {
                 Materials: {bid.materials}
               </Typography>
             )}
+            {bid.createdAt && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                Created: {new Date(bid.createdAt).toLocaleDateString()}
+              </Typography>
+            )}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Button
                 variant="outlined"
-                color="primary"
+                color="info"
                 size="small"
-                onClick={() => navigate(`/bid/${bid.id}`)}
+                onClick={() => handleEdit(bid)}
                 fullWidth
               >
                 Edit
               </Button>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <Button
                 variant="outlined"
                 color="primary"
@@ -240,9 +325,23 @@ function BidsList() {
             </Box>
           </Box>
         ))}
+        
+        {sortedBids.length === 0 && (
+          <Box sx={{ textAlign: 'center', py: 8 }}>
+            <Typography variant="h6" color="text.secondary">
+              No Bids Yet
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Create your first bid to get started
+            </Typography>
+            <Button variant="contained" onClick={() => navigate('/create-bid')}>
+              Create Bid
+            </Button>
+          </Box>
+        )}
       </Box>
 
-      {/* Desktop: Table layout */}
+      {/* DESKTOP VIEW - Table Layout */}
       <Box sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
         <table
           style={{
@@ -263,22 +362,26 @@ function BidsList() {
               <th style={{ padding: 10 }}>Amount ($)</th>
               <th style={{ padding: 10 }}>Description</th>
               <th style={{ padding: 10 }}>Materials</th>
+              <th style={{ padding: 10 }}>Date</th>
               <th style={{ padding: 10 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {bids.map((bid) => (
+            {sortedBids.map((bid) => (
               <tr key={bid.id} style={{ borderBottom: "1px solid #ddd" }}>
                 <td style={{ padding: 10 }}>{bid.customerName}</td>
                 <td style={{ padding: 10 }}>${bid.amount}</td>
                 <td style={{ padding: 10 }}>{bid.description}</td>
                 <td style={{ padding: 10 }}>{bid.materials}</td>
                 <td style={{ padding: 10 }}>
+                  {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : '—'}
+                </td>
+                <td style={{ padding: 10 }}>
                   <Button
                     variant="outlined"
-                    color="primary"
+                    color="info"
                     size="small"
-                    onClick={() => navigate(`/bid/${bid.id}`)}
+                    onClick={() => handleEdit(bid)}
                     sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
                   >
                     Edit
@@ -312,11 +415,45 @@ function BidsList() {
                 </td>
               </tr>
             ))}
+            
+            {sortedBids.length === 0 && (
+              <tr>
+                <td colSpan="6" style={{ padding: 40, textAlign: 'center' }}>
+                  <Typography variant="h6" color="text.secondary">
+                    No Bids Yet
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Create your first bid to get started
+                  </Typography>
+                  <Button variant="contained" onClick={() => navigate('/create-bid')}>
+                    Create Bid
+                  </Button>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </Box>
     </Container>
   );
+}
+
+// ------------------------- HOME REDIRECT COMPONENT -------------------------
+function HomeRedirect() {
+  const { userRole } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (userRole === 'crew') {
+      navigate('/time-clock', { replace: true });
+    }
+  }, [userRole, navigate]);
+
+  if (userRole === 'crew') {
+    return null;
+  }
+
+  return <Dashboard />;
 }
 
 // ------------------------- APP CHROME -------------------------
@@ -327,29 +464,44 @@ function AppContent() {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Get auth context
+  const { userRole, logout, user } = useAuth();
+
   const isActive = (p) => location.pathname === p;
   
-  // Check if we're on a public page (no navigation should show)
   const isPublicPage = location.pathname.startsWith('/public/');
 
-  const menuItems = [
-    { label: "Dashboard", path: "/" },
-    { label: "Bids", path: "/bids" },
-    { label: "Create Bid", path: "/create-bid" },
-    { label: "Contracts", path: "/contracts" },
-    { label: "Invoices", path: "/invoices" },
-    { label: "Jobs", path: "/jobs" },
-    { label: "Customers", path: "/customers" },
-    { label: "Schedule", path: "/schedule-dashboard" },
-    { label: "Calendar", path: "/calendar-view" },
-    { label: "Payments", path: "/payments-dashboard" },
-    { label: "Expenses", path: "/expenses-manager" },
-    { label: "Payroll", path: "/crew-payroll" },
-    { label: "Tax Report", path: "/tax-report" },
-    { label: "Crew", path: "/crew-manager" },
-    { label: "Equipment", path: "/equipment-manager" },
-    { label: "Job Tracking", path: "/job-tracking" },
-  ];
+  // ROLE-SPECIFIC MENU ITEMS
+  let menuItems = [];
+
+  if (userRole === 'crew') {
+    // CREW sees only time clock and their hours
+    menuItems = [
+      { label: "⏰ Time Clock", path: "/time-clock" },
+      { label: "📊 My Hours", path: "/my-hours" },
+    ];
+  } else {
+    // ADMIN and GOD see full menu
+    menuItems = [
+      { label: "Dashboard", path: "/" },
+      { label: "Bids", path: "/bids" },
+      { label: "Create Bid", path: "/create-bid" },
+      { label: "Contracts", path: "/contracts" },
+      { label: "Invoices", path: "/invoices" },
+      { label: "Jobs", path: "/jobs" },
+      { label: "📝 Notes", path: "/notes" }, // ← ADDED: Notes menu item
+      { label: "Customers", path: "/customers" },
+      { label: "Schedule", path: "/schedule-dashboard" },
+      { label: "Calendar", path: "/calendar-view" },
+      { label: "Payments", path: "/payments-dashboard" },
+      { label: "Expenses", path: "/expenses-manager" },
+      { label: "Payroll", path: "/crew-payroll" },
+      { label: "Approve Time", path: "/approve-time" },
+      { label: "Tax Report", path: "/tax-report" },
+      { label: "Crew", path: "/crew-manager" },
+      { label: "Equipment", path: "/equipment-manager" },
+    ];
+  }
 
   const handleDrawerToggle = () => {
     setDrawerOpen(!drawerOpen);
@@ -360,60 +512,100 @@ function AppContent() {
     setDrawerOpen(false);
   };
 
+  const handleLogout = async () => {
+    const confirmed = window.confirm('Are you sure you want to logout?');
+    if (confirmed) {
+      await logout();
+    }
+  };
+
+  // Role badge emoji
+  const getRoleBadge = () => {
+    if (userRole === 'god') return '⚡';
+    if (userRole === 'admin') return '🔧';
+    if (userRole === 'crew') return '👷';
+    return '';
+  };
+
   return (
     <>
-      {/* Only show navigation for private pages, hide for public pages */}
       {!isPublicPage && (
         <>
           <AppBar position="static" sx={{ backgroundColor: "#1565c0" }}>
             <Toolbar sx={{ minHeight: { xs: 56, sm: 64 } }}>
               <Typography variant="h6" sx={{ flexGrow: 1, fontSize: { xs: '1.1rem', sm: '1.25rem' } }}>
-                KCL Manager
+                KCL Manager {getRoleBadge()}
               </Typography>
 
-              {/* Mobile: Hamburger Menu */}
               {isMobile ? (
-                <IconButton
-                  color="inherit"
-                  edge="end"
-                  onClick={handleDrawerToggle}
-                  sx={{ ml: 2 }}
-                >
-                  <MenuIcon />
-                </IconButton>
+                <>
+                  <IconButton
+                    color="inherit"
+                    onClick={handleLogout}
+                    title={`Logout (${user?.email})`}
+                    sx={{ mr: 1 }}
+                  >
+                    <LogoutIcon />
+                  </IconButton>
+                  <IconButton
+                    color="inherit"
+                    edge="end"
+                    onClick={handleDrawerToggle}
+                  >
+                    <MenuIcon />
+                  </IconButton>
+                </>
               ) : (
-                // Desktop: Button Group
-                <ButtonGroup variant="text" sx={{ "& .MuiButton-root": { textTransform: "none" } }}>
-                  {menuItems.map((item) => (
-                    <Button
-                      key={item.path}
-                      component={Link}
-                      to={item.path}
-                      sx={{
-                        color: isActive(item.path) ? "#FFD700" : "#fff",
-                        fontWeight: isActive(item.path) ? 700 : 500,
-                      }}
-                    >
-                      {item.label}
-                    </Button>
-                  ))}
-                </ButtonGroup>
+                <>
+                  <ButtonGroup variant="text" sx={{ mr: 2 }}>
+                    {menuItems.map((item) => (
+                      <Button
+                        key={item.path}
+                        component={Link}
+                        to={item.path}
+                        sx={{
+                          color: isActive(item.path) ? "#fff" : "rgba(255,255,255,0.7)",
+                          backgroundColor: isActive(item.path)
+                            ? "rgba(255,255,255,0.1)"
+                            : "transparent",
+                          fontWeight: isActive(item.path) ? 700 : 500,
+                          fontSize: { sm: '0.75rem', md: '0.875rem' },
+                          px: { sm: 1, md: 1.5 },
+                          "&:hover": {
+                            backgroundColor: "rgba(255,255,255,0.15)",
+                            color: "#fff",
+                          },
+                        }}
+                      >
+                        {item.label}
+                      </Button>
+                    ))}
+                  </ButtonGroup>
+
+                  <Button
+                    color="inherit"
+                    onClick={handleLogout}
+                    startIcon={<LogoutIcon />}
+                    title={user?.email || 'Logout'}
+                  >
+                    Logout
+                  </Button>
+                </>
               )}
             </Toolbar>
           </AppBar>
 
-          {/* Mobile Drawer */}
           <Drawer
             anchor="right"
             open={drawerOpen}
             onClose={handleDrawerToggle}
             sx={{
               '& .MuiDrawer-paper': {
-                width: 250,
+                width: 280,
               },
             }}
           >
-            <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e0e0e0' }}>
               <Typography variant="h6">Menu</Typography>
               <IconButton onClick={handleDrawerToggle}>
                 <CloseIcon />
@@ -426,19 +618,13 @@ function AppContent() {
                   key={item.path}
                   onClick={() => handleMenuClick(item.path)}
                   sx={{
-                    backgroundColor: isActive(item.path) ? '#e3f2fd' : 'transparent',
-                    '&:hover': {
-                      backgroundColor: '#f5f5f5',
-                    },
+                    backgroundColor: isActive(item.path) ? "#e3f2fd" : "transparent",
                   }}
                 >
                   <ListItemText
                     primary={item.label}
-                    sx={{
-                      '& .MuiTypography-root': {
-                        fontWeight: isActive(item.path) ? 700 : 400,
-                        color: isActive(item.path) ? '#1565c0' : 'inherit',
-                      },
+                    primaryTypographyProps={{
+                      fontWeight: isActive(item.path) ? 700 : 500,
                     }}
                   />
                 </ListItem>
@@ -449,18 +635,29 @@ function AppContent() {
       )}
 
       <Routes>
-        <Route path="/" element={<Dashboard />} />
+        {/* CREW ROUTES */}
+        <Route path="/time-clock" element={<TimeClock />} />
+        <Route path="/my-hours" element={<MyHours />} />
+        
+        {/* ADMIN/GOD ROUTES */}
+        <Route path="/approve-time" element={<ApproveTime />} />
+        
+        {/* HOME ROUTE - REDIRECTS CREW TO TIME CLOCK */}
+        <Route path="/" element={<HomeRedirect />} />
+        
+        {/* EXISTING ROUTES */}
         <Route path="/bids" element={<BidsList />} />
-        <Route path="/create-bid" element={<CreateBid />} />
         <Route path="/bid/:id" element={<BidEditor />} />
+        <Route path="/create-bid" element={<CreateBid />} />
         <Route path="/contracts" element={<ContractsDashboard />} />
         <Route path="/contract/:id" element={<ContractEditor />} />
         <Route path="/invoices" element={<InvoicesDashboard />} />
         <Route path="/invoice/:id" element={<InvoiceEditor />} />
         <Route path="/jobs" element={<JobsManager />} />
+        <Route path="/notes" element={<NotesManager />} /> {/* ← ADDED: Notes route */}
         <Route path="/customers" element={<CustomersDashboard />} />
-        <Route path="/customer/:id" element={<CustomerEditor />} />
-        <Route path="/customer-profile/:id" element={<CustomerProfile />} />
+        <Route path="/customer-edit/:id" element={<CustomerEditor />} />
+        <Route path="/customer/:id" element={<CustomerProfile />} />
         <Route path="/schedule-job" element={<ScheduleJob />} />
         <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
         <Route path="/calendar-view" element={<CalendarView />} />
@@ -469,17 +666,14 @@ function AppContent() {
         <Route path="/crew-manager" element={<CrewManager />} />
         <Route path="/equipment-manager" element={<EquipmentManager />} />
         <Route path="/nda/:crewId" element={<NDAEditor />} />
-		<Route path="/public/nda/:crewId" element={<NDASigningPage />} />
+        <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
         
-        {/* Expenses & Payroll Routes */}
         <Route path="/expenses-manager" element={<ExpensesManager />} />
         <Route path="/crew-payroll" element={<CrewPayroll />} />
         <Route path="/crew-payment-history" element={<CrewPaymentHistory />} />
         <Route path="/tax-report" element={<TaxReport />} />
         <Route path="/job-expenses/:id" element={<JobExpenses />} />
-        <Route path="/job-tracking" element={<JobTimeTracking />} />
         
-        {/* PUBLIC ROUTES - Customer signature & payment pages (NO NAVIGATION SHOWN) */}
         <Route path="/public/sign/:contractId" element={<ContractSigningPage />} />
         <Route path="/public/pay/:invoiceId" element={<PaymentPortal />} />
       </Routes>
@@ -490,8 +684,10 @@ function AppContent() {
 // ------------------------- ROUTER WRAPPER -------------------------
 export default function App() {
   return (
-    <Router>
-      <AppContent />
-    </Router>
+    <AuthProvider>
+      <Router>
+        <AppContent />
+      </Router>
+    </AuthProvider>
   );
 }

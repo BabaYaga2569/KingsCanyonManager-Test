@@ -5,6 +5,10 @@ import {
   deleteDoc,
   doc,
   updateDoc,
+  getDoc,
+  addDoc,
+  query,
+  where,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import {
@@ -34,10 +38,14 @@ import EditIcon from "@mui/icons-material/Edit";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PaymentIcon from "@mui/icons-material/Payment";
+import SortIcon from "@mui/icons-material/Sort";
+import moment from "moment";
 import generateInvoicePDF from "./pdf/generateInvoicePDF";
 
 export default function InvoicesDashboard() {
   const [invoices, setInvoices] = useState([]);
+  const [sortedInvoices, setSortedInvoices] = useState([]);
+  const [sortOrder, setSortOrder] = useState("newest");
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -56,10 +64,144 @@ export default function InvoicesDashboard() {
     fetchInvoices();
   }, []);
 
+  // Helper function to convert Firebase Timestamp to JavaScript Date
+  const getDateFromInvoice = (invoice) => {
+    try {
+      // Check createdAt first
+      if (invoice.createdAt) {
+        if (invoice.createdAt.toDate) {
+          return invoice.createdAt.toDate(); // Firebase Timestamp
+        }
+        return new Date(invoice.createdAt); // String date
+      }
+      // Fallback to invoiceDate
+      if (invoice.invoiceDate) {
+        if (invoice.invoiceDate.toDate) {
+          return invoice.invoiceDate.toDate();
+        }
+        return new Date(invoice.invoiceDate);
+      }
+      // Fallback to date
+      if (invoice.date) {
+        if (invoice.date.toDate) {
+          return invoice.date.toDate();
+        }
+        return new Date(invoice.date);
+      }
+      return null;
+    } catch (error) {
+      console.error("Error parsing date:", error);
+      return null;
+    }
+  };
+
+  // Helper function to format date for display
+  const formatInvoiceDate = (invoice) => {
+    const date = getDateFromInvoice(invoice);
+    if (!date || isNaN(date.getTime())) {
+      return "—";
+    }
+    return date.toLocaleDateString();
+  };
+
+  // Sort invoices whenever invoices or sortOrder changes
+  useEffect(() => {
+    const sorted = [...invoices].sort((a, b) => {
+      switch (sortOrder) {
+        case "newest":
+          const dateA = getDateFromInvoice(a);
+          const dateB = getDateFromInvoice(b);
+          return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
+        case "oldest":
+          const dateA2 = getDateFromInvoice(a);
+          const dateB2 = getDateFromInvoice(b);
+          return (dateA2?.getTime() || 0) - (dateB2?.getTime() || 0);
+        case "name-asc":
+          return (a.clientName || "").localeCompare(b.clientName || "");
+        case "name-desc":
+          return (b.clientName || "").localeCompare(a.clientName || "");
+        case "amount-high":
+          return parseFloat(b.total || b.amount || 0) - parseFloat(a.total || a.amount || 0);
+        case "amount-low":
+          return parseFloat(a.total || a.amount || 0) - parseFloat(b.total || b.amount || 0);
+        case "status-unpaid":
+          const aUnpaid = (a.status || "").toLowerCase() !== "paid" ? -1 : 1;
+          const bUnpaid = (b.status || "").toLowerCase() !== "paid" ? -1 : 1;
+          return aUnpaid - bUnpaid;
+        case "status-paid":
+          const aPaid = (a.status || "").toLowerCase() === "paid" ? -1 : 1;
+          const bPaid = (b.status || "").toLowerCase() === "paid" ? -1 : 1;
+          return aPaid - bPaid;
+        default:
+          return 0;
+      }
+    });
+    setSortedInvoices(sorted);
+  }, [invoices, sortOrder]);
+
   const handleStatusChange = async (id, newStatus) => {
     try {
       const ref = doc(db, "invoices", id);
-      await updateDoc(ref, { status: newStatus });
+      const invoiceSnap = await getDoc(ref);
+      const invoiceData = invoiceSnap.data();
+      const oldStatus = invoiceData.status;
+      
+      // ✅ AUTO-HANDLE: When changing to "Paid"
+      if (newStatus === "Paid" && oldStatus !== "Paid") {
+        const total = parseFloat(invoiceData.total || invoiceData.amount || 0);
+        
+        // Check if payment record exists
+        const paymentsQuery = query(
+          collection(db, "payments"),
+          where("invoiceId", "==", id)
+        );
+        const paymentsSnap = await getDocs(paymentsQuery);
+        
+        // Create payment record if none exists
+        if (paymentsSnap.empty) {
+          await addDoc(collection(db, "payments"), {
+            invoiceId: id,
+            clientName: invoiceData.clientName,
+            amount: total,
+            paymentMethod: "other",
+            paymentDate: moment().format("YYYY-MM-DD"),
+            reference: "Auto-generated from invoice status change",
+            notes: "Automatically created when invoice marked as Paid",
+            receiptGenerated: false,
+            createdAt: new Date().toISOString(),
+          });
+          console.log("✅ Auto-created payment record for tax reporting");
+        }
+        
+        // Auto-complete related job
+        if (invoiceData.jobId) {
+          try {
+            const jobRef = doc(db, "jobs", invoiceData.jobId);
+            const jobSnap = await getDoc(jobRef);
+            if (jobSnap.exists()) {
+              await updateDoc(jobRef, {
+                status: "Completed",
+                completedDate: new Date().toISOString(),
+              });
+              console.log("✅ Auto-completed related job");
+            }
+          } catch (jobError) {
+            console.warn("Could not auto-complete job:", jobError);
+          }
+        }
+        
+        // Update invoice with payment tracking fields
+        await updateDoc(ref, { 
+          status: newStatus,
+          totalPaid: total,
+          remainingBalance: 0,
+          paymentStatus: "paid",
+        });
+      } else {
+        // Normal status update
+        await updateDoc(ref, { status: newStatus });
+      }
+      
       setInvoices((prev) =>
         prev.map((inv) =>
           inv.id === id ? { ...inv, status: newStatus } : inv
@@ -100,7 +242,7 @@ export default function InvoicesDashboard() {
         console.warn("Logo failed:", e);
       }
 
-      // NEW: Load expenses for this job
+      // Load expenses for this job
       let expenses = [];
       if (inv.jobId) {
         try {
@@ -120,21 +262,19 @@ export default function InvoicesDashboard() {
           ...inv,
           logoDataUrl,
         },
-        expenses, // Pass expenses array
-        inv.includeMaterialBreakdown || false // Pass material breakdown flag
+        expenses,
+        inv.includeMaterialBreakdown || false
       );
 
-      // ✅ MOBILE-FRIENDLY PDF VIEWING
+      // Mobile-friendly PDF viewing
       const pdfBlob = pdfDoc.output("blob");
       const pdfUrl = URL.createObjectURL(pdfBlob);
 
-      // Detect if mobile device
       const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
         navigator.userAgent
       );
 
       if (isMobileDevice) {
-        // For mobile: Create iframe viewer overlay
         const viewerHtml = `
 <!DOCTYPE html>
 <html>
@@ -201,13 +341,11 @@ export default function InvoicesDashboard() {
 </body>
 </html>`;
 
-        // Open viewer in new tab
         const viewerBlob = new Blob([viewerHtml], { type: 'text/html' });
         const viewerUrl = URL.createObjectURL(viewerBlob);
         const newWindow = window.open(viewerUrl, '_blank');
 
         if (!newWindow) {
-          // Popup blocked - fallback to download
           const link = document.createElement("a");
           link.href = pdfUrl;
           link.download = `Invoice_${inv.clientName || 'Unknown'}.pdf`;
@@ -223,7 +361,6 @@ export default function InvoicesDashboard() {
           });
         }
       } else {
-        // For desktop: Direct PDF view
         window.open(pdfUrl, "_blank");
       }
     } catch (error) {
@@ -240,6 +377,7 @@ export default function InvoicesDashboard() {
     switch ((status || "").toLowerCase()) {
       case "paid": return "success";
       case "sent": return "info";
+      case "making payments": return "warning";
       case "overdue": return "error";
       default: return "warning";
     }
@@ -247,17 +385,38 @@ export default function InvoicesDashboard() {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
-      <Typography 
-        variant="h5" 
-        gutterBottom
-        sx={{ fontSize: { xs: '1.5rem', sm: '2rem' } }}
-      >
-        Invoices
-      </Typography>
+      {/* Header with Sort Dropdown */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
+        <Typography variant="h5" sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}>
+          Invoices ({sortedInvoices.length})
+        </Typography>
+
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="sort-label">
+            <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+            Sort By
+          </InputLabel>
+          <Select
+            labelId="sort-label"
+            value={sortOrder}
+            label="Sort By"
+            onChange={(e) => setSortOrder(e.target.value)}
+          >
+            <MenuItem value="newest">📅 Newest First</MenuItem>
+            <MenuItem value="oldest">📅 Oldest First</MenuItem>
+            <MenuItem value="name-asc">🔤 Client (A-Z)</MenuItem>
+            <MenuItem value="name-desc">🔤 Client (Z-A)</MenuItem>
+            <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
+            <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
+            <MenuItem value="status-unpaid">💸 Unpaid First</MenuItem>
+            <MenuItem value="status-paid">✅ Paid First</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
 
       {/* Mobile: Card Layout */}
       <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-        {invoices.map((inv) => (
+        {sortedInvoices.map((inv) => (
           <Card key={inv.id} sx={{ mb: 2, boxShadow: 2 }}>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 2 }}>
@@ -276,6 +435,10 @@ export default function InvoicesDashboard() {
                 />
               </Box>
 
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
+                📅 Created: {formatInvoiceDate(inv)}
+              </Typography>
+
               <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                 <InputLabel>Change Status</InputLabel>
                 <Select
@@ -285,6 +448,7 @@ export default function InvoicesDashboard() {
                 >
                   <MenuItem value="Pending">Pending</MenuItem>
                   <MenuItem value="Sent">Sent</MenuItem>
+                  <MenuItem value="Making Payments">Making Payments</MenuItem>
                   <MenuItem value="Paid">Paid</MenuItem>
                   <MenuItem value="Overdue">Overdue</MenuItem>
                 </Select>
@@ -334,6 +498,15 @@ export default function InvoicesDashboard() {
             </CardActions>
           </Card>
         ))}
+
+        {sortedInvoices.length === 0 && (
+          <Paper sx={{ p: 4, textAlign: "center" }}>
+            <Typography variant="h6">No Invoices Yet</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Invoices will appear here after you create them
+            </Typography>
+          </Paper>
+        )}
       </Box>
 
       {/* Desktop: Table Layout */}
@@ -343,15 +516,17 @@ export default function InvoicesDashboard() {
             <TableRow>
               <TableCell>Client</TableCell>
               <TableCell>Amount</TableCell>
+              <TableCell>Date</TableCell>
               <TableCell>Status</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {invoices.map((inv) => (
+            {sortedInvoices.map((inv) => (
               <TableRow key={inv.id}>
                 <TableCell>{inv.clientName}</TableCell>
                 <TableCell>${inv.total || inv.amount || 0}</TableCell>
+                <TableCell>{formatInvoiceDate(inv)}</TableCell>
                 <TableCell>
                   <Chip
                     label={inv.status || "Pending"}
@@ -367,6 +542,7 @@ export default function InvoicesDashboard() {
                   >
                     <MenuItem value="Pending">Pending</MenuItem>
                     <MenuItem value="Sent">Sent</MenuItem>
+                    <MenuItem value="Making Payments">Making Payments</MenuItem>
                     <MenuItem value="Paid">Paid</MenuItem>
                     <MenuItem value="Overdue">Overdue</MenuItem>
                   </Select>
@@ -415,6 +591,19 @@ export default function InvoicesDashboard() {
                 </TableCell>
               </TableRow>
             ))}
+
+            {sortedInvoices.length === 0 && (
+              <TableRow>
+                <TableCell colSpan="5" style={{ padding: 40, textAlign: 'center' }}>
+                  <Typography variant="h6" color="text.secondary">
+                    No Invoices Yet
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Invoices will appear here after you create them
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </Paper>

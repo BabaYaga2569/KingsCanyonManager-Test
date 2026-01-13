@@ -1,6 +1,9 @@
+// This is a COMPLETE replacement for PaymentTracker.jsx
+// Adds: Edit payments, Delete payments, Payment plan tracking, Enhanced status
+
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, collection, getDocs, addDoc, updateDoc, query, where } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, addDoc, updateDoc, deleteDoc, query, where } from "firebase/firestore";
 import { db } from "./firebase";
 import {
   Container,
@@ -25,6 +28,13 @@ import {
   Grid,
   useMediaQuery,
   useTheme,
+  IconButton,
+  InputAdornment,  // ← ADD THIS LINE
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
 } from "@mui/material";
 import {
   Timeline,
@@ -42,6 +52,10 @@ import PaymentIcon from "@mui/icons-material/Payment";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PendingIcon from "@mui/icons-material/Pending";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import ScheduleIcon from "@mui/icons-material/Schedule";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import moment from "moment";
 import generatePaymentReceipt from "./pdf/generatePaymentReceipt";
 import { viewPaymentReceiptPDF } from "./utils/pdfViewerUtils";
@@ -56,6 +70,8 @@ export default function PaymentTracker() {
   const [invoice, setInvoice] = useState(null);
   const [payments, setPayments] = useState([]);
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
+  const [editPaymentOpen, setEditPaymentOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
 
   const [paymentForm, setPaymentForm] = useState({
     amount: "",
@@ -140,33 +156,15 @@ export default function PaymentTracker() {
 
       const paymentRef = await addDoc(collection(db, "payments"), paymentData);
 
-      // Calculate new totals
-      const currentTotalPaid = invoice.totalPaid || 0;
-      const newTotalPaid = currentTotalPaid + paymentAmount;
-      const invoiceTotal = parseFloat(invoice.total || invoice.amount || 0);
-      const newRemainingBalance = invoiceTotal - newTotalPaid;
-
-      // Determine payment status
-      let paymentStatus = "partial";
-      if (newRemainingBalance <= 0) {
-        paymentStatus = "paid";
-      } else if (newTotalPaid === 0) {
-        paymentStatus = "unpaid";
-      }
-
-      // Update invoice
-      await updateDoc(doc(db, "invoices", id), {
-        totalPaid: newTotalPaid,
-        remainingBalance: newRemainingBalance,
-        paymentStatus: paymentStatus,
-        lastPaymentDate: paymentForm.paymentDate,
-        status: paymentStatus === "paid" ? "Paid" : invoice.status,
-      });
+      // Update invoice status
+      await updateInvoiceStatus();
 
       // Generate receipt if requested
-      // Generate and view receipt (mobile-friendly)
       if (paymentForm.generateReceipt) {
         try {
+          const newTotalPaid = getTotalPaid() + paymentAmount;
+          const newRemainingBalance = parseFloat(invoice.total || invoice.amount || 0) - newTotalPaid;
+          
           await viewPaymentReceiptPDF({
             payment: { ...paymentData, id: paymentRef.id },
             invoice: invoice,
@@ -175,7 +173,6 @@ export default function PaymentTracker() {
           }, generatePaymentReceipt);
         } catch (error) {
           console.error("Receipt generation error:", error);
-          // Continue even if receipt fails
         }
       }
 
@@ -201,6 +198,123 @@ export default function PaymentTracker() {
       console.error("Error recording payment:", error);
       Swal.fire("Error", "Failed to record payment", "error");
     }
+  };
+
+  // NEW: Edit payment function
+  const handleEditPayment = async () => {
+    if (!paymentForm.amount || parseFloat(paymentForm.amount) <= 0) {
+      Swal.fire("Invalid Amount", "Please enter a valid payment amount", "warning");
+      return;
+    }
+
+    try {
+      const paymentAmount = parseFloat(paymentForm.amount);
+      
+      await updateDoc(doc(db, "payments", editingPayment.id), {
+        amount: paymentAmount,
+        paymentMethod: paymentForm.paymentMethod,
+        paymentDate: paymentForm.paymentDate,
+        reference: paymentForm.reference,
+        notes: paymentForm.notes,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Update invoice status
+      await updateInvoiceStatus();
+
+      Swal.fire({
+        icon: "success",
+        title: "Payment Updated!",
+        text: `Payment updated successfully`,
+        timer: 2000,
+      });
+
+      setEditPaymentOpen(false);
+      setEditingPayment(null);
+      loadData();
+    } catch (error) {
+      console.error("Error updating payment:", error);
+      Swal.fire("Error", "Failed to update payment", "error");
+    }
+  };
+
+  // NEW: Delete payment function
+  const handleDeletePayment = async (payment) => {
+    const result = await Swal.fire({
+      title: "Delete Payment?",
+      text: `Delete $${parseFloat(payment.amount).toFixed(2)} payment from ${moment(payment.paymentDate).format("MMM DD, YYYY")}?`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Delete",
+      confirmButtonColor: "#d32f2f",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await deleteDoc(doc(db, "payments", payment.id));
+      
+      // Update invoice status
+      await updateInvoiceStatus();
+
+      Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "Payment deleted successfully",
+        timer: 2000,
+      });
+
+      loadData();
+    } catch (error) {
+      console.error("Error deleting payment:", error);
+      Swal.fire("Error", "Failed to delete payment", "error");
+    }
+  };
+
+  // NEW: Update invoice status based on payments and payment plan
+  const updateInvoiceStatus = async () => {
+    const totalAmount = parseFloat(invoice.total || invoice.amount || 0);
+    const totalPaid = getTotalPaid();
+    const remainingBalance = totalAmount - totalPaid;
+
+    let paymentStatus = "unpaid";
+    let invoiceStatus = invoice.status || "Pending";
+
+    if (remainingBalance <= 0) {
+      paymentStatus = "paid";
+      invoiceStatus = "Paid";
+    } else if (totalPaid > 0) {
+      // Check if on payment plan
+      if (invoice.paymentPlan && invoice.paymentPlan.enabled) {
+        paymentStatus = "payment_plan";
+        invoiceStatus = "Making Payments";
+      } else {
+        paymentStatus = "partial";
+        invoiceStatus = "Sent";
+      }
+    }
+
+    await updateDoc(doc(db, "invoices", id), {
+      totalPaid: totalPaid,
+      remainingBalance: remainingBalance,
+      paymentStatus: paymentStatus,
+      status: invoiceStatus,
+      lastPaymentDate: payments.length > 0 ? payments[0].paymentDate : null,
+    });
+  };
+
+  // NEW: Open edit dialog
+  const openEditDialog = (payment) => {
+    setEditingPayment(payment);
+    setPaymentForm({
+      amount: payment.amount.toString(),
+      paymentMethod: payment.paymentMethod || "cash",
+      paymentDate: payment.paymentDate,
+      reference: payment.reference || "",
+      notes: payment.notes || "",
+      generateReceipt: false,
+    });
+    setEditPaymentOpen(true);
   };
 
   const getTotalPaid = () => {
@@ -230,6 +344,39 @@ export default function PaymentTracker() {
     return "💵";
   };
 
+  // NEW: Get payment plan status
+  const getPaymentPlanStatus = () => {
+    if (!invoice.paymentPlan || !invoice.paymentPlan.enabled) {
+      return null;
+    }
+
+    const plan = invoice.paymentPlan;
+    const totalAmount = parseFloat(invoice.total || invoice.amount || 0);
+    const totalPaid = getTotalPaid();
+    const paymentsScheduled = plan.schedule ? plan.schedule.length : 0;
+    const paymentsMade = payments.length;
+
+    return {
+      frequency: plan.frequency,
+      totalPayments: paymentsScheduled,
+      paymentsMade: paymentsMade,
+      downPayment: plan.downPayment || 0,
+      installmentAmount: plan.installmentAmount || 0,
+      schedule: plan.schedule || [],
+      nextDueDate: getNextDueDate(plan.schedule, payments),
+    };
+  };
+
+  // NEW: Get next due date from schedule
+  const getNextDueDate = (schedule, payments) => {
+    if (!schedule || schedule.length === 0) return null;
+    
+    const paidDates = payments.map(p => p.paymentDate);
+    const unpaid = schedule.find(s => !paidDates.includes(s.dueDate));
+    
+    return unpaid ? unpaid.dueDate : null;
+  };
+
   if (loading) {
     return (
       <Container sx={{ mt: 4, textAlign: "center" }}>
@@ -253,6 +400,7 @@ export default function PaymentTracker() {
   const totalPaid = getTotalPaid();
   const remainingBalance = getRemainingBalance();
   const percentPaid = totalAmount > 0 ? (totalPaid / totalAmount) * 100 : 0;
+  const paymentPlanStatus = getPaymentPlanStatus();
 
   return (
     <Container maxWidth="lg" sx={{ mt: 3, mb: 6 }}>
@@ -340,6 +488,102 @@ export default function PaymentTracker() {
         </Grid>
       </Paper>
 
+      {/* NEW: Payment Plan Status */}
+      {paymentPlanStatus && (
+        <Paper sx={{ p: 3, mb: 3, bgcolor: "#e3f2fd", border: "2px solid #2196f3" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+            <ScheduleIcon color="primary" />
+            <Typography variant="h6" color="primary">
+              Payment Plan Active
+            </Typography>
+          </Box>
+          
+          <Grid container spacing={2}>
+            <Grid item xs={6} sm={3}>
+              <Typography variant="caption" color="text.secondary">
+                Frequency
+              </Typography>
+              <Typography variant="body1" fontWeight="bold" sx={{ textTransform: "capitalize" }}>
+                {paymentPlanStatus.frequency}
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={6} sm={3}>
+              <Typography variant="caption" color="text.secondary">
+                Progress
+              </Typography>
+              <Typography variant="body1" fontWeight="bold">
+                {paymentPlanStatus.paymentsMade} of {paymentPlanStatus.totalPayments}
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={6} sm={3}>
+              <Typography variant="caption" color="text.secondary">
+                Installment Amount
+              </Typography>
+              <Typography variant="body1" fontWeight="bold">
+                ${parseFloat(paymentPlanStatus.installmentAmount).toFixed(2)}
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={6} sm={3}>
+              <Typography variant="caption" color="text.secondary">
+                Next Due
+              </Typography>
+              <Typography variant="body1" fontWeight="bold">
+                {paymentPlanStatus.nextDueDate 
+                  ? moment(paymentPlanStatus.nextDueDate).format("MMM DD, YYYY")
+                  : "Complete!"}
+              </Typography>
+            </Grid>
+          </Grid>
+
+          {/* Payment Schedule Table */}
+          {paymentPlanStatus.schedule && paymentPlanStatus.schedule.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                📅 Payment Schedule:
+              </Typography>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>#</TableCell>
+                    <TableCell>Due Date</TableCell>
+                    <TableCell align="right">Amount</TableCell>
+                    <TableCell>Status</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {paymentPlanStatus.schedule.map((scheduled, idx) => {
+                    const isPaid = payments.some(p => 
+                      moment(p.paymentDate).format("YYYY-MM-DD") === moment(scheduled.dueDate).format("YYYY-MM-DD")
+                    );
+                    const isOverdue = !isPaid && moment(scheduled.dueDate).isBefore(moment(), 'day');
+                    
+                    return (
+                      <TableRow key={idx}>
+                        <TableCell>{idx + 1}</TableCell>
+                        <TableCell>{moment(scheduled.dueDate).format("MMM DD, YYYY")}</TableCell>
+                        <TableCell align="right">${parseFloat(scheduled.amount).toFixed(2)}</TableCell>
+                        <TableCell>
+                          {isPaid ? (
+                            <Chip label="Paid" color="success" size="small" icon={<CheckCircleIcon />} />
+                          ) : isOverdue ? (
+                            <Chip label="Overdue" color="error" size="small" />
+                          ) : (
+                            <Chip label="Pending" color="warning" size="small" icon={<PendingIcon />} />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </Box>
+          )}
+        </Paper>
+      )}
+
       {/* Payment History */}
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" gutterBottom>
@@ -373,51 +617,55 @@ export default function PaymentTracker() {
                           {moment(payment.paymentDate).format("MMM DD, YYYY")}
                         </Typography>
                       )}
-                      <Typography variant="h6" color="success.main">
-                        ${parseFloat(payment.amount).toFixed(2)}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {getPaymentMethodIcon(payment.paymentMethod)}{" "}
-                        {getPaymentMethodLabel(payment.paymentMethod)}
-                      </Typography>
-                      {payment.reference && (
-                        <Typography variant="body2" color="text.secondary">
-                          Ref: {payment.reference}
-                        </Typography>
-                      )}
-                      {payment.notes && (
-                        <Typography variant="body2" sx={{ mt: 1 }}>
-                          {payment.notes}
-                        </Typography>
-                      )}
-                      {payment.receiptGenerated && (
-                        <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                          <Chip
-                            icon={<ReceiptIcon />}
-                            label="Receipt Generated"
-                            size="small"
-                          />
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            startIcon={<ReceiptIcon />}
-                            onClick={async () => {
-                              try {
-                                await viewPaymentReceiptPDF({
-                                  payment: payment,
-                                  invoice: invoice,
-                                  newTotalPaid: invoice.totalPaid || getTotalPaid(),
-                                  newRemainingBalance: invoice.remainingBalance || getRemainingBalance(),
-                                }, generatePaymentReceipt);
-                              } catch (error) {
-                                console.error("Error generating receipt:", error);
-                                Swal.fire("Error", "Failed to generate receipt", "error");
-                              }
-                            }}
-                          >
-                            View Receipt
-                          </Button>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
+                        <Box>
+                          <Typography variant="h6" color="success.main">
+                            ${parseFloat(payment.amount).toFixed(2)}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {getPaymentMethodIcon(payment.paymentMethod)}{" "}
+                            {getPaymentMethodLabel(payment.paymentMethod)}
+                          </Typography>
+                          {payment.reference && (
+                            <Typography variant="body2" color="text.secondary">
+                              Ref: {payment.reference}
+                            </Typography>
+                          )}
+                          {payment.notes && (
+                            <Typography variant="body2" sx={{ mt: 1 }}>
+                              {payment.notes}
+                            </Typography>
+                          )}
                         </Box>
+                        
+                        {/* NEW: Edit and Delete buttons */}
+                        <Box sx={{ display: "flex", gap: 1 }}>
+                          <IconButton 
+                            size="small" 
+                            color="primary"
+                            onClick={() => openEditDialog(payment)}
+                            title="Edit Payment"
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton 
+                            size="small" 
+                            color="error"
+                            onClick={() => handleDeletePayment(payment)}
+                            title="Delete Payment"
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                      
+                      {payment.receiptGenerated && (
+                        <Chip
+                          icon={<ReceiptIcon />}
+                          label="Receipt Generated"
+                          size="small"
+                          sx={{ mt: 1 }}
+                        />
                       )}
                     </CardContent>
                   </Card>
@@ -429,82 +677,63 @@ export default function PaymentTracker() {
       </Paper>
 
       {/* Add Payment Dialog */}
-      <Dialog
-        open={addPaymentOpen}
-        onClose={() => setAddPaymentOpen(false)}
-        maxWidth="sm"
-        fullWidth
-        fullScreen={isMobile}
-      >
-        <DialogTitle>Add Payment</DialogTitle>
+      <Dialog open={addPaymentOpen} onClose={() => setAddPaymentOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Record Payment</DialogTitle>
         <DialogContent>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 2 }}>
-            <Alert severity="info">
-              Remaining balance: <strong>${remainingBalance.toFixed(2)}</strong>
-            </Alert>
-
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
             <TextField
               label="Payment Amount"
               type="number"
               value={paymentForm.amount}
-              onChange={(e) =>
-                setPaymentForm({ ...paymentForm, amount: e.target.value })
-              }
+              onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
               fullWidth
               required
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+              }}
               inputProps={{ min: 0, step: "0.01" }}
-              helperText={`Maximum: $${remainingBalance.toFixed(2)}`}
+              helperText={`Remaining balance: $${remainingBalance.toFixed(2)}`}
             />
 
             <TextField
               select
               label="Payment Method"
               value={paymentForm.paymentMethod}
-              onChange={(e) =>
-                setPaymentForm({ ...paymentForm, paymentMethod: e.target.value })
-              }
+              onChange={(e) => setPaymentForm({ ...paymentForm, paymentMethod: e.target.value })}
               fullWidth
             >
-              <MenuItem value="cash">💵 Cash</MenuItem>
-              <MenuItem value="check">📝 Check</MenuItem>
-              <MenuItem value="zelle">💸 Zelle</MenuItem>
-              <MenuItem value="credit_card">💳 Credit Card</MenuItem>
-              <MenuItem value="venmo">💰 Venmo</MenuItem>
-              <MenuItem value="paypal">🅿️ PayPal</MenuItem>
-              <MenuItem value="other">📋 Other</MenuItem>
+              <MenuItem value="cash">Cash</MenuItem>
+              <MenuItem value="check">Check</MenuItem>
+              <MenuItem value="zelle">Zelle (Preferred)</MenuItem>
+              <MenuItem value="credit_card">Credit Card</MenuItem>
+              <MenuItem value="venmo">Venmo</MenuItem>
+              <MenuItem value="paypal">PayPal</MenuItem>
+              <MenuItem value="other">Other</MenuItem>
             </TextField>
 
             <TextField
               label="Payment Date"
               type="date"
               value={paymentForm.paymentDate}
-              onChange={(e) =>
-                setPaymentForm({ ...paymentForm, paymentDate: e.target.value })
-              }
+              onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })}
               fullWidth
               InputLabelProps={{ shrink: true }}
             />
 
             <TextField
-              label="Reference / Check Number"
+              label="Reference/Check Number (Optional)"
               value={paymentForm.reference}
-              onChange={(e) =>
-                setPaymentForm({ ...paymentForm, reference: e.target.value })
-              }
+              onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
               fullWidth
-              helperText="Optional: Check number, Zelle confirmation, etc."
             />
 
             <TextField
-              label="Notes"
+              label="Notes (Optional)"
+              value={paymentForm.notes}
+              onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+              fullWidth
               multiline
               rows={2}
-              value={paymentForm.notes}
-              onChange={(e) =>
-                setPaymentForm({ ...paymentForm, notes: e.target.value })
-              }
-              fullWidth
-              helperText="Optional: Deposit, progress payment, final payment, etc."
             />
 
             <FormControlLabel
@@ -512,25 +741,86 @@ export default function PaymentTracker() {
                 <Checkbox
                   checked={paymentForm.generateReceipt}
                   onChange={(e) =>
-                    setPaymentForm({
-                      ...paymentForm,
-                      generateReceipt: e.target.checked,
-                    })
+                    setPaymentForm({ ...paymentForm, generateReceipt: e.target.checked })
                   }
                 />
               }
-              label="Generate payment receipt (PDF)"
+              label="Generate and view receipt"
             />
           </Box>
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
+        <DialogActions>
           <Button onClick={() => setAddPaymentOpen(false)}>Cancel</Button>
-          <Button
-            onClick={handleAddPayment}
-            variant="contained"
-            startIcon={<PaymentIcon />}
-          >
+          <Button variant="contained" onClick={handleAddPayment}>
             Record Payment
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* NEW: Edit Payment Dialog */}
+      <Dialog open={editPaymentOpen} onClose={() => setEditPaymentOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Payment</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+            <TextField
+              label="Payment Amount"
+              type="number"
+              value={paymentForm.amount}
+              onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+              fullWidth
+              required
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+              }}
+              inputProps={{ min: 0, step: "0.01" }}
+            />
+
+            <TextField
+              select
+              label="Payment Method"
+              value={paymentForm.paymentMethod}
+              onChange={(e) => setPaymentForm({ ...paymentForm, paymentMethod: e.target.value })}
+              fullWidth
+            >
+              <MenuItem value="cash">Cash</MenuItem>
+              <MenuItem value="check">Check</MenuItem>
+              <MenuItem value="zelle">Zelle (Preferred)</MenuItem>
+              <MenuItem value="credit_card">Credit Card</MenuItem>
+              <MenuItem value="venmo">Venmo</MenuItem>
+              <MenuItem value="paypal">PayPal</MenuItem>
+              <MenuItem value="other">Other</MenuItem>
+            </TextField>
+
+            <TextField
+              label="Payment Date"
+              type="date"
+              value={paymentForm.paymentDate}
+              onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+
+            <TextField
+              label="Reference/Check Number (Optional)"
+              value={paymentForm.reference}
+              onChange={(e) => setPaymentForm({ ...paymentForm, reference: e.target.value })}
+              fullWidth
+            />
+
+            <TextField
+              label="Notes (Optional)"
+              value={paymentForm.notes}
+              onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+              fullWidth
+              multiline
+              rows={2}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditPaymentOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleEditPayment}>
+            Save Changes
           </Button>
         </DialogActions>
       </Dialog>

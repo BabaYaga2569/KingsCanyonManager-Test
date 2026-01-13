@@ -34,6 +34,10 @@ import {
   FormControlLabel,
   Radio,
   Alert,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import generateContractPDF from "./pdf/generateContractPDF";
@@ -45,16 +49,19 @@ import SendIcon from "@mui/icons-material/Send";
 import TouchAppIcon from "@mui/icons-material/TouchApp";
 import EmailIcon from "@mui/icons-material/Email";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
+import SortIcon from "@mui/icons-material/Sort";
 
 const logo = "/logo-kcl.png";
 const COMPANY_PHONE = "(928) 450-5733";
 
 export default function ContractsDashboard() {
   const [contracts, setContracts] = useState([]);
+  const [sortedContracts, setSortedContracts] = useState([]);
+  const [sortOrder, setSortOrder] = useState("newest");
   const [loading, setLoading] = useState(true);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [selectedContract, setSelectedContract] = useState(null);
-  const [signingMode, setSigningMode] = useState("remote"); // "remote" or "in-person"
+  const [signingMode, setSigningMode] = useState("remote");
   const [customerEmail, setCustomerEmail] = useState("");
   const navigate = useNavigate();
   const theme = useTheme();
@@ -76,6 +83,37 @@ export default function ContractsDashboard() {
   useEffect(() => {
     fetchContracts();
   }, []);
+
+  // Sort contracts whenever contracts or sortOrder changes
+  useEffect(() => {
+    const sorted = [...contracts].sort((a, b) => {
+      switch (sortOrder) {
+        case "newest":
+          return new Date(b.createdAt || b.contractDate || 0) - new Date(a.createdAt || a.contractDate || 0);
+        case "oldest":
+          return new Date(a.createdAt || a.contractDate || 0) - new Date(b.createdAt || b.contractDate || 0);
+        case "name-asc":
+          return (a.clientName || "").localeCompare(b.clientName || "");
+        case "name-desc":
+          return (b.clientName || "").localeCompare(a.clientName || "");
+        case "amount-high":
+          return parseFloat(b.amount || b.totalAmount || 0) - parseFloat(a.amount || a.totalAmount || 0);
+        case "amount-low":
+          return parseFloat(a.amount || a.totalAmount || 0) - parseFloat(b.amount || b.totalAmount || 0);
+        case "status-unsigned":
+          const aUnsigned = !(a.clientSignature && a.contractorSignature) ? -1 : 1;
+          const bUnsigned = !(b.clientSignature && b.contractorSignature) ? -1 : 1;
+          return aUnsigned - bUnsigned;
+        case "status-signed":
+          const aSigned = (a.clientSignature && a.contractorSignature) ? -1 : 1;
+          const bSigned = (b.clientSignature && b.contractorSignature) ? -1 : 1;
+          return aSigned - bSigned;
+        default:
+          return 0;
+      }
+    });
+    setSortedContracts(sorted);
+  }, [contracts, sortOrder]);
 
   const handleDeleteContract = async (id, clientName) => {
     const confirm = await Swal.fire({
@@ -146,7 +184,6 @@ export default function ContractsDashboard() {
     setSendDialogOpen(true);
   };
 
-  // Schedule job handler
   const handleScheduleJob = (contract) => {
     navigate("/schedule-job", { state: { contract } });
   };
@@ -158,11 +195,9 @@ export default function ContractsDashboard() {
     }
 
     try {
-      // IMPORTANT: Use /public/ prefix so customers can't access your private app!
       const signatureLink = `${window.location.origin}/public/sign/${selectedContract.id}`;
       
       if (signingMode === "remote") {
-        // Update contract with signature link
         await updateDoc(doc(db, "contracts", selectedContract.id), {
           signatureLink: signatureLink,
           status: "Sent - Awaiting Client Signature",
@@ -170,8 +205,6 @@ export default function ContractsDashboard() {
           clientEmail: customerEmail,
         });
 
-        // Email will be sent via Cloud Function in Phase 2
-        // For now, show the link so you can copy/text it
         console.log("Email would be sent to:", customerEmail);
         console.log("Signature link:", signatureLink);
 
@@ -195,9 +228,8 @@ export default function ContractsDashboard() {
           width: '600px',
         });
 
-        fetchContracts(); // Refresh list
+        fetchContracts();
       } else {
-        // In-person signing - open contract editor
         navigate(`/contract/${selectedContract.id}`);
       }
 
@@ -210,13 +242,13 @@ export default function ContractsDashboard() {
 
   const getStatusColor = (contract) => {
     if (contract.clientSignature && contract.contractorSignature) {
-      return "success"; // Fully signed
+      return "success";
     } else if (contract.clientSignature) {
-      return "warning"; // Client signed, awaiting owner
+      return "warning";
     } else if (contract.status === "Sent - Awaiting Client Signature") {
-      return "info"; // Sent but not signed
+      return "info";
     }
-    return "default"; // Pending
+    return "default";
   };
 
   const getStatusLabel = (contract) => {
@@ -241,7 +273,7 @@ export default function ContractsDashboard() {
     );
   }
 
-  if (contracts.length === 0) {
+  if (sortedContracts.length === 0) {
     return (
       <Box sx={{ p: 3 }}>
         <Typography variant="h5" gutterBottom>
@@ -256,11 +288,37 @@ export default function ContractsDashboard() {
   if (isMobile) {
     return (
       <Box sx={{ p: 2 }}>
-        <Typography variant="h5" gutterBottom>
-          Contracts Dashboard
-        </Typography>
+        {/* Header with Sort Dropdown */}
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
+          <Typography variant="h5">
+            Contracts ({sortedContracts.length})
+          </Typography>
+
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="sort-label">
+              <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+              Sort By
+            </InputLabel>
+            <Select
+              labelId="sort-label"
+              value={sortOrder}
+              label="Sort By"
+              onChange={(e) => setSortOrder(e.target.value)}
+            >
+              <MenuItem value="newest">📅 Newest First</MenuItem>
+              <MenuItem value="oldest">📅 Oldest First</MenuItem>
+              <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
+              <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
+              <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
+              <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
+              <MenuItem value="status-unsigned">⏳ Unsigned First</MenuItem>
+              <MenuItem value="status-signed">✅ Signed First</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 2 }}>
-          {contracts.map((contract) => (
+          {sortedContracts.map((contract) => (
             <Card key={contract.id} sx={{ boxShadow: 3 }}>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
@@ -400,9 +458,35 @@ export default function ContractsDashboard() {
   // Desktop view
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h5" gutterBottom>
-        Contracts Dashboard
-      </Typography>
+      {/* Header with Sort Dropdown */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
+        <Typography variant="h5">
+          Contracts Dashboard ({sortedContracts.length})
+        </Typography>
+
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="sort-label">
+            <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+            Sort By
+          </InputLabel>
+          <Select
+            labelId="sort-label"
+            value={sortOrder}
+            label="Sort By"
+            onChange={(e) => setSortOrder(e.target.value)}
+          >
+            <MenuItem value="newest">📅 Newest First</MenuItem>
+            <MenuItem value="oldest">📅 Oldest First</MenuItem>
+            <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
+            <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
+            <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
+            <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
+            <MenuItem value="status-unsigned">⏳ Unsigned First</MenuItem>
+            <MenuItem value="status-signed">✅ Signed First</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
+
       <TableContainer
         component={Paper}
         sx={{
@@ -423,7 +507,7 @@ export default function ContractsDashboard() {
           </TableHead>
 
           <TableBody>
-            {contracts.map((contract) => (
+            {sortedContracts.map((contract) => (
               <TableRow key={contract.id}>
                 <TableCell>{contract.clientName || "Unnamed Client"}</TableCell>
                 <TableCell>
@@ -490,7 +574,6 @@ export default function ContractsDashboard() {
                   >
                     Schedule
                   </Button>
-
 
                   <Button
                     variant="outlined"

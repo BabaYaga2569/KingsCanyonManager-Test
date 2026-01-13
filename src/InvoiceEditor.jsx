@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, updateDoc, collection, getDocs } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, getDocs, addDoc, query, where } from "firebase/firestore";
 import { db } from "./firebase";
 import {
   Container,
@@ -19,10 +19,13 @@ import {
   Alert,
   Card,
   CardContent,
+  Chip,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import moment from 'moment';
 
 const InvoiceEditor = () => {
   const { id } = useParams();
@@ -38,6 +41,13 @@ const InvoiceEditor = () => {
   const [expenses, setExpenses] = useState([]);
   const [loadingExpenses, setLoadingExpenses] = useState(false);
   const [includeMaterialBreakdown, setIncludeMaterialBreakdown] = useState(false);
+  
+  // NEW: Payment plan state
+  const [paymentPlanEnabled, setPaymentPlanEnabled] = useState(false);
+  const [paymentFrequency, setPaymentFrequency] = useState('monthly');
+  const [numberOfPayments, setNumberOfPayments] = useState(4);
+  const [downPaymentPercent, setDownPaymentPercent] = useState(20);
+  const [firstPaymentDate, setFirstPaymentDate] = useState(moment().format('YYYY-MM-DD'));
 
   useEffect(() => {
     const fetchInvoice = async () => {
@@ -46,7 +56,7 @@ const InvoiceEditor = () => {
         const snap = await getDoc(docRef);
         if (snap.exists()) {
           const data = snap.data();
-          setInvoice(data);
+          setInvoice({ ...data, originalStatus: data.status }); // Store original status
           // Set tax rate if it exists
           if (data.taxRate) {
             setTaxRate(data.taxRate);
@@ -54,6 +64,14 @@ const InvoiceEditor = () => {
           // Set material breakdown preference if it exists
           if (data.includeMaterialBreakdown !== undefined) {
             setIncludeMaterialBreakdown(data.includeMaterialBreakdown);
+          }
+          // Load payment plan if it exists
+          if (data.paymentPlan && data.paymentPlan.enabled) {
+            setPaymentPlanEnabled(true);
+            setPaymentFrequency(data.paymentPlan.frequency || 'monthly');
+            setNumberOfPayments(data.paymentPlan.numberOfPayments || 4);
+            setDownPaymentPercent(data.paymentPlan.downPaymentPercent || 20);
+            setFirstPaymentDate(data.paymentPlan.firstPaymentDate || moment().format('YYYY-MM-DD'));
           }
         } else {
           Swal.fire("Not found", "Invoice not found.", "error");
@@ -117,6 +135,60 @@ const InvoiceEditor = () => {
     setTaxRate(rate);
   };
 
+  // NEW: Calculate payment schedule
+  const calculatePaymentSchedule = () => {
+    if (!invoice) return [];
+    
+    const totalAmount = parseFloat(invoice.subtotal || invoice.amount || 0) + parseFloat(invoice.tax || 0);
+    const downPayment = (totalAmount * downPaymentPercent) / 100;
+    const remaining = totalAmount - downPayment;
+    const installmentAmount = remaining / (numberOfPayments - 1);
+    
+    const schedule = [];
+    
+    // Add down payment
+    schedule.push({
+      amount: downPayment,
+      dueDate: firstPaymentDate,
+      paymentNumber: 1,
+      type: 'down_payment',
+    });
+    
+    // Add installments
+    for (let i = 1; i < numberOfPayments; i++) {
+      let dueDate = moment(firstPaymentDate);
+      
+      switch (paymentFrequency) {
+        case 'weekly':
+          dueDate = dueDate.add(i * 7, 'days');
+          break;
+        case 'biweekly':
+          dueDate = dueDate.add(i * 14, 'days');
+          break;
+        case 'monthly':
+          dueDate = dueDate.add(i, 'months');
+          break;
+        default:
+          dueDate = dueDate.add(i, 'months');
+      }
+      
+      // Last payment gets remaining (handles rounding)
+      const isLast = i === numberOfPayments - 1;
+      const amount = isLast 
+        ? remaining - (installmentAmount * (numberOfPayments - 2))
+        : installmentAmount;
+      
+      schedule.push({
+        amount: amount,
+        dueDate: dueDate.format('YYYY-MM-DD'),
+        paymentNumber: i + 1,
+        type: 'installment',
+      });
+    }
+    
+    return schedule;
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -127,13 +199,78 @@ const InvoiceEditor = () => {
       const tax = parseFloat(invoice.tax || 0);
       const total = subtotal + tax;
       
+      // Build payment plan object
+      const paymentPlan = paymentPlanEnabled ? {
+        enabled: true,
+        frequency: paymentFrequency,
+        numberOfPayments: numberOfPayments,
+        downPaymentPercent: downPaymentPercent,
+        downPayment: (total * downPaymentPercent) / 100,
+        installmentAmount: (total - (total * downPaymentPercent) / 100) / (numberOfPayments - 1),
+        firstPaymentDate: firstPaymentDate,
+        schedule: calculatePaymentSchedule(),
+        createdAt: new Date().toISOString(),
+      } : { enabled: false };
+      
+      // ✅ NEW: Auto-handle when marking invoice as "Paid"
+      const statusChanged = invoice.status === "Paid" && invoice.status !== invoice.originalStatus;
+      
+      if (statusChanged) {
+        // Check if payment record already exists
+        const paymentsQuery = query(
+          collection(db, "payments"),
+          where("invoiceId", "==", id)
+        );
+        const paymentsSnap = await getDocs(paymentsQuery);
+        
+        // If no payment records exist, create one for tax reporting
+        if (paymentsSnap.empty) {
+          await addDoc(collection(db, "payments"), {
+            invoiceId: id,
+            clientName: invoice.clientName,
+            amount: total,
+            paymentMethod: "other",
+            paymentDate: moment().format("YYYY-MM-DD"),
+            reference: "Auto-generated from invoice status",
+            notes: "Automatically created when invoice marked as Paid",
+            receiptGenerated: false,
+            createdAt: new Date().toISOString(),
+          });
+          
+          console.log("✅ Auto-created payment record for tax reporting");
+        }
+        
+        // ✅ Auto-complete the related job if it exists
+        if (invoice.jobId) {
+          try {
+            const jobRef = doc(db, "jobs", invoice.jobId);
+            const jobSnap = await getDoc(jobRef);
+            
+            if (jobSnap.exists()) {
+              await updateDoc(jobRef, {
+                status: "Completed",
+                completedDate: new Date().toISOString(),
+              });
+              console.log("✅ Auto-completed related job");
+            }
+          } catch (jobError) {
+            console.warn("Could not auto-complete job:", jobError);
+            // Continue anyway - invoice update is more important
+          }
+        }
+      }
+      
       await updateDoc(docRef, {
         ...invoice,
         subtotal,
         tax,
         total,
         taxRate,
-        includeMaterialBreakdown, // NEW: Save material breakdown preference
+        includeMaterialBreakdown, // Save material breakdown preference
+        paymentPlan, // NEW: Save payment plan
+        totalPaid: invoice.status === "Paid" ? total : (invoice.totalPaid || 0),
+        remainingBalance: invoice.status === "Paid" ? 0 : (invoice.remainingBalance || total),
+        paymentStatus: invoice.status === "Paid" ? "paid" : (invoice.paymentStatus || "unpaid"),
       });
       
       Swal.fire("Saved", "Invoice updated successfully.", "success");
@@ -489,10 +626,169 @@ const InvoiceEditor = () => {
           </Paper>
         )}
 
+        {/* NEW: PAYMENT PLAN SETUP */}
+        <Paper sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <ScheduleIcon color="primary" />
+            <Typography variant="h6">
+              💰 Payment Plan Setup
+            </Typography>
+          </Box>
+          
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={paymentPlanEnabled}
+                onChange={(e) => setPaymentPlanEnabled(e.target.checked)}
+              />
+            }
+            label="Enable Payment Plan for this invoice"
+          />
+          
+          {paymentPlanEnabled && (
+            <Box sx={{ mt: 3, p: 3, bgcolor: '#f0f7ff', borderRadius: 2, border: '2px solid #2196f3' }}>
+              <Grid container spacing={3}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    select
+                    label="Payment Frequency"
+                    value={paymentFrequency}
+                    onChange={(e) => setPaymentFrequency(e.target.value)}
+                    fullWidth
+                    helperText="How often will customer pay?"
+                  >
+                    <MenuItem value="weekly">📅 Weekly - Every 7 days</MenuItem>
+                    <MenuItem value="biweekly">📅 Bi-Weekly - Every 2 weeks</MenuItem>
+                    <MenuItem value="monthly">📅 Monthly - Every month</MenuItem>
+                  </TextField>
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    type="number"
+                    label="Number of Payments"
+                    value={numberOfPayments}
+                    onChange={(e) => setNumberOfPayments(parseInt(e.target.value) || 2)}
+                    fullWidth
+                    inputProps={{ min: 2, max: 12 }}
+                    helperText="Total installments (including down payment)"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    type="number"
+                    label="Down Payment %"
+                    value={downPaymentPercent}
+                    onChange={(e) => setDownPaymentPercent(parseFloat(e.target.value) || 10)}
+                    fullWidth
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                    }}
+                    inputProps={{ min: 10, max: 50, step: 5 }}
+                    helperText="Recommended: 10-20% based on payment frequency"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="First Payment Date (Down Payment)"
+                    type="date"
+                    value={firstPaymentDate}
+                    onChange={(e) => setFirstPaymentDate(e.target.value)}
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                    helperText="When is down payment due?"
+                  />
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ScheduleIcon /> Calculated Payment Schedule:
+                  </Typography>
+                  
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    💡 This schedule will be tracked in Payment Tracker after saving
+                  </Alert>
+                  
+                  <Box sx={{ bgcolor: 'white', borderRadius: 1, overflow: 'hidden' }}>
+                    <Grid container sx={{ p: 1, bgcolor: '#1976d2', color: 'white', fontWeight: 'bold' }}>
+                      <Grid item xs={2}>#</Grid>
+                      <Grid item xs={4}>Due Date</Grid>
+                      <Grid item xs={3}>Amount</Grid>
+                      <Grid item xs={3}>Type</Grid>
+                    </Grid>
+                    
+                    {calculatePaymentSchedule().map((payment, idx) => (
+                      <Grid 
+                        container 
+                        key={idx}
+                        sx={{ 
+                          p: 1,
+                          borderBottom: '1px solid #e0e0e0',
+                          '&:hover': { bgcolor: '#f5f5f5' }
+                        }}
+                      >
+                        <Grid item xs={2}>
+                          <Typography fontWeight="bold">#{idx + 1}</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography>
+                            {moment(payment.dueDate).format("MMM DD, YYYY")}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={3}>
+                          <Typography fontWeight="bold" color="primary">
+                            ${payment.amount.toFixed(2)}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={3}>
+                          {idx === 0 ? (
+                            <Chip label="Down Payment" color="warning" size="small" />
+                          ) : (
+                            <Chip label="Installment" color="info" size="small" />
+                          )}
+                        </Grid>
+                      </Grid>
+                    ))}
+                    
+                    <Grid 
+                      container 
+                      sx={{ 
+                        p: 1.5,
+                        bgcolor: '#e3f2fd',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      <Grid item xs={6}>
+                        <Typography fontWeight="bold">Total:</Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography fontWeight="bold" color="primary">
+                          ${(subtotal + tax).toFixed(2)}
+                        </Typography>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                </Grid>
+              </Grid>
+            </Box>
+          )}
+        </Paper>
+
         <Paper sx={{ p: 3 }}>
           <Typography variant="h6" gutterBottom>
             Invoice Status
           </Typography>
+          
+          {paymentPlanEnabled && invoice.status !== "Making Payments" && invoice.status !== "Paid" && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              💡 <strong>Tip:</strong> Since you've enabled a payment plan, consider setting the status to "Making Payments" 
+              to track that installments are in progress.
+            </Alert>
+          )}
+          
           <TextField
             select
             label="Status"
@@ -504,6 +800,7 @@ const InvoiceEditor = () => {
           >
             <MenuItem value="Pending">Pending - Not sent yet</MenuItem>
             <MenuItem value="Sent">Sent - Emailed to client</MenuItem>
+            <MenuItem value="Making Payments">Making Payments - Installments in progress 💰</MenuItem>
             <MenuItem value="Paid">Paid - Payment received ✅</MenuItem>
             <MenuItem value="Overdue">Overdue - Payment late</MenuItem>
           </TextField>

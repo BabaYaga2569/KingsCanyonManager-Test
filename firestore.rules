@@ -2,74 +2,96 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // Users collection (NEW - for roles)
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false; // Only admins via Firebase Console
+    }
+    
     // Bids collection
     match /bids/{bidId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Contracts collection
     match /contracts/{contractId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Invoices collection
     match /invoices/{invoiceId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Jobs collection
     match /jobs/{jobId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Settings collection
     match /settings/{settingId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Customers collection
     match /customers/{customerId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Crews collection
     match /crews/{crewId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Equipment collection
     match /equipment/{equipmentId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Schedules collection
     match /schedules/{scheduleId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Payments collection
     match /payments/{paymentId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Expenses collection
     match /expenses/{expenseId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // Crew Payments collection
     match /crew_payments/{paymentId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
     // NDAs collection
     match /ndas/{ndaId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
-    // Job Time Entries collection (NEW!)
+    // Notes collection (NEW - for Notes Manager)
+    match /notes/{noteId} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Job Time Entries collection (UPDATED FOR TIME CLOCK)
     match /job_time_entries/{entryId} {
-      allow read, write: if true;
+      // Crew can read their own entries, admins can read all
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.crewId || 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['god', 'admin']);
+      
+      // Crew can create their own entries (clock in/out)
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.crewId;
+      
+      // Only admins can update/delete (approve/reject/edit)
+      allow update, delete: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['god', 'admin'];
     }
     
     // Default: deny all other access

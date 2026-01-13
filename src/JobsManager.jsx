@@ -8,7 +8,7 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "./firebase";
-import { useNavigate } from "react-router-dom";  // ← NEW
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Typography,
@@ -32,10 +32,13 @@ import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import CloseIcon from "@mui/icons-material/Close";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import EditIcon from "@mui/icons-material/Edit";
+import SortIcon from "@mui/icons-material/Sort";
 import Swal from "sweetalert2";
 
 export default function JobsManager() {
   const [jobs, setJobs] = useState([]);
+  const [sortedJobs, setSortedJobs] = useState([]);
+  const [sortOrder, setSortOrder] = useState("newest");
   const [loading, setLoading] = useState(true);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [currentJob, setCurrentJob] = useState(null);
@@ -43,7 +46,6 @@ export default function JobsManager() {
   const [capturedImage, setCapturedImage] = useState(null);
   const [uploading, setUploading] = useState(false);
   
-  // Edit dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -56,7 +58,7 @@ export default function JobsManager() {
     notes: "",
   });
   
-  const navigate = useNavigate();  // ← NEW
+  const navigate = useNavigate();
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -65,6 +67,31 @@ export default function JobsManager() {
   useEffect(() => {
     fetchJobs();
   }, []);
+
+  // Sort jobs whenever jobs or sortOrder changes
+  useEffect(() => {
+    const sorted = [...jobs].sort((a, b) => {
+      switch (sortOrder) {
+        case "newest":
+          return new Date(b.createdAt || b.startDate || 0) - new Date(a.createdAt || a.startDate || 0);
+        case "oldest":
+          return new Date(a.createdAt || a.startDate || 0) - new Date(b.createdAt || b.startDate || 0);
+        case "name-asc":
+          return (a.clientName || "").localeCompare(b.clientName || "");
+        case "name-desc":
+          return (b.clientName || "").localeCompare(a.clientName || "");
+        case "status-active":
+          return (a.status === "Active" ? -1 : 1) - (b.status === "Active" ? -1 : 1);
+        case "status-completed":
+          return (a.status === "Completed" ? -1 : 1) - (b.status === "Completed" ? -1 : 1);
+        case "status-pending":
+          return (a.status === "Pending" ? -1 : 1) - (b.status === "Pending" ? -1 : 1);
+        default:
+          return 0;
+      }
+    });
+    setSortedJobs(sorted);
+  }, [jobs, sortOrder]);
 
   const fetchJobs = async () => {
     try {
@@ -100,146 +127,23 @@ export default function JobsManager() {
       text: "This will permanently remove this job and all its photos.",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
       confirmButtonText: "Yes, delete it",
+      cancelButtonText: "Cancel",
     });
 
-    if (confirm.isConfirmed) {
-      try {
-        await deleteDoc(doc(db, "jobs", jobId));
-        setJobs((prev) => prev.filter((job) => job.id !== jobId));
-        Swal.fire("Deleted!", "The job has been removed.", "success");
-      } catch (error) {
-        console.error("Error deleting job:", error);
-        Swal.fire("Error", "Failed to delete job.", "error");
-      }
-    }
-  };
-
-  const handleOpenCamera = async (type, job) => {
-    setPhotoType(type);
-    setCurrentJob(job);
-    setCameraOpen(true);
-    setCapturedImage(null);
+    if (!confirm.isConfirmed) return;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-        audio: false,
-      });
-      
-      streamRef.current = stream;
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+      await deleteDoc(doc(db, "jobs", jobId));
+      setJobs((prev) => prev.filter((j) => j.id !== jobId));
+      Swal.fire("Deleted!", "Job has been removed.", "success");
     } catch (error) {
-      console.error("Camera access error:", error);
-      Swal.fire({
-        icon: "error",
-        title: "Camera Access Denied",
-        text: "Please allow camera access to take photos. You can also upload from your gallery.",
-      });
-      setCameraOpen(false);
+      console.error("Error deleting job:", error);
+      Swal.fire("Error", "Failed to delete job.", "error");
     }
   };
 
-  const handleCapturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-      
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      const imageDataUrl = canvas.toDataURL("image/jpeg", 0.8);
-      setCapturedImage(imageDataUrl);
-      
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-    }
-  };
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setCapturedImage(event.target.result);
-        
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleUploadPhoto = async () => {
-    if (!capturedImage || !currentJob) return;
-
-    setUploading(true);
-    try {
-      const response = await fetch(capturedImage);
-      const blob = await response.blob();
-      
-      const timestamp = Date.now();
-      const filename = `jobs/${currentJob.id}/${photoType}_${timestamp}.jpg`;
-      
-      const storageRef = ref(storage, filename);
-      await uploadBytes(storageRef, blob);
-      
-      const downloadURL = await getDownloadURL(storageRef);
-      
-      const jobRef = doc(db, "jobs", currentJob.id);
-      const photoField = `${photoType}Photos`;
-      const currentPhotos = currentJob[photoField] || [];
-      
-      await updateDoc(jobRef, {
-        [photoField]: [...currentPhotos, downloadURL],
-      });
-      
-      setJobs(prev => prev.map(job => 
-        job.id === currentJob.id 
-          ? { ...job, [photoField]: [...currentPhotos, downloadURL] }
-          : job
-      ));
-      
-      Swal.fire({
-        icon: "success",
-        title: "Photo Uploaded!",
-        text: `${photoType.charAt(0).toUpperCase() + photoType.slice(1)} photo saved successfully.`,
-        timer: 2000,
-      });
-      
-      handleCloseCamera();
-    } catch (error) {
-      console.error("Upload error:", error);
-      Swal.fire({
-        icon: "error",
-        title: "Upload Failed",
-        text: "Failed to upload photo. Please try again.",
-      });
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleCloseCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-    }
-    setCameraOpen(false);
-    setCapturedImage(null);
-    setCurrentJob(null);
-  };
-
-  // NEW: View photos gallery
+  // View photos gallery
   const handleViewPhotos = (job) => {
     const beforePhotos = job.beforePhotos || [];
     const afterPhotos = job.afterPhotos || [];
@@ -285,14 +189,13 @@ export default function JobsManager() {
     });
   };
 
-  // Edit job functions
   const handleOpenEditDialog = (job) => {
     setEditingJob(job);
     setEditForm({
       clientName: job.clientName || "",
       description: job.description || "",
       amount: job.amount || "",
-      status: job.status || "Pending",
+      status: job.status || "",
       startDate: job.startDate || "",
       completionDate: job.completionDate || "",
       notes: job.notes || "",
@@ -303,35 +206,28 @@ export default function JobsManager() {
   const handleCloseEditDialog = () => {
     setEditDialogOpen(false);
     setEditingJob(null);
+    setEditForm({
+      clientName: "",
+      description: "",
+      amount: "",
+      status: "",
+      startDate: "",
+      completionDate: "",
+      notes: "",
+    });
   };
 
   const handleSaveEdit = async () => {
-    if (!editForm.clientName) {
-      Swal.fire("Missing Info", "Client name is required", "warning");
-      return;
-    }
+    if (!editingJob) return;
 
     try {
-      await updateDoc(doc(db, "jobs", editingJob.id), {
-        clientName: editForm.clientName,
-        description: editForm.description,
-        amount: editForm.amount ? parseFloat(editForm.amount) : 0,
-        status: editForm.status,
-        startDate: editForm.startDate,
-        completionDate: editForm.completionDate,
-        notes: editForm.notes,
-        lastUpdated: new Date().toISOString(),
-      });
-
+      await updateDoc(doc(db, "jobs", editingJob.id), editForm);
       setJobs((prev) =>
         prev.map((job) =>
-          job.id === editingJob.id
-            ? { ...job, ...editForm, amount: editForm.amount ? parseFloat(editForm.amount) : 0 }
-            : job
+          job.id === editingJob.id ? { ...job, ...editForm } : job
         )
       );
-
-      Swal.fire("Saved!", "Job updated successfully.", "success");
+      Swal.fire("Updated!", "Job details have been saved.", "success");
       handleCloseEditDialog();
     } catch (error) {
       console.error("Error updating job:", error);
@@ -339,14 +235,120 @@ export default function JobsManager() {
     }
   };
 
+  const handleOpenCamera = async (type, job) => {
+    setCurrentJob(job);
+    setPhotoType(type);
+    setCapturedImage(null);
+    setCameraOpen(true);
+  };
+
+  const handleCloseCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setCameraOpen(false);
+    setCurrentJob(null);
+    setPhotoType("");
+    setCapturedImage(null);
+  };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (error) {
+      console.error("Camera error:", error);
+      Swal.fire("Error", "Could not access camera.", "error");
+      handleCloseCamera();
+    }
+  };
+
+  useEffect(() => {
+    if (cameraOpen && videoRef.current) {
+      startCamera();
+    }
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [cameraOpen]);
+
+  const handleCapturePhoto = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+    setCapturedImage(dataUrl);
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCapturedImage(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleUploadPhoto = async () => {
+    if (!capturedImage || !currentJob) return;
+
+    setUploading(true);
+    try {
+      const blob = await (await fetch(capturedImage)).blob();
+      const fileName = `${currentJob.id}_${photoType}_${Date.now()}.jpg`;
+      const storageRef = ref(storage, `job-photos/${fileName}`);
+      await uploadBytes(storageRef, blob);
+      const url = await getDownloadURL(storageRef);
+
+      const field =
+        photoType === "before" ? "beforePhotos" : "afterPhotos";
+      const currentPhotos = currentJob[field] || [];
+      const updatedPhotos = [...currentPhotos, url];
+
+      await updateDoc(doc(db, "jobs", currentJob.id), {
+        [field]: updatedPhotos,
+      });
+
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === currentJob.id
+            ? { ...job, [field]: updatedPhotos }
+            : job
+        )
+      );
+
+      Swal.fire("Success!", "Photo uploaded.", "success");
+      handleCloseCamera();
+    } catch (error) {
+      console.error("Upload error:", error);
+      Swal.fire("Error", "Failed to upload photo.", "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const getStatusColor = (status) => {
-    switch (status?.toLowerCase()) {
+    switch ((status || "").toLowerCase()) {
       case "active":
         return "success";
       case "pending":
         return "warning";
-      case "cancelled":
-        return "error";
       case "completed":
         return "info";
       default:
@@ -364,13 +366,33 @@ export default function JobsManager() {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
-      <Typography 
-        variant="h6" 
-        gutterBottom
-        sx={{ fontSize: { xs: '1.5rem', sm: '2rem' } }}
-      >
-        Jobs (Before / After Photos)
-      </Typography>
+      {/* Header with Sort Dropdown */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
+        <Typography variant="h6" sx={{ fontSize: { xs: '1.5rem', sm: '2rem' } }}>
+          Jobs ({sortedJobs.length})
+        </Typography>
+
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="sort-label">
+            <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+            Sort By
+          </InputLabel>
+          <Select
+            labelId="sort-label"
+            value={sortOrder}
+            label="Sort By"
+            onChange={(e) => setSortOrder(e.target.value)}
+          >
+            <MenuItem value="newest">📅 Newest First</MenuItem>
+            <MenuItem value="oldest">📅 Oldest First</MenuItem>
+            <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
+            <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
+            <MenuItem value="status-active">🔄 Active First</MenuItem>
+            <MenuItem value="status-completed">✅ Completed First</MenuItem>
+            <MenuItem value="status-pending">⏳ Pending First</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
 
       <Box
         sx={{
@@ -383,7 +405,7 @@ export default function JobsManager() {
           mt: 2,
         }}
       >
-        {jobs.map((job) => (
+        {sortedJobs.map((job) => (
           <Card key={job.id} sx={{ boxShadow: 2 }}>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 2 }}>
@@ -510,6 +532,17 @@ export default function JobsManager() {
             </CardActions>
           </Card>
         ))}
+
+        {sortedJobs.length === 0 && (
+          <Box sx={{ gridColumn: '1 / -1', textAlign: 'center', py: 8 }}>
+            <Typography variant="h6" color="text.secondary">
+              No Jobs Yet
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Jobs will appear here after you create them
+            </Typography>
+          </Box>
+        )}
       </Box>
 
       {/* Camera Dialog */}
@@ -655,8 +688,8 @@ export default function JobsManager() {
                 label="Status"
                 onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
               >
-                <MenuItem value="Pending">Pending</MenuItem>
                 <MenuItem value="Active">Active</MenuItem>
+                <MenuItem value="Pending">Pending</MenuItem>
                 <MenuItem value="Completed">Completed</MenuItem>
                 <MenuItem value="Cancelled">Cancelled</MenuItem>
               </Select>
@@ -690,10 +723,10 @@ export default function JobsManager() {
             />
           </Box>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ p: 2 }}>
           <Button onClick={handleCloseEditDialog}>Cancel</Button>
           <Button onClick={handleSaveEdit} variant="contained" color="primary">
-            Save Changes
+            💾 Save Changes
           </Button>
         </DialogActions>
       </Dialog>

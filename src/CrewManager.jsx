@@ -26,6 +26,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PersonIcon from "@mui/icons-material/Person";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import jsPDF from "jspdf";
 
 const COMPANY = {
@@ -35,6 +36,102 @@ const COMPANY = {
   email: "kingscanyon775@gmail.com",
 };
 
+// COMPREHENSIVE NDA TEXT - 8 SECTIONS
+const NDA_PREVIEW_TEXT = `WORKER CONFIDENTIALITY & NON-DISCLOSURE AGREEMENT
+NON-SOLICITATION & NON-COMPETE AGREEMENT
+
+This Agreement is entered into by and between Kings Canyon Landscaping LLC ("Company") and the undersigned ("Recipient").
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. CONFIDENTIAL INFORMATION
+
+The Recipient acknowledges that during their employment or engagement, they may have access to confidential and proprietary information, including but not limited to:
+
+• Customer lists, past, current, and future customers
+• Customer contact information and job locations
+• Pricing, bids, estimates, and invoices
+• Business strategies, operations, and scheduling
+• Trade secrets and proprietary methods
+• Financial records
+• Employee and subcontractor information
+
+All such information is the exclusive property of the Company.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2. NON-DISCLOSURE OBLIGATIONS
+
+The Recipient agrees to:
+
+• Keep all confidential information strictly confidential
+• Not disclose confidential information to any third party
+• Not use confidential information for personal benefit or outside business
+• Return all Company property, records, accounts, and materials immediately upon termination
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3. NON-SOLICITATION OF CUSTOMERS
+
+The Recipient shall not, during employment or at any time thereafter, directly or indirectly:
+
+• Contact, solicit, divert, or perform work for any past, current, or future customer of the Company
+• Attempt to take work from the Company's customers for personal gain or another business
+• Circumvent the Company to secure work for themselves, even if the Recipient originally found the job
+
+This applies whether the Recipient is an employee, independent contractor, or otherwise associated with the Company at the time of the conduct.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4. LIQUIDATED DAMAGES – CUSTOMER POACHING
+
+The Recipient agrees that any violation of Section 3 (Non-Solicitation) shall result in liquidated damages in the amount of $15,000 per violation, which the parties agree is a reasonable estimate of damages and not a penalty. This amount is due immediately upon breach.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5. UNAUTHORIZED USE OF COMPANY NAME OR ACCOUNTS
+
+If the Recipient is found using:
+• The Company name
+• Company phone numbers
+• Company email accounts
+• Company branding, licenses, or reputation
+
+to make money for themselves or another party without written authorization, the following shall apply:
+
+• Immediate termination of employment
+• A $1,500 liquidated damages fee per occurrence
+• Possible legal action for additional damages
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6. DURATION
+
+This Agreement remains in effect during employment and for two (2) years following termination, except for Sections 3, 4, and 5, which survive termination indefinitely where allowed by law.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7. REMEDIES
+
+The Recipient acknowledges that breach of this Agreement may result in:
+
+• Immediate termination
+• Injunctive relief
+• Recovery of damages, liquidated damages, and attorney's fees
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+8. GOVERNING LAW
+
+This Agreement shall be governed by and enforced under the laws of the State of Arizona.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ACKNOWLEDGMENT & SIGNATURES
+
+By signing below, the Recipient acknowledges that they have read, understood, and agree to be legally bound by this Agreement.`;
+
+// OLD NDA TEXT - Keep for PDF generation of signed NDAs
 const NDA_TEXT = `
 NON-DISCLOSURE AGREEMENT
 
@@ -113,7 +210,7 @@ const generateNDAPDF = async (crewMember, logoDataUrl = null) => {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.text(`Name: ${crewMember.name || "N/A"}`, 50, 200);
-  doc.text(`Position: ${crewMember.role || "Crew Member"}`, 50, 216);
+  doc.text(`Position: ${crewMember.position || "Crew Member"}`, 50, 216);
   doc.text(`Date: ${new Date().toLocaleDateString()}`, 350, 200);
   doc.text(`Phone: ${crewMember.phone || "N/A"}`, 350, 216);
 
@@ -201,22 +298,22 @@ const generateNDAPDF = async (crewMember, logoDataUrl = null) => {
 };
 
 export default function CrewManager() {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
-  
   const [crews, setCrews] = useState([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingCrew, setEditingCrew] = useState(null);
-  
+  const [openDialog, setOpenDialog] = useState(false);
+  const [previewDialog, setPreviewDialog] = useState(false);
+  const [selectedCrew, setSelectedCrew] = useState(null);
   const [formData, setFormData] = useState({
     name: "",
+    role: "",
     phone: "",
     email: "",
-    role: "",
     hourlyRate: "",
-    isAvailable: true,
     notes: "",
+    isAvailable: true,
   });
+
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   useEffect(() => {
     fetchCrews();
@@ -224,181 +321,202 @@ export default function CrewManager() {
 
   const fetchCrews = async () => {
     try {
-      const snap = await getDocs(collection(db, "crews"));
-      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setCrews(data);
+      const querySnapshot = await getDocs(collection(db, "crews"));
+      const crewsList = querySnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setCrews(crewsList);
     } catch (error) {
       console.error("Error fetching crews:", error);
+      Swal.fire("Error", "Failed to load crew members.", "error");
     }
   };
 
   const handleOpenDialog = (crew = null) => {
     if (crew) {
-      setEditingCrew(crew);
+      setSelectedCrew(crew);
       setFormData({
         name: crew.name || "",
+        role: crew.role || "",
         phone: crew.phone || "",
         email: crew.email || "",
-        role: crew.role || "",
         hourlyRate: crew.hourlyRate || "",
-        isAvailable: crew.isAvailable !== false,
         notes: crew.notes || "",
+        isAvailable: crew.isAvailable !== undefined ? crew.isAvailable : true,
       });
     } else {
-      setEditingCrew(null);
+      setSelectedCrew(null);
       setFormData({
         name: "",
+        role: "",
         phone: "",
         email: "",
-        role: "",
         hourlyRate: "",
-        isAvailable: true,
         notes: "",
+        isAvailable: true,
       });
     }
-    setDialogOpen(true);
+    setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {
-    setDialogOpen(false);
-    setEditingCrew(null);
+    setOpenDialog(false);
+    setSelectedCrew(null);
   };
 
-  const handleSave = async () => {
-    if (!formData.name) {
-      Swal.fire("Missing Info", "Crew member name is required", "warning");
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (!formData.name || !formData.phone) {
+      Swal.fire("Incomplete", "Name and phone are required.", "warning");
       return;
     }
 
     try {
-      if (editingCrew) {
-        // Update existing
-        await updateDoc(doc(db, "crews", editingCrew.id), formData);
-        Swal.fire("Updated!", "Crew member updated successfully", "success");
+      if (selectedCrew) {
+        // Update existing crew member
+        await updateDoc(doc(db, "crews", selectedCrew.id), {
+          ...formData,
+          hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : 0,
+        });
+        Swal.fire("Updated!", "Crew member updated successfully.", "success");
       } else {
-        // Create new
+        // Add new crew member
         await addDoc(collection(db, "crews"), {
           ...formData,
+          hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : 0,
           createdAt: new Date().toISOString(),
         });
-        Swal.fire("Added!", "New crew member added successfully", "success");
+        Swal.fire("Added!", "New crew member added successfully.", "success");
       }
+
       fetchCrews();
       handleCloseDialog();
     } catch (error) {
-      console.error("Error saving crew:", error);
-      Swal.fire("Error", "Failed to save crew member", "error");
+      console.error("Error saving crew member:", error);
+      Swal.fire("Error", "Failed to save crew member.", "error");
     }
   };
 
   const handleDelete = async (crew) => {
-    const result = await Swal.fire({
+    const confirm = await Swal.fire({
       title: `Delete ${crew.name}?`,
-      text: "This will remove them from the crew list",
+      text: "This action cannot be undone.",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonText: "Yes, Delete",
       confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+      confirmButtonText: "Yes, delete",
     });
 
-    if (result.isConfirmed) {
+    if (confirm.isConfirmed) {
       try {
         await deleteDoc(doc(db, "crews", crew.id));
         setCrews(crews.filter((c) => c.id !== crew.id));
-        Swal.fire("Deleted!", "Crew member removed", "success");
+        Swal.fire("Deleted!", "Crew member has been removed.", "success");
       } catch (error) {
-        console.error("Error deleting crew:", error);
-        Swal.fire("Error", "Failed to delete crew member", "error");
+        console.error("Error deleting crew member:", error);
+        Swal.fire("Error", "Failed to delete crew member.", "error");
       }
     }
   };
 
   const toggleAvailability = async (crew) => {
     try {
-      const newStatus = !crew.isAvailable;
-      await updateDoc(doc(db, "crews", crew.id), { isAvailable: newStatus });
-      setCrews(crews.map((c) => 
-        c.id === crew.id ? { ...c, isAvailable: newStatus } : c
-      ));
+      await updateDoc(doc(db, "crews", crew.id), {
+        isAvailable: !crew.isAvailable,
+      });
+      fetchCrews();
     } catch (error) {
-      console.error("Error updating availability:", error);
+      console.error("Error toggling availability:", error);
+      Swal.fire("Error", "Failed to update availability.", "error");
     }
   };
 
-  // Send NDA for remote signing
   const handleSendNDA = async (crew) => {
     try {
       const ndaLink = `${window.location.origin}/public/nda/${crew.id}`;
       
-      await updateDoc(doc(db, "crews", crew.id), {
-        ndaStatus: "Sent - Awaiting Signature",
-        ndaSentAt: new Date().toISOString(),
-        ndaLink: ndaLink,
-      });
-
-      Swal.fire({
+      await Swal.fire({
         icon: "success",
         title: "NDA Link Generated!",
         html: `
-          <p><strong>Copy this link and text/email it to ${crew.name}:</strong></p>
-          <textarea readonly onclick="this.select()" 
-            style="width:100%; padding:10px; font-size:12px; margin:10px 0; border: 2px solid #1565c0; border-radius:4px;"
-            rows="3">${ndaLink}</textarea>
-          <p style="font-size:0.9em; color:#666; margin-top:10px;">
-            📱 <strong>Text message example:</strong><br>
-            "Hi ${crew.name}, please review and sign this NDA: ${ndaLink}"
+          <p>Copy this link and text/email it to <strong>${crew.name}</strong>:</p>
+          <input type="text" value="${ndaLink}" id="ndaLink" readonly style="width: 100%; padding: 8px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px;" />
+          <br/>
+          <p style="margin-top: 15px; font-size: 0.9em; color: #666;">
+            <strong>📱 Text message example:</strong><br/>
+            "Hi ${crew.name}, please review and sign this NDA. ${ndaLink}"
           </p>
         `,
         confirmButtonText: "OK",
-        width: '600px',
+        didOpen: () => {
+          const input = document.getElementById("ndaLink");
+          input.focus();
+          input.select();
+        },
       });
-
-      fetchCrews();
     } catch (error) {
-      console.error("Error sending NDA:", error);
+      console.error("Error generating NDA link:", error);
       Swal.fire("Error", "Failed to generate NDA link.", "error");
     }
   };
 
-  // View/Download signed NDA PDF
   const handleViewNDA = async (crew) => {
-    if (!crew.ndaSignature || crew.ndaStatus !== "Signed") {
-      Swal.fire("Not Signed", "This crew member hasn't signed the NDA yet.", "warning");
-      return;
-    }
-
     try {
       // Load logo
       let logoDataUrl = null;
       try {
-        const blob = await fetch("/logo-kcl.png").then((r) => (r.ok ? r.blob() : null));
-        if (blob) {
-          logoDataUrl = await new Promise((res) => {
-            const fr = new FileReader();
-            fr.onload = () => res(fr.result);
-            fr.readAsDataURL(blob);
-          });
-        }
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        await new Promise((resolve, reject) => {
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            logoDataUrl = canvas.toDataURL("image/png");
+            resolve();
+          };
+          img.onerror = reject;
+          img.src = "/logo-kcl.png";
+        });
       } catch (e) {
-        console.warn("Logo failed:", e);
+        console.warn("Logo loading failed, continuing without it:", e);
       }
 
-      const pdfDoc = await generateNDAPDF(crew, logoDataUrl);
+      const pdf = await generateNDAPDF(crew, logoDataUrl);
+      const pdfBlob = pdf.output('blob');
+      const pdfUrl = URL.createObjectURL(pdfBlob);
       
-      const fileName = `NDA_${(crew.name || "Employee").replace(/\s+/g, "_")}_Signed.pdf`;
-      pdfDoc.save(fileName);
-
+      window.open(pdfUrl, '_blank');
+      
       Swal.fire({
         icon: "success",
-        title: "PDF Downloaded!",
-        text: `Saved as: ${fileName}`,
-        timer: 2500,
+        title: "NDA Opened!",
+        text: `Viewing signed NDA for ${crew.name}`,
+        timer: 2000,
         showConfirmButton: false,
       });
     } catch (error) {
-      console.error("PDF generation error:", error);
+      console.error("Error generating NDA PDF:", error);
       Swal.fire("Error", "Failed to generate PDF. Please try again.", "error");
     }
+  };
+
+  const handlePreviewNDA = () => {
+    setPreviewDialog(true);
+  };
+
+  const handleClosePreview = () => {
+    setPreviewDialog(false);
   };
 
   return (
@@ -479,19 +597,31 @@ export default function CrewManager() {
               </CardContent>
 
               <CardActions sx={{ justifyContent: "space-between", p: 2, pt: 0, flexDirection: "column", gap: 1 }}>
-                <Box sx={{ display: "flex", gap: 1, width: "100%" }}>
+                <Box sx={{ display: "flex", gap: 1, width: "100%", flexWrap: "wrap" }}>
                   <Button
                     variant="outlined"
                     size="small"
                     color={crew.ndaStatus === "Signed" ? "success" : "primary"}
                     onClick={() => handleSendNDA(crew)}
                     disabled={crew.ndaStatus === "Signed"}
-                    sx={{ flex: 1 }}
+                    sx={{ flex: 1, minWidth: '100px' }}
                   >
                     {crew.ndaStatus === "Signed" ? "✅ Signed" : "📝 Send NDA"}
                   </Button>
                   
-                  {/* View NDA Button - Only show if signed */}
+                  {/* Preview NDA Button - Shows for everyone */}
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    color="info"
+                    startIcon={<VisibilityIcon />}
+                    onClick={handlePreviewNDA}
+                    sx={{ flex: 1, minWidth: '100px' }}
+                  >
+                    Preview
+                  </Button>
+                  
+                  {/* View Signed NDA Button - Only show if signed */}
                   {crew.ndaStatus === "Signed" && (
                     <Button
                       variant="contained"
@@ -499,7 +629,7 @@ export default function CrewManager() {
                       color="success"
                       startIcon={<PictureAsPdfIcon />}
                       onClick={() => handleViewNDA(crew)}
-                      sx={{ flex: 1 }}
+                      sx={{ flex: 1, minWidth: '100px' }}
                     >
                       View NDA
                     </Button>
@@ -549,74 +679,103 @@ export default function CrewManager() {
         )}
       </Grid>
 
-      {/* Add/Edit Dialog */}
-      <Dialog
-        open={dialogOpen}
-        onClose={handleCloseDialog}
-        maxWidth="sm"
-        fullWidth
-        fullScreen={isMobile}
-      >
-        <DialogTitle>
-          {editingCrew ? "Edit Crew Member" : "Add New Crew Member"}
-        </DialogTitle>
+      {/* Add/Edit Crew Member Dialog */}
+      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>{selectedCrew ? "Edit Crew Member" : "Add Crew Member"}</DialogTitle>
         <DialogContent>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 2 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
             <TextField
-              label="Name *"
+              label="Name"
+              name="name"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={handleChange}
               fullWidth
               required
             />
-
             <TextField
               label="Role / Position"
+              name="role"
               value={formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-              placeholder="e.g., Foreman, Laborer, Equipment Operator"
+              onChange={handleChange}
               fullWidth
+              placeholder="e.g., Foreman, Laborer"
             />
-
             <TextField
               label="Phone"
+              name="phone"
               value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              onChange={handleChange}
               fullWidth
+              required
+              placeholder="(928) 555-1234"
             />
-
             <TextField
               label="Email"
-              type="email"
+              name="email"
               value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              onChange={handleChange}
               fullWidth
+              type="email"
+              placeholder="worker@example.com"
             />
-
             <TextField
-              label="Hourly Rate ($)"
-              type="number"
+              label="Hourly Rate"
+              name="hourlyRate"
               value={formData.hourlyRate}
-              onChange={(e) => setFormData({ ...formData, hourlyRate: e.target.value })}
-              inputProps={{ min: 0, step: "0.01" }}
+              onChange={handleChange}
               fullWidth
+              type="number"
+              placeholder="18.00"
             />
-
             <TextField
               label="Notes"
+              name="notes"
               value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              onChange={handleChange}
+              fullWidth
               multiline
               rows={3}
-              placeholder="Skills, certifications, availability, etc."
-              fullWidth
+              placeholder="Any additional information..."
             />
           </Box>
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
+        <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave}>
-            {editingCrew ? "Update" : "Add"}
+          <Button onClick={handleSubmit} variant="contained" color="primary">
+            {selectedCrew ? "Update" : "Add"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* NDA Preview Dialog */}
+      <Dialog 
+        open={previewDialog} 
+        onClose={handleClosePreview} 
+        maxWidth="md" 
+        fullWidth
+        PaperProps={{
+          sx: { maxHeight: '90vh' }
+        }}
+      >
+        <DialogTitle sx={{ bgcolor: '#1565c0', color: 'white' }}>
+          📄 NDA Template Preview
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 3 }}>
+          <Typography 
+            component="pre" 
+            sx={{ 
+              whiteSpace: "pre-wrap", 
+              fontFamily: "inherit",
+              fontSize: "0.95rem",
+              lineHeight: 1.6
+            }}
+          >
+            {NDA_PREVIEW_TEXT}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={handleClosePreview} variant="contained">
+            Close
           </Button>
         </DialogActions>
       </Dialog>

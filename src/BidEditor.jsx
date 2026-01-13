@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
@@ -10,7 +10,11 @@ import {
   CircularProgress,
   Box,
   Paper,
+  IconButton,
+  Tooltip,
 } from "@mui/material";
+import MicIcon from '@mui/icons-material/Mic';
+import MicOffIcon from '@mui/icons-material/MicOff';
 import Swal from "sweetalert2";
 
 export default function BidEditor() {
@@ -19,6 +23,94 @@ export default function BidEditor() {
   const [bid, setBid] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  
+  // Voice recognition state
+  const [listening, setListening] = useState(null);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const recognitionRef = useRef(null);
+
+  // Smart lumber formatting function
+  const formatLumber = (text) => {
+    // Number words to digits mapping
+    const numberWords = {
+      'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5',
+      'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10',
+      'eleven': '11', 'twelve': '12', 'thirteen': '13', 'fourteen': '14',
+      'fifteen': '15', 'sixteen': '16', 'eighteen': '18', 'twenty': '20'
+    };
+
+    let formattedText = text;
+
+    // Pattern for lumber dimensions: "X by Y" or "X by Ys"
+    // Matches: "two by four", "2 by 4", "two by fours", etc.
+    const lumberPattern = /(\w+)\s+by\s+(\w+s?)/gi;
+
+    formattedText = formattedText.replace(lumberPattern, (match, num1, num2) => {
+      // Convert word numbers to digits
+      const digit1 = numberWords[num1.toLowerCase()] || num1;
+      
+      // Handle plural (e.g., "fours" -> "four" + "s")
+      let digit2 = num2.toLowerCase();
+      const isPlural = digit2.endsWith('s');
+      if (isPlural) {
+        digit2 = digit2.slice(0, -1); // Remove 's'
+      }
+      digit2 = numberWords[digit2] || digit2;
+
+      // Format as lumber dimension
+      const formatted = `${digit1}"x${digit2}"`;
+      return isPlural ? `${formatted}s` : formatted;
+    });
+
+    // Additional common lumber terms
+    const replacements = {
+      // Sheet goods
+      'four by eight': '4\'x8\'',
+      'four by eights': '4\'x8\'s',
+      '4 by 8': '4\'x8\'',
+      '4 by 8s': '4\'x8\'s',
+      
+      // Common phrases
+      'plywood sheet': 'plywood sheet',
+      'drywall sheet': 'drywall sheet',
+      'sheet of plywood': 'sheet of plywood',
+      'sheet of drywall': 'sheet of drywall',
+      
+      // Hardware
+      'three inch': '3"',
+      'three-inch': '3"',
+      'four inch': '4"',
+      'four-inch': '4"',
+      'gallon': 'gal',
+      'gallons': 'gal',
+    };
+
+    // Apply additional replacements
+    Object.keys(replacements).forEach(key => {
+      const regex = new RegExp(key, 'gi');
+      formattedText = formattedText.replace(regex, replacements[key]);
+    });
+
+    return formattedText;
+  };
+
+  useEffect(() => {
+    // Check if Web Speech API is supported
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      setSpeechSupported(true);
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = 'en-US';
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const fetchBid = async () => {
@@ -45,6 +137,65 @@ export default function BidEditor() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setBid({ ...bid, [name]: value });
+  };
+
+  const startListening = (fieldName) => {
+    if (!recognitionRef.current || !speechSupported) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Voice Input Not Supported',
+        text: 'Please use your phone\'s keyboard microphone button instead.',
+        timer: 3000,
+      });
+      return;
+    }
+
+    setListening(fieldName);
+    let finalTranscript = bid[fieldName] || '';
+
+    recognitionRef.current.onresult = (event) => {
+      let interimTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          // Apply smart formatting to final transcript
+          const formattedTranscript = formatLumber(transcript);
+          finalTranscript += formattedTranscript + ' ';
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      // Update the field with formatted transcript
+      setBid({ ...bid, [fieldName]: finalTranscript + interimTranscript });
+    };
+
+    recognitionRef.current.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
+      setListening(null);
+      
+      if (event.error === 'not-allowed') {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Microphone Access Denied',
+          text: 'Please allow microphone access in your browser settings.',
+        });
+      }
+    };
+
+    recognitionRef.current.onend = () => {
+      setListening(null);
+    };
+
+    recognitionRef.current.start();
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    setListening(null);
   };
 
   const handleSave = async () => {
@@ -94,6 +245,48 @@ export default function BidEditor() {
     );
   }
 
+  // Render text field with optional voice button
+  const renderField = (name, label, multiline = false, rows = 1, helperText = "") => (
+    <Box sx={{ position: 'relative' }}>
+      <TextField
+        label={label}
+        name={name}
+        value={bid[name] || ""}
+        onChange={handleChange}
+        fullWidth
+        multiline={multiline}
+        rows={multiline ? rows : 1}
+        helperText={helperText}
+        required={name === 'customerName' || name === 'amount'}
+        type={name === 'amount' ? 'number' : 'text'}
+        inputProps={
+          name === 'amount'
+            ? { min: 0, step: "0.01" }
+            : {
+                autoCapitalize: 'sentences',
+                autoCorrect: 'on',
+                spellCheck: 'true',
+                autoComplete: name === 'customerName' ? 'name' : 'on',
+              }
+        }
+        InputProps={{
+          endAdornment: speechSupported && name !== 'amount' && (
+            <Tooltip title={listening === name ? "Stop Recording" : "Start Voice Input"}>
+              <IconButton
+                onClick={() => listening === name ? stopListening() : startListening(name)}
+                edge="end"
+                color={listening === name ? "error" : "primary"}
+                sx={{ mr: -1 }}
+              >
+                {listening === name ? <MicOffIcon /> : <MicIcon />}
+              </IconButton>
+            </Tooltip>
+          ),
+        }}
+      />
+    </Box>
+  );
+
   return (
     <Container sx={{ mt: { xs: 2, sm: 4 }, pb: { xs: 4, sm: 8 }, px: { xs: 2, sm: 3 } }}>
       <Paper 
@@ -114,59 +307,31 @@ export default function BidEditor() {
           Edit Bid — {bid.customerName}
         </Typography>
 
+        {speechSupported && (
+          <Box 
+            sx={{ 
+              mb: 2, 
+              p: 1.5, 
+              backgroundColor: '#e3f2fd', 
+              borderRadius: 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1
+            }}
+          >
+            <MicIcon color="primary" />
+            <Typography variant="body2" color="primary">
+              🪵 Click the microphone icon next to any field to use voice input with smart lumber formatting!
+            </Typography>
+          </Box>
+        )}
+
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <TextField
-            label="Customer Name"
-            name="customerName"
-            value={bid.customerName || ""}
-            onChange={handleChange}
-            fullWidth
-            required
-          />
-
-          <TextField
-            label="Amount ($)"
-            name="amount"
-            type="number"
-            value={bid.amount || ""}
-            onChange={handleChange}
-            fullWidth
-            required
-            inputProps={{ min: 0, step: "0.01" }}
-          />
-
-          <TextField
-            label="Description"
-            name="description"
-            multiline
-            rows={4}
-            value={bid.description || ""}
-            onChange={handleChange}
-            fullWidth
-            helperText="Describe the work to be done"
-          />
-
-          <TextField
-            label="Materials"
-            name="materials"
-            multiline
-            rows={3}
-            value={bid.materials || ""}
-            onChange={handleChange}
-            fullWidth
-            helperText="List materials needed for the job"
-          />
-
-          <TextField
-            label="Notes"
-            name="notes"
-            multiline
-            rows={2}
-            value={bid.notes || ""}
-            onChange={handleChange}
-            fullWidth
-            helperText="Internal notes (not shown to customer)"
-          />
+          {renderField('customerName', 'Customer Name', false, 1)}
+          {renderField('amount', 'Amount ($)', false, 1)}
+          {renderField('description', 'Description', true, 4, 'Describe the work to be done')}
+          {renderField('materials', 'Materials', true, 3, 'List materials needed for the job')}
+          {renderField('notes', 'Notes', true, 2, 'Internal notes (not shown to customer)')}
 
           {bid.createdAt && (
             <Typography variant="caption" color="text.secondary">
@@ -174,13 +339,14 @@ export default function BidEditor() {
             </Typography>
           )}
 
-          <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+          <Box sx={{ display: "flex", gap: 2, mt: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
             <Button 
               variant="contained" 
               onClick={handleSave} 
               disabled={saving}
               size="large"
               sx={{ minWidth: 120 }}
+              fullWidth
             >
               {saving ? "Saving..." : "Save Changes"}
             </Button>
@@ -189,12 +355,53 @@ export default function BidEditor() {
               color="inherit" 
               onClick={() => navigate("/bids")}
               size="large"
+              fullWidth
             >
               Cancel
             </Button>
           </Box>
         </Box>
       </Paper>
+
+      {/* Voice Dictation Tips with Smart Formatting */}
+      {speechSupported && (
+        <Paper 
+          elevation={1}
+          sx={{ 
+            mt: 3,
+            p: 2,
+            backgroundColor: '#f5f5f5'
+          }}
+        >
+          <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+            🎤 Voice Input Tips:
+          </Typography>
+          <Typography variant="body2" component="div" sx={{ mb: 2 }}>
+            • Click the microphone icon to start speaking<br/>
+            • Say "period", "comma", "question mark" for punctuation<br/>
+            • Say "new line" for line breaks<br/>
+            • Speak clearly and pause between sentences<br/>
+            • Click the red microphone to stop recording
+          </Typography>
+
+          <Typography variant="subtitle1" gutterBottom fontWeight="bold" sx={{ mt: 2 }}>
+            🪵 Smart Lumber Formatting:
+          </Typography>
+          <Typography variant="body2" component="div">
+            Say lumber dimensions naturally - they'll auto-format!<br/>
+            <br/>
+            <strong>Examples:</strong><br/>
+            • "forty two two by fours" → <strong>42 2"x4"s</strong><br/>
+            • "eight two by sixes" → <strong>8 2"x6"s</strong><br/>
+            • "ten four by fours" → <strong>10 4"x4"s</strong><br/>
+            • "three sheets of four by eight plywood" → <strong>3 sheets of 4'x8' plywood</strong><br/>
+            • "five gallons of primer" → <strong>5 gal of primer</strong><br/>
+            <br/>
+            <strong>Supported sizes:</strong><br/>
+            1x6, 2x4, 2x6, 2x8, 2x10, 2x12, 4x4, 4x6, 4x8 sheets, and more!
+          </Typography>
+        </Paper>
+      )}
     </Container>
   );
 }

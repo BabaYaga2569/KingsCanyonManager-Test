@@ -37,39 +37,104 @@ const COMPANY = {
   email: "kingscanyon775@gmail.com",
 };
 
+// UPDATED COMPREHENSIVE NDA TEXT - 8 SECTIONS
 const NDA_TEXT = `
-NON-DISCLOSURE AGREEMENT
+WORKER CONFIDENTIALITY & NON-DISCLOSURE AGREEMENT
+NON-SOLICITATION & NON-COMPETE AGREEMENT
 
-This Non-Disclosure Agreement ("Agreement") is entered into by and between Kings Canyon Landscaping LLC ("Company") and the undersigned employee/contractor ("Recipient").
+This Agreement is entered into by and between Kings Canyon Landscaping LLC ("Company") and the undersigned ("Recipient").
+
+Effective Date: ${new Date().toLocaleDateString()}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. CONFIDENTIAL INFORMATION
-The Recipient acknowledges that during their engagement with the Company, they may have access to confidential and proprietary information including but not limited to:
-   • Customer lists, contacts, and information
-   • Pricing structures and bid information
-   • Business strategies and operations
-   • Trade secrets and proprietary methods
-   • Financial information
-   • Employee information
+
+The Recipient acknowledges that during their employment or engagement, they may have access to confidential and proprietary information, including but not limited to:
+
+- Customer lists, past, current, and future customers
+- Customer contact information and job locations
+- Pricing, bids, estimates, and invoices
+- Business strategies, operations, and scheduling
+- Trade secrets and proprietary methods
+- Financial records
+- Employee and subcontractor information
+
+All such information is the exclusive property of the Company.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 2. NON-DISCLOSURE OBLIGATIONS
+
 The Recipient agrees to:
-   • Keep all confidential information strictly confidential
-   • Not disclose any confidential information to third parties
-   • Not use confidential information for personal benefit
-   • Return all company materials upon termination of employment
 
-3. DURATION
-This agreement remains in effect during employment and for a period of two (2) years following termination of employment or engagement with the Company.
+- Keep all confidential information strictly confidential
+- Not disclose confidential information to any third party
+- Not use confidential information for personal benefit or outside business
+- Return all Company property, records, accounts, and materials immediately upon termination
 
-4. REMEDIES
-The Recipient acknowledges that violation of this agreement may result in immediate termination and legal action for damages.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-5. GOVERNING LAW
-This agreement shall be governed by the laws of the State of Arizona.
+3. NON-SOLICITATION OF CUSTOMERS
 
-By signing below, the Recipient acknowledges that they have read, understood, and agree to be bound by the terms of this Non-Disclosure Agreement.
+The Recipient shall not, during employment or at any time thereafter, directly or indirectly:
+
+- Contact, solicit, divert, or perform work for any past, current, or future customer of the Company
+- Attempt to take work from the Company's customers for personal gain or another business
+- Circumvent the Company to secure work for themselves, even if the Recipient originally found the job
+
+This applies whether the Recipient is an employee, independent contractor, or otherwise associated with the Company at the time of the conduct.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4. LIQUIDATED DAMAGES – CUSTOMER POACHING
+
+The Recipient agrees that any violation of Section 3 (Non-Solicitation) shall result in liquidated damages in the amount of $15,000 per violation, which the parties agree is a reasonable estimate of damages and not a penalty. This amount is due immediately upon breach.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5. UNAUTHORIZED USE OF COMPANY NAME OR ACCOUNTS
+
+If the Recipient is found using:
+- The Company name
+- Company phone numbers
+- Company email accounts
+- Company branding, licenses, or reputation
+
+to make money for themselves or another party without written authorization, the following shall apply:
+
+- Immediate termination of employment
+- A $1,500 liquidated damages fee per occurrence
+- Possible legal action for additional damages
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6. DURATION
+
+This Agreement remains in effect during employment and for two (2) years following termination, except for Sections 3, 4, and 5, which survive termination indefinitely where allowed by law.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7. REMEDIES
+
+The Recipient acknowledges that breach of this Agreement may result in:
+
+- Immediate termination
+- Injunctive relief
+- Recovery of damages, liquidated damages, and attorney's fees
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+8. GOVERNING LAW
+
+This Agreement shall be governed by and enforced under the laws of the State of Arizona.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ACKNOWLEDGMENT & SIGNATURES
+
+By signing below, the Recipient acknowledges that they have read, understood, and agree to be legally bound by this Agreement.
 `;
-
 // Generate PDF of signed NDA
 const generateNDAPDF = async (crewMember, logoDataUrl = null) => {
   const doc = new jsPDF({ unit: "pt", format: "letter" });
@@ -101,7 +166,7 @@ const generateNDAPDF = async (crewMember, logoDataUrl = null) => {
   // Title
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
-  doc.text("NON-DISCLOSURE AGREEMENT", W / 2, 140, { align: "center" });
+  doc.text("CONFIDENTIALITY & NON-DISCLOSURE AGREEMENT", W / 2, 140, { align: "center" });
 
   // Employee Info Box
   doc.setDrawColor(150);
@@ -122,7 +187,7 @@ const generateNDAPDF = async (crewMember, logoDataUrl = null) => {
   // NDA Text
   let y = 260;
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   
   const lines = doc.splitTextToSize(NDA_TEXT.trim(), W - 80);
   lines.forEach((line) => {
@@ -134,7 +199,7 @@ const generateNDAPDF = async (crewMember, logoDataUrl = null) => {
       doc.rect(28, 28, W - 56, H - 56);
     }
     doc.text(line, 40, y);
-    y += 12;
+    y += 11;
   });
 
   // Signatures section
@@ -175,7 +240,7 @@ const generateNDAPDF = async (crewMember, logoDataUrl = null) => {
   // Labels
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.text("Employee Signature", col1X, y);
+  doc.text("Employee/Recipient Signature", col1X, y);
   doc.text("Company Representative", col2X, y);
   y += 12;
 
@@ -200,6 +265,20 @@ const generateNDAPDF = async (crewMember, logoDataUrl = null) => {
   );
 
   return doc;
+};
+
+// Generate Darren's signature
+const generateDarrenSignature = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 400;
+  canvas.height = 100;
+  const ctx = canvas.getContext('2d');
+  
+  ctx.font = "italic 32px 'Brush Script MT', cursive";
+  ctx.fillStyle = "#1565c0";
+  ctx.fillText("Darren Bennett", 20, 60);
+  
+  return canvas.toDataURL();
 };
 
 function NDASigningPageContent() {
@@ -298,281 +377,202 @@ function NDASigningPageContent() {
         html: `
           <p>Thank you for signing the Non-Disclosure Agreement.</p>
           <p>Your signature has been recorded.</p>
-          <p><strong>Don't forget to download your copy!</strong></p>
+          <p>You can now download your copy of the signed NDA.</p>
         `,
-        confirmButtonText: "OK",
       });
 
       setAlreadySigned(true);
     } catch (error) {
       console.error("Error signing NDA:", error);
-      Swal.fire("Error", "Failed to sign NDA. Please try again or contact the company.", "error");
+      Swal.fire("Error", "Failed to save signature. Please try again.", "error");
     } finally {
       setSigning(false);
     }
   };
 
-  // Generate Darren's auto-signature
-  const generateDarrenSignature = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 400;
-    canvas.height = 100;
-    const ctx = canvas.getContext('2d');
-    
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, 400, 100);
-    
-    ctx.font = '32px "Brush Script MT", cursive';
-    ctx.fillStyle = 'black';
-    ctx.fillText('Darren Bennett', 50, 60);
-    
-    return canvas.toDataURL('image/png');
-  };
-
-  const handleDownloadPDF = async () => {
+  const handleDownload = async () => {
     setDownloadingPDF(true);
     try {
       // Load logo
       let logoDataUrl = null;
       try {
-        const blob = await fetch("/logo-kcl.png").then((r) => (r.ok ? r.blob() : null));
-        if (blob) {
-          logoDataUrl = await new Promise((res) => {
-            const fr = new FileReader();
-            fr.onload = () => res(fr.result);
-            fr.readAsDataURL(blob);
-          });
-        }
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        await new Promise((resolve, reject) => {
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            logoDataUrl = canvas.toDataURL("image/png");
+            resolve();
+          };
+          img.onerror = reject;
+          img.src = "/logo-kcl.png";
+        });
       } catch (e) {
-        console.warn("Logo failed:", e);
+        console.warn("Logo loading failed, continuing without it:", e);
       }
 
-      const pdfDoc = await generateNDAPDF(crewMember, logoDataUrl);
+      const doc = await generateNDAPDF(crewMember, logoDataUrl);
+      doc.save(`NDA-${crewMember.name.replace(/\s+/g, '_')}-${new Date().getTime()}.pdf`);
       
-      const fileName = `NDA_${(crewMember.name || "Employee").replace(/\s+/g, "_")}_Signed.pdf`;
-      pdfDoc.save(fileName);
-
       Swal.fire({
         icon: "success",
         title: "PDF Downloaded!",
-        text: "Check your downloads folder",
+        text: "Your signed NDA has been downloaded.",
         timer: 2000,
         showConfirmButton: false,
       });
     } catch (error) {
-      console.error("PDF generation error:", error);
-      Swal.fire("Error", "Failed to generate PDF. Please try again.", "error");
+      console.error("Error generating PDF:", error);
+      Swal.fire("Error", "Failed to generate PDF", "error");
     } finally {
       setDownloadingPDF(false);
     }
   };
 
+  const clearSignature = () => {
+    if (sigPadRef.current) {
+      sigPadRef.current.clear();
+    }
+  };
+
   if (loading) {
     return (
-      <Container sx={{ mt: 8, textAlign: "center" }}>
-        <CircularProgress size={60} />
-        <Typography variant="h6" sx={{ mt: 2 }}>
-          Loading NDA...
-        </Typography>
+      <Container sx={{ textAlign: "center", mt: 4 }}>
+        <CircularProgress />
+        <Typography sx={{ mt: 2 }}>Loading NDA...</Typography>
       </Container>
     );
   }
 
   if (!crewMember) {
     return (
-      <Container sx={{ mt: 8 }}>
-        <Alert severity="error">
-          <Typography variant="h6">Invalid Link</Typography>
-          <Typography>
-            This NDA link is invalid or has expired. Please contact Kings Canyon Landscaping at {COMPANY.phone}
-          </Typography>
-        </Alert>
-      </Container>
-    );
-  }
-
-  if (alreadySigned) {
-    return (
-      <Container sx={{ mt: 8, maxWidth: "md" }}>
-        <Paper elevation={3} sx={{ p: 4, textAlign: "center" }}>
-          <CheckCircleIcon sx={{ fontSize: 80, color: "success.main", mb: 2 }} />
-          <Typography variant="h4" gutterBottom sx={{ color: "success.main" }}>
-            NDA Already Signed
-          </Typography>
-          <Typography variant="h6" gutterBottom>
-            {crewMember.name || "Employee"}
-          </Typography>
-          <Divider sx={{ my: 2 }} />
-          <Typography variant="body1" sx={{ mb: 1 }}>
-            <strong>Signed:</strong> {crewMember.ndaSignedAt || "Unknown"}
-          </Typography>
-          <Typography variant="body1" sx={{ mb: 3 }}>
-            <strong>Status:</strong> {crewMember.ndaStatus || "Signed"}
-          </Typography>
-
-          {/* Download PDF Button */}
-          <Button
-            variant="contained"
-            color="primary"
-            size="large"
-            startIcon={<DownloadIcon />}
-            onClick={handleDownloadPDF}
-            disabled={downloadingPDF}
-            sx={{ mb: 2 }}
-          >
-            {downloadingPDF ? "Generating PDF..." : "Download Signed NDA (PDF)"}
-          </Button>
-
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="body2" color="text.secondary">
-              Keep a copy for your records. You may close this window after downloading.
-            </Typography>
-          </Box>
-        </Paper>
+      <Container sx={{ mt: 4 }}>
+        <Alert severity="error">NDA not found or link is invalid.</Alert>
       </Container>
     );
   }
 
   return (
-    <Container sx={{ mt: 4, mb: 6, maxWidth: "lg" }}>
+    <Container maxWidth="md" sx={{ py: 4 }}>
       {/* Header */}
-      <Box sx={{ textAlign: "center", mb: 3 }}>
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 700 }}>
+      <Paper elevation={3} sx={{ p: 3, mb: 3, textAlign: "center", bgcolor: "#1565c0", color: "white" }}>
+        <Typography variant="h4" gutterBottom>
           {COMPANY.name}
         </Typography>
-        <Typography variant="h5" gutterBottom>
+        <Typography variant="subtitle1">
           Non-Disclosure Agreement
         </Typography>
-        <Typography variant="body1" color="text.secondary">
-          {COMPANY.phone} • {COMPANY.email}
-        </Typography>
-      </Box>
-
-      <Divider sx={{ mb: 3 }} />
-
-      {/* Employee Info */}
-      <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Employee Information
-        </Typography>
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}>
-          <Typography>
-            <strong>Name:</strong> {crewMember.name || "N/A"}
-          </Typography>
-          <Typography>
-            <strong>Position:</strong> {crewMember.position || "Crew Member"}
-          </Typography>
-          <Typography>
-            <strong>Phone:</strong> {crewMember.phone || "N/A"}
-          </Typography>
-          <Typography>
-            <strong>Date:</strong> {new Date().toLocaleDateString()}
-          </Typography>
-        </Box>
       </Paper>
 
-      {/* NDA Text */}
-      <Paper elevation={2} sx={{ p: 3, mb: 3, maxHeight: 500, overflowY: "auto" }}>
-        <Typography variant="body1" sx={{ whiteSpace: "pre-line", lineHeight: 1.8 }}>
+      {/* Already Signed */}
+      {alreadySigned && (
+        <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            ✅ NDA Already Signed
+          </Typography>
+          <Typography variant="body2" gutterBottom>
+            You signed this NDA on {crewMember.ndaSignedAt}
+          </Typography>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownload}
+            disabled={downloadingPDF}
+            sx={{ mt: 2 }}
+          >
+            {downloadingPDF ? "Generating PDF..." : "Download Signed NDA"}
+          </Button>
+        </Alert>
+      )}
+
+      {/* NDA Content */}
+      <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+        <Typography variant="body2" component="pre" sx={{ whiteSpace: "pre-wrap", fontFamily: "inherit" }}>
           {NDA_TEXT}
         </Typography>
       </Paper>
 
-      {/* Agreement Checkbox */}
-      <Paper elevation={2} sx={{ p: 3, mb: 3, bgcolor: "#f5f5f5" }}>
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={agreed}
-              onChange={(e) => setAgreed(e.target.checked)}
-              color="primary"
+      {/* Signing Section */}
+      {!alreadySigned && (
+        <>
+          {/* Checkbox Agreement */}
+          <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label="I have read and agree to the terms of this Non-Disclosure Agreement"
             />
-          }
-          label={
-            <Typography variant="body1">
-              <strong>I have read and agree to the terms of this Non-Disclosure Agreement</strong>
+          </Paper>
+
+          {/* Signature Pad */}
+          <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Your Signature
             </Typography>
-          }
-        />
-      </Paper>
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Please sign below using your mouse or touch screen
+            </Typography>
+            <Box
+              sx={{
+                border: "2px solid #ccc",
+                borderRadius: 1,
+                mt: 2,
+                backgroundColor: "#fafafa",
+              }}
+            >
+              <SignatureCanvas
+                ref={sigPadRef}
+                canvasProps={{
+                  width: 600,
+                  height: 200,
+                  style: { width: "100%", height: "200px" },
+                }}
+                backgroundColor="#fafafa"
+              />
+            </Box>
+            <Box sx={{ mt: 2, display: "flex", gap: 2 }}>
+              <Button variant="outlined" onClick={clearSignature}>
+                Clear Signature
+              </Button>
+            </Box>
+          </Paper>
 
-      {/* Signature Pad */}
-      <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Employee Signature
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Sign below using your finger or mouse
-        </Typography>
-        <Box
-          sx={{
-            border: "2px solid #1565c0",
-            borderRadius: 2,
-            p: 1,
-            bgcolor: "white",
-          }}
-        >
-          <SignatureCanvas
-            ref={sigPadRef}
-            canvasProps={{
-              width: 800,
-              height: 200,
-              style: {
-                width: "100%",
-                height: "auto",
-                touchAction: "none",
-              },
-            }}
-          />
-        </Box>
-        <Box sx={{ mt: 2, display: "flex", gap: 2 }}>
+          {/* Submit Button */}
           <Button
-            variant="text"
-            size="small"
-            onClick={() => sigPadRef.current?.clear()}
+            variant="contained"
+            color="success"
+            size="large"
+            fullWidth
+            onClick={handleSign}
+            disabled={!agreed || signing}
+            sx={{ py: 2 }}
           >
-            Clear Signature
+            {signing ? <CircularProgress size={24} /> : "Sign and Submit NDA"}
           </Button>
-        </Box>
-      </Paper>
-
-      {/* Sign Button */}
-      <Box sx={{ textAlign: "center" }}>
-        <Button
-          variant="contained"
-          size="large"
-          onClick={handleSign}
-          disabled={signing || !agreed}
-          sx={{
-            py: 2,
-            px: 6,
-            fontSize: "1.1rem",
-            fontWeight: 700,
-          }}
-        >
-          {signing ? "Signing..." : "Sign NDA"}
-        </Button>
-        {!agreed && (
-          <Typography variant="caption" display="block" sx={{ mt: 1, color: "error.main" }}>
-            Please check the agreement box to continue
-          </Typography>
-        )}
-      </Box>
+        </>
+      )}
 
       {/* Footer */}
-      <Box sx={{ textAlign: "center", mt: 4 }}>
-        <Typography variant="body2" color="text.secondary">
-          {COMPANY.name} | {COMPANY.phone} | {COMPANY.email}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-          Digital signatures are legally binding and valid
+      <Box sx={{ mt: 4, textAlign: "center" }}>
+        <Divider sx={{ mb: 2 }} />
+        <Typography variant="caption" color="text.secondary">
+          {COMPANY.name} • {COMPANY.phone} • {COMPANY.email}
         </Typography>
       </Box>
     </Container>
   );
 }
 
-// Wrapper to isolate public page from main app
 export default function NDASigningPage() {
   return (
     <ThemeProvider theme={publicTheme}>

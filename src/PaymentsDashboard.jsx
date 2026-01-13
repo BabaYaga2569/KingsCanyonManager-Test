@@ -23,7 +23,6 @@ import {
   Card,
   CardContent,
   Grid,
-  Divider,
   CircularProgress,
   useMediaQuery,
   useTheme,
@@ -32,6 +31,7 @@ import moment from "moment";
 import PaymentIcon from "@mui/icons-material/Payment";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import DownloadIcon from "@mui/icons-material/Download";
+import SortIcon from "@mui/icons-material/Sort";
 
 export default function PaymentsDashboard() {
   const navigate = useNavigate();
@@ -40,6 +40,8 @@ export default function PaymentsDashboard() {
 
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
+  const [sortedPayments, setSortedPayments] = useState([]);
+  const [sortOrder, setSortOrder] = useState("newest");
   const [invoices, setInvoices] = useState([]);
 
   const [filters, setFilters] = useState({
@@ -55,14 +57,12 @@ export default function PaymentsDashboard() {
 
   const loadData = async () => {
     try {
-      // Load all payments
       const paymentsSnap = await getDocs(collection(db, "payments"));
       const paymentsData = paymentsSnap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
       }));
 
-      // Load all invoices
       const invoicesSnap = await getDocs(collection(db, "invoices"));
       const invoicesData = invoicesSnap.docs.map((d) => ({
         id: d.id,
@@ -80,18 +80,15 @@ export default function PaymentsDashboard() {
 
   const getFilteredPayments = () => {
     return payments.filter((payment) => {
-      // Date filter
       const paymentDate = moment(payment.paymentDate);
       const inDateRange =
         paymentDate.isSameOrAfter(moment(filters.startDate)) &&
         paymentDate.isSameOrBefore(moment(filters.endDate));
 
-      // Payment method filter
       const matchesMethod =
         filters.paymentMethod === "all" ||
         payment.paymentMethod === filters.paymentMethod;
 
-      // Client name filter
       const matchesClient =
         !filters.searchClient ||
         payment.clientName
@@ -131,6 +128,10 @@ export default function PaymentsDashboard() {
       venmo: "Venmo",
       paypal: "PayPal",
       other: "Other",
+      "Credit Card": "Credit Card",
+      "Zelle": "Zelle",
+      "Check": "Check",
+      "Cash": "Cash",
     };
     return methods[method] || method;
   };
@@ -144,12 +145,16 @@ export default function PaymentsDashboard() {
       venmo: "info",
       paypal: "primary",
       other: "default",
+      "Cash": "success",
+      "Zelle": "primary",
+      "Check": "info",
+      "Credit Card": "secondary",
     };
     return colors[method] || "default";
   };
 
   const handleExportCSV = () => {
-    const filtered = getFilteredPayments();
+    const filtered = sortedPayments;
     
     const csvContent = [
       ["Date", "Client", "Amount", "Method", "Reference", "Notes"].join(","),
@@ -173,6 +178,34 @@ export default function PaymentsDashboard() {
     a.click();
   };
 
+  // Sort filtered payments
+  useEffect(() => {
+    const filtered = getFilteredPayments();
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortOrder) {
+        case "newest":
+          return new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0);
+        case "oldest":
+          return new Date(a.paymentDate || 0) - new Date(b.paymentDate || 0);
+        case "name-asc":
+          return (a.clientName || "").localeCompare(b.clientName || "");
+        case "name-desc":
+          return (b.clientName || "").localeCompare(a.clientName || "");
+        case "amount-high":
+          return parseFloat(b.amount || 0) - parseFloat(a.amount || 0);
+        case "amount-low":
+          return parseFloat(a.amount || 0) - parseFloat(b.amount || 0);
+        default:
+          return 0;
+      }
+    });
+    setSortedPayments(sorted);
+  }, [payments, filters, sortOrder]);
+
+  const handleFilterChange = (field, value) => {
+    setFilters((prev) => ({ ...prev, [field]: value }));
+  };
+
   if (loading) {
     return (
       <Container sx={{ mt: 4, textAlign: "center" }}>
@@ -184,7 +217,7 @@ export default function PaymentsDashboard() {
     );
   }
 
-  const filteredPayments = getFilteredPayments();
+  const filteredPayments = sortedPayments;
   const totalRevenue = getTotalRevenue();
   const revenueByMethod = getRevenueByMethod();
 
@@ -256,37 +289,31 @@ export default function PaymentsDashboard() {
       <Paper sx={{ p: 2, mb: 3 }}>
         <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
           <FilterListIcon sx={{ mr: 1 }} />
-          <Typography variant="h6">Filters</Typography>
+          <Typography variant="h6">Filters & Sort</Typography>
         </Box>
         <Grid container spacing={2}>
           <Grid item xs={12} sm={6} md={3}>
             <TextField
+              fullWidth
               label="Start Date"
               type="date"
               value={filters.startDate}
-              onChange={(e) =>
-                setFilters({ ...filters, startDate: e.target.value })
-              }
-              fullWidth
-              size="small"
+              onChange={(e) => handleFilterChange("startDate", e.target.value)}
               InputLabelProps={{ shrink: true }}
+              size="small"
             />
           </Grid>
-
           <Grid item xs={12} sm={6} md={3}>
             <TextField
+              fullWidth
               label="End Date"
               type="date"
               value={filters.endDate}
-              onChange={(e) =>
-                setFilters({ ...filters, endDate: e.target.value })
-              }
-              fullWidth
-              size="small"
+              onChange={(e) => handleFilterChange("endDate", e.target.value)}
               InputLabelProps={{ shrink: true }}
+              size="small"
             />
           </Grid>
-
           <Grid item xs={12} sm={6} md={3}>
             <FormControl fullWidth size="small">
               <InputLabel>Payment Method</InputLabel>
@@ -294,102 +321,119 @@ export default function PaymentsDashboard() {
                 value={filters.paymentMethod}
                 label="Payment Method"
                 onChange={(e) =>
-                  setFilters({ ...filters, paymentMethod: e.target.value })
+                  handleFilterChange("paymentMethod", e.target.value)
                 }
               >
                 <MenuItem value="all">All Methods</MenuItem>
-                <MenuItem value="cash">Cash</MenuItem>
-                <MenuItem value="check">Check</MenuItem>
-                <MenuItem value="zelle">Zelle</MenuItem>
-                <MenuItem value="credit_card">Credit Card</MenuItem>
-                <MenuItem value="venmo">Venmo</MenuItem>
-                <MenuItem value="paypal">PayPal</MenuItem>
-                <MenuItem value="other">Other</MenuItem>
+                <MenuItem value="Credit Card">Credit Card</MenuItem>
+                <MenuItem value="Zelle">Zelle</MenuItem>
+                <MenuItem value="Check">Check</MenuItem>
+                <MenuItem value="Cash">Cash</MenuItem>
               </Select>
             </FormControl>
           </Grid>
-
           <Grid item xs={12} sm={6} md={3}>
             <TextField
+              fullWidth
               label="Search Client"
               value={filters.searchClient}
               onChange={(e) =>
-                setFilters({ ...filters, searchClient: e.target.value })
+                handleFilterChange("searchClient", e.target.value)
               }
-              fullWidth
               size="small"
               placeholder="Client name..."
             />
           </Grid>
+          <Grid item xs={12}>
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel id="sort-label">
+                <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+                Sort By
+              </InputLabel>
+              <Select
+                labelId="sort-label"
+                value={sortOrder}
+                label="Sort By"
+                onChange={(e) => setSortOrder(e.target.value)}
+              >
+                <MenuItem value="newest">📅 Newest First</MenuItem>
+                <MenuItem value="oldest">📅 Oldest First</MenuItem>
+                <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
+                <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
+                <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
+                <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
         </Grid>
       </Paper>
 
-      {/* Payments List */}
-      {isMobile ? (
+      {/* Payments Display */}
+      {filteredPayments.length === 0 ? (
+        <Paper sx={{ p: 4, textAlign: "center" }}>
+          <PaymentIcon sx={{ fontSize: 60, color: "text.secondary", mb: 2 }} />
+          <Typography variant="h6" color="text.secondary">
+            No Payments Found
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Try adjusting your filters or date range
+          </Typography>
+        </Paper>
+      ) : isMobile ? (
         // Mobile: Card View
         <Box>
-          {filteredPayments.length === 0 ? (
-            <Paper sx={{ p: 3, textAlign: "center" }}>
-              <Typography color="text.secondary">
-                No payments found for selected filters
-              </Typography>
-            </Paper>
-          ) : (
-            filteredPayments
-              .sort((a, b) => new Date(b.paymentDate) - new Date(a.paymentDate))
-              .map((payment) => (
-                <Card key={payment.id} sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "start",
-                        mb: 1,
-                      }}
-                    >
-                      <Typography variant="h6">{payment.clientName}</Typography>
-                      <Typography variant="h6" color="success.main">
-                        ${parseFloat(payment.amount).toFixed(2)}
-                      </Typography>
-                    </Box>
-                    <Typography variant="caption" color="text.secondary">
-                      {moment(payment.paymentDate).format("MMM DD, YYYY")}
-                    </Typography>
-                    <Box sx={{ mt: 1 }}>
-                      <Chip
-                        label={getPaymentMethodLabel(payment.paymentMethod)}
-                        color={getPaymentMethodColor(payment.paymentMethod)}
-                        size="small"
-                      />
-                    </Box>
-                    {payment.reference && (
-                      <Typography variant="body2" sx={{ mt: 1 }}>
-                        Ref: {payment.reference}
-                      </Typography>
-                    )}
-                    {payment.notes && (
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ mt: 1 }}
-                      >
-                        {payment.notes}
-                      </Typography>
-                    )}
-                    <Button
-                      size="small"
-                      onClick={() =>
-                        navigate(`/payment-tracker/${payment.invoiceId}`)
-                      }
-                      sx={{ mt: 1 }}
-                    >
-                      View Invoice
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))
-          )}
+          {filteredPayments.map((payment) => (
+            <Card key={payment.id} sx={{ mb: 2 }}>
+              <CardContent>
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "start",
+                    mb: 1,
+                  }}
+                >
+                  <Typography variant="h6">{payment.clientName}</Typography>
+                  <Typography variant="h6" color="success.main">
+                    ${parseFloat(payment.amount).toFixed(2)}
+                  </Typography>
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  {moment(payment.paymentDate).format("MMM DD, YYYY")}
+                </Typography>
+                <Box sx={{ mt: 1 }}>
+                  <Chip
+                    label={getPaymentMethodLabel(payment.paymentMethod)}
+                    color={getPaymentMethodColor(payment.paymentMethod)}
+                    size="small"
+                  />
+                </Box>
+                {payment.reference && (
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    Ref: {payment.reference}
+                  </Typography>
+                )}
+                {payment.notes && (
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mt: 1 }}
+                  >
+                    {payment.notes}
+                  </Typography>
+                )}
+                <Button
+                  size="small"
+                  onClick={() =>
+                    navigate(`/payment-tracker/${payment.invoiceId}`)
+                  }
+                  sx={{ mt: 1 }}
+                >
+                  View Invoice
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
         </Box>
       ) : (
         // Desktop: Table View
@@ -416,46 +460,42 @@ export default function PaymentsDashboard() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredPayments
-                  .sort(
-                    (a, b) => new Date(b.paymentDate) - new Date(a.paymentDate)
-                  )
-                  .map((payment) => (
-                    <TableRow key={payment.id}>
-                      <TableCell>
-                        {moment(payment.paymentDate).format("MMM DD, YYYY")}
-                      </TableCell>
-                      <TableCell>{payment.clientName}</TableCell>
-                      <TableCell align="right">
-                        <Typography
-                          variant="body1"
-                          fontWeight="bold"
-                          color="success.main"
-                        >
-                          ${parseFloat(payment.amount).toFixed(2)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={getPaymentMethodLabel(payment.paymentMethod)}
-                          color={getPaymentMethodColor(payment.paymentMethod)}
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>{payment.reference || "—"}</TableCell>
-                      <TableCell>{payment.notes || "—"}</TableCell>
-                      <TableCell>
-                        <Button
-                          size="small"
-                          onClick={() =>
-                            navigate(`/payment-tracker/${payment.invoiceId}`)
-                          }
-                        >
-                          View Invoice
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                filteredPayments.map((payment) => (
+                  <TableRow key={payment.id}>
+                    <TableCell>
+                      {moment(payment.paymentDate).format("MMM DD, YYYY")}
+                    </TableCell>
+                    <TableCell>{payment.clientName}</TableCell>
+                    <TableCell align="right">
+                      <Typography
+                        variant="body1"
+                        fontWeight="bold"
+                        color="success.main"
+                      >
+                        ${parseFloat(payment.amount).toFixed(2)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={getPaymentMethodLabel(payment.paymentMethod)}
+                        color={getPaymentMethodColor(payment.paymentMethod)}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>{payment.reference || "—"}</TableCell>
+                    <TableCell>{payment.notes || "—"}</TableCell>
+                    <TableCell>
+                      <Button
+                        size="small"
+                        onClick={() =>
+                          navigate(`/payment-tracker/${payment.invoiceId}`)
+                        }
+                      >
+                        View Invoice
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
               )}
             </TableBody>
           </Table>
