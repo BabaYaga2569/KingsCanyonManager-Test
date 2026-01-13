@@ -42,6 +42,7 @@ import WorkIcon from "@mui/icons-material/Work";
 import LabelIcon from "@mui/icons-material/Label";
 import Swal from "sweetalert2";
 import moment from "moment";
+import { markAsViewed } from './useNotificationCounts';
 
 export default function NotesManager() {
   const [notes, setNotes] = useState([]);
@@ -69,6 +70,9 @@ export default function NotesManager() {
 
   useEffect(() => {
     fetchData();
+  }, []);
+  useEffect(() => {
+    markAsViewed('notes');
   }, []);
 
   const fetchData = async () => {

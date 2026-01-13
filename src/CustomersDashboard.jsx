@@ -21,6 +21,7 @@ import Swal from "sweetalert2";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import SortIcon from "@mui/icons-material/Sort";
+import { markAsViewed } from './useNotificationCounts';
 
 export default function CustomersDashboard() {
   const [customers, setCustomers] = useState([]);
@@ -44,6 +45,9 @@ export default function CustomersDashboard() {
 
   useEffect(() => {
     fetchCustomers();
+  }, []);
+  useEffect(() => {
+    markAsViewed('customers');
   }, []);
 
   // Sort customers whenever customers or sortOrder changes

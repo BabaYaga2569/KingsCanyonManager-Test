@@ -53,6 +53,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import BugReportIcon from "@mui/icons-material/BugReport";
 import moment from "moment";
+import { markAsViewed } from './useNotificationCounts';
 
 // Initialize Firebase Functions
 const functions = getFunctions();
@@ -210,6 +211,9 @@ export default function ExpensesManager() {
 
   useEffect(() => {
     loadData();
+  }, []);
+  useEffect(() => {
+    markAsViewed('expenses');
   }, []);
 
   const loadData = async () => {

@@ -32,6 +32,7 @@ import PaymentIcon from "@mui/icons-material/Payment";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import DownloadIcon from "@mui/icons-material/Download";
 import SortIcon from "@mui/icons-material/Sort";
+import { markAsViewed } from './useNotificationCounts';
 
 export default function PaymentsDashboard() {
   const navigate = useNavigate();
@@ -53,6 +54,9 @@ export default function PaymentsDashboard() {
 
   useEffect(() => {
     loadData();
+  }, []);
+  useEffect(() => {
+    markAsViewed('payments');
   }, []);
 
   const loadData = async () => {

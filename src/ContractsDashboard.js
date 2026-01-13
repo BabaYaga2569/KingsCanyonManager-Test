@@ -50,6 +50,7 @@ import TouchAppIcon from "@mui/icons-material/TouchApp";
 import EmailIcon from "@mui/icons-material/Email";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import SortIcon from "@mui/icons-material/Sort";
+import { markAsViewed } from './useNotificationCounts';
 
 const logo = "/logo-kcl.png";
 const COMPANY_PHONE = "(928) 450-5733";
@@ -82,6 +83,9 @@ export default function ContractsDashboard() {
 
   useEffect(() => {
     fetchContracts();
+  }, []);
+  useEffect(() => {
+    markAsViewed('contracts');
   }, []);
 
   // Sort contracts whenever contracts or sortOrder changes

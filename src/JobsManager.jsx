@@ -34,6 +34,7 @@ import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import EditIcon from "@mui/icons-material/Edit";
 import SortIcon from "@mui/icons-material/Sort";
 import Swal from "sweetalert2";
+import { markAsViewed } from './useNotificationCounts';
 
 export default function JobsManager() {
   const [jobs, setJobs] = useState([]);
@@ -67,6 +68,9 @@ export default function JobsManager() {
   useEffect(() => {
     fetchJobs();
   }, []);
+  useEffect(() => {
+    markAsViewed('jobs');
+  }, []);  
 
   // Sort jobs whenever jobs or sortOrder changes
   useEffect(() => {

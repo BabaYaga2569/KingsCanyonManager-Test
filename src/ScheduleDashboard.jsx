@@ -28,6 +28,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import InfoIcon from "@mui/icons-material/Info";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import { markAsViewed } from './useNotificationCounts';
 
 export default function ScheduleDashboard() {
   const theme = useTheme();
@@ -43,6 +44,9 @@ export default function ScheduleDashboard() {
 
   useEffect(() => {
     loadData();
+  }, []);
+  useEffect(() => {
+    markAsViewed('schedules');
   }, []);
 
   const loadData = async () => {
