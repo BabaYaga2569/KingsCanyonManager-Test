@@ -41,6 +41,7 @@ import PaymentIcon from "@mui/icons-material/Payment";
 import SortIcon from "@mui/icons-material/Sort";
 import moment from "moment";
 import generateInvoicePDF from "./pdf/generateInvoicePDF";
+import { markAsViewed } from './useNotificationCounts';
 
 export default function InvoicesDashboard() {
   const [invoices, setInvoices] = useState([]);
@@ -49,6 +50,7 @@ export default function InvoicesDashboard() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  
 
   const fetchInvoices = async () => {
     try {
@@ -62,6 +64,9 @@ export default function InvoicesDashboard() {
 
   useEffect(() => {
     fetchInvoices();
+  }, []);
+  useEffect(() => {
+    markAsViewed('invoices');
   }, []);
 
   // Helper function to convert Firebase Timestamp to JavaScript Date

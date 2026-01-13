@@ -56,7 +56,29 @@ const InvoiceEditor = () => {
         const snap = await getDoc(docRef);
         if (snap.exists()) {
           const data = snap.data();
-          setInvoice({ ...data, originalStatus: data.status }); // Store original status
+          
+          // Set invoice date - use existing or default to createdAt or today
+          let invoiceDate = data.invoiceDate;
+          if (!invoiceDate && data.createdAt) {
+            // Convert Firestore timestamp to date string
+            invoiceDate = moment(data.createdAt.toDate()).format("YYYY-MM-DD");
+          } else if (!invoiceDate) {
+            invoiceDate = moment().format("YYYY-MM-DD");
+          }
+          
+          // Set payment date if it exists
+          let paymentDate = data.paymentDate;
+          if (!paymentDate && data.status === "Paid") {
+            // Default to today if marked as paid but no date
+            paymentDate = moment().format("YYYY-MM-DD");
+          }
+          
+          setInvoice({ 
+            ...data, 
+            originalStatus: data.status,
+            invoiceDate,
+            paymentDate: paymentDate || "",
+          }); // Store original status
           // Set tax rate if it exists
           if (data.taxRate) {
             setTaxRate(data.taxRate);
@@ -230,7 +252,7 @@ const InvoiceEditor = () => {
             clientName: invoice.clientName,
             amount: total,
             paymentMethod: "other",
-            paymentDate: moment().format("YYYY-MM-DD"),
+            paymentDate: invoice.paymentDate || moment().format("YYYY-MM-DD"),
             reference: "Auto-generated from invoice status",
             notes: "Automatically created when invoice marked as Paid",
             receiptGenerated: false,
@@ -238,6 +260,14 @@ const InvoiceEditor = () => {
           });
           
           console.log("✅ Auto-created payment record for tax reporting");
+        } else {
+          // Payment record exists, update it with the new payment date
+          const paymentDoc = paymentsSnap.docs[0];
+          await updateDoc(doc(db, "payments", paymentDoc.id), {
+            paymentDate: invoice.paymentDate || moment().format("YYYY-MM-DD"),
+            amount: total,
+          });
+          console.log("✅ Updated existing payment record with new date");
         }
         
         // ✅ Auto-complete the related job if it exists
@@ -257,6 +287,29 @@ const InvoiceEditor = () => {
             console.warn("Could not auto-complete job:", jobError);
             // Continue anyway - invoice update is more important
           }
+        }
+      }
+      
+      // ✅ UPDATE: Also update payment date for invoices that are already "Paid" (not just newly marked)
+      if (invoice.status === "Paid" && invoice.paymentDate && !statusChanged) {
+        try {
+          const paymentsQuery = query(
+            collection(db, "payments"),
+            where("invoiceId", "==", id)
+          );
+          const paymentsSnap = await getDocs(paymentsQuery);
+          
+          if (!paymentsSnap.empty) {
+            const paymentDoc = paymentsSnap.docs[0];
+            await updateDoc(doc(db, "payments", paymentDoc.id), {
+              paymentDate: invoice.paymentDate,
+              amount: total,
+            });
+            console.log("✅ Updated payment date for existing Paid invoice");
+          }
+        } catch (paymentError) {
+          console.error("Error updating payment date:", paymentError);
+          // Don't fail the whole save if payment update fails
         }
       }
       
@@ -316,7 +369,75 @@ const InvoiceEditor = () => {
         Edit Invoice — {invoice.clientName || "Unnamed"}
       </Typography>
 
+      <Alert severity="info" sx={{ mb: 3 }}>
+        <strong>📅 Tax Reporting:</strong> Use the Invoice Date and Payment Date fields below to ensure accurate tax reporting for the correct year.
+      </Alert>
+
       <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 900 }}>
+        <Paper sx={{ p: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            📅 Invoice Date & Status
+          </Typography>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <TextField
+              label="Invoice Date"
+              name="invoiceDate"
+              type="date"
+              value={invoice.invoiceDate || ""}
+              onChange={handleChange}
+              fullWidth
+              required
+              InputLabelProps={{ shrink: true }}
+              helperText="The date this invoice was issued (determines tax year)"
+            />
+
+            {paymentPlanEnabled && invoice.status !== "Making Payments" && invoice.status !== "Paid" && (
+              <Alert severity="info">
+                💡 <strong>Tip:</strong> Since you've enabled a payment plan, consider setting the status to "Making Payments" 
+                to track that installments are in progress.
+              </Alert>
+            )}
+
+            <TextField
+              select
+              label="Status"
+              name="status"
+              value={invoice.status || "Pending"}
+              onChange={handleChange}
+              fullWidth
+              helperText="Update status as invoice progresses"
+            >
+              <MenuItem value="Pending">Pending - Not sent yet</MenuItem>
+              <MenuItem value="Sent">Sent - Emailed to client</MenuItem>
+              <MenuItem value="Making Payments">Making Payments - Installments in progress 💰</MenuItem>
+              <MenuItem value="Paid">Paid - Payment received ✅</MenuItem>
+              <MenuItem value="Overdue">Overdue - Payment late</MenuItem>
+            </TextField>
+
+            {invoice.status === "Paid" && (
+              <TextField
+                label="💰 Payment Received Date"
+                name="paymentDate"
+                type="date"
+                value={invoice.paymentDate || ""}
+                onChange={handleChange}
+                fullWidth
+                required
+                InputLabelProps={{ shrink: true }}
+                helperText="The date payment was actually received (for tax reporting)"
+                sx={{
+                  bgcolor: "#e8f5e9",
+                  "& .MuiOutlinedInput-root": {
+                    "& fieldset": {
+                      borderColor: "success.main",
+                    },
+                  },
+                }}
+              />
+            )}
+          </Box>
+        </Paper>
+
         <Paper sx={{ p: 3 }}>
           <Typography variant="h6" gutterBottom>
             Client Information
@@ -775,35 +896,6 @@ const InvoiceEditor = () => {
               </Grid>
             </Box>
           )}
-        </Paper>
-
-        <Paper sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Invoice Status
-          </Typography>
-          
-          {paymentPlanEnabled && invoice.status !== "Making Payments" && invoice.status !== "Paid" && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              💡 <strong>Tip:</strong> Since you've enabled a payment plan, consider setting the status to "Making Payments" 
-              to track that installments are in progress.
-            </Alert>
-          )}
-          
-          <TextField
-            select
-            label="Status"
-            name="status"
-            value={invoice.status || "Pending"}
-            onChange={handleChange}
-            fullWidth
-            helperText="Update status as invoice progresses"
-          >
-            <MenuItem value="Pending">Pending - Not sent yet</MenuItem>
-            <MenuItem value="Sent">Sent - Emailed to client</MenuItem>
-            <MenuItem value="Making Payments">Making Payments - Installments in progress 💰</MenuItem>
-            <MenuItem value="Paid">Paid - Payment received ✅</MenuItem>
-            <MenuItem value="Overdue">Overdue - Payment late</MenuItem>
-          </TextField>
         </Paper>
 
         <Box sx={{ display: "flex", gap: 2, mt: 2 }}>

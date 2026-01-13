@@ -32,6 +32,7 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  Badge,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
@@ -49,6 +50,9 @@ import {
 
 // Import AuthProvider
 import { AuthProvider, useAuth } from "./AuthProvider";
+
+// Import notification counts hook
+import { useNotificationCounts } from "./useNotificationCounts";
 
 import ContractsDashboard from "./ContractsDashboard";
 import CreateBid from "./CreateBid";
@@ -467,6 +471,9 @@ function AppContent() {
   // Get auth context
   const { userRole, logout, user } = useAuth();
 
+  // Load notification counts
+  const { counts, loading: countsLoading } = useNotificationCounts();
+
   const isActive = (p) => location.pathname === p;
   
   const isPublicPage = location.pathname.startsWith('/public/');
@@ -477,29 +484,29 @@ function AppContent() {
   if (userRole === 'crew') {
     // CREW sees only time clock and their hours
     menuItems = [
-      { label: "⏰ Time Clock", path: "/time-clock" },
-      { label: "📊 My Hours", path: "/my-hours" },
+      { label: "⏰ Time Clock", path: "/time-clock", notificationKey: null },
+      { label: "📊 My Hours", path: "/my-hours", notificationKey: null },
     ];
   } else {
     // ADMIN and GOD see full menu
     menuItems = [
-      { label: "Dashboard", path: "/" },
-      { label: "Bids", path: "/bids" },
-      { label: "Create Bid", path: "/create-bid" },
-      { label: "Contracts", path: "/contracts" },
-      { label: "Invoices", path: "/invoices" },
-      { label: "Jobs", path: "/jobs" },
-      { label: "📝 Notes", path: "/notes" }, // ← ADDED: Notes menu item
-      { label: "Customers", path: "/customers" },
-      { label: "Schedule", path: "/schedule-dashboard" },
-      { label: "Calendar", path: "/calendar-view" },
-      { label: "Payments", path: "/payments-dashboard" },
-      { label: "Expenses", path: "/expenses-manager" },
-      { label: "Payroll", path: "/crew-payroll" },
-      { label: "Approve Time", path: "/approve-time" },
-      { label: "Tax Report", path: "/tax-report" },
-      { label: "Crew", path: "/crew-manager" },
-      { label: "Equipment", path: "/equipment-manager" },
+      { label: "Dashboard", path: "/", notificationKey: null },
+      { label: "Bids", path: "/bids", notificationKey: "bids" },
+      { label: "Create Bid", path: "/create-bid", notificationKey: null },
+      { label: "Contracts", path: "/contracts", notificationKey: "contracts" },
+      { label: "Invoices", path: "/invoices", notificationKey: "invoices" },
+      { label: "Jobs", path: "/jobs", notificationKey: "jobs" },
+      { label: "📝 Notes", path: "/notes", notificationKey: "notes" },
+      { label: "Customers", path: "/customers", notificationKey: "customers" },
+      { label: "Schedule", path: "/schedule-dashboard", notificationKey: "schedules" },
+      { label: "Calendar", path: "/calendar-view", notificationKey: null },
+      { label: "Payments", path: "/payments-dashboard", notificationKey: "payments" },
+      { label: "Expenses", path: "/expenses-manager", notificationKey: "expenses" },
+      { label: "Payroll", path: "/crew-payroll", notificationKey: null },
+      { label: "Approve Time", path: "/approve-time", notificationKey: null },
+      { label: "Tax Report", path: "/tax-report", notificationKey: null },
+      { label: "Crew", path: "/crew-manager", notificationKey: null },
+      { label: "Equipment", path: "/equipment-manager", notificationKey: null },
     ];
   }
 
@@ -558,28 +565,46 @@ function AppContent() {
               ) : (
                 <>
                   <ButtonGroup variant="text" sx={{ mr: 2 }}>
-                    {menuItems.map((item) => (
-                      <Button
-                        key={item.path}
-                        component={Link}
-                        to={item.path}
-                        sx={{
-                          color: isActive(item.path) ? "#fff" : "rgba(255,255,255,0.7)",
-                          backgroundColor: isActive(item.path)
-                            ? "rgba(255,255,255,0.1)"
-                            : "transparent",
-                          fontWeight: isActive(item.path) ? 700 : 500,
-                          fontSize: { sm: '0.75rem', md: '0.875rem' },
-                          px: { sm: 1, md: 1.5 },
-                          "&:hover": {
-                            backgroundColor: "rgba(255,255,255,0.15)",
-                            color: "#fff",
-                          },
-                        }}
-                      >
-                        {item.label}
-                      </Button>
-                    ))}
+                    {menuItems.map((item) => {
+                      const count = item.notificationKey ? counts[item.notificationKey] : 0;
+                      const showBadge = count > 0 && !countsLoading;
+
+                      return (
+                        <Button
+                          key={item.path}
+                          component={Link}
+                          to={item.path}
+                          sx={{
+                            color: isActive(item.path) ? "#fff" : "rgba(255,255,255,0.7)",
+                            backgroundColor: isActive(item.path)
+                              ? "rgba(255,255,255,0.1)"
+                              : "transparent",
+                            fontWeight: isActive(item.path) ? 700 : 500,
+                            fontSize: { sm: '0.75rem', md: '0.875rem' },
+                            px: { sm: 1, md: 1.5 },
+                            "&:hover": {
+                              backgroundColor: "rgba(255,255,255,0.15)",
+                              color: "#fff",
+                            },
+                          }}
+                        >
+                          <Badge 
+                            badgeContent={showBadge ? count : 0} 
+                            color="error"
+                            sx={{
+                              '& .MuiBadge-badge': {
+                                fontSize: '0.7rem',
+                                minWidth: '18px',
+                                height: '18px',
+                                padding: '0 4px',
+                              }
+                            }}
+                          >
+                            {item.label}
+                          </Badge>
+                        </Button>
+                      );
+                    })}
                   </ButtonGroup>
 
                   <Button
@@ -612,23 +637,34 @@ function AppContent() {
               </IconButton>
             </Box>
             <List>
-              {menuItems.map((item) => (
-                <ListItem
-                  button
-                  key={item.path}
-                  onClick={() => handleMenuClick(item.path)}
-                  sx={{
-                    backgroundColor: isActive(item.path) ? "#e3f2fd" : "transparent",
-                  }}
-                >
-                  <ListItemText
-                    primary={item.label}
-                    primaryTypographyProps={{
-                      fontWeight: isActive(item.path) ? 700 : 500,
+              {menuItems.map((item) => {
+                const count = item.notificationKey ? counts[item.notificationKey] : 0;
+                const showBadge = count > 0 && !countsLoading;
+
+                return (
+                  <ListItem
+                    button
+                    key={item.path}
+                    onClick={() => handleMenuClick(item.path)}
+                    sx={{
+                      backgroundColor: isActive(item.path) ? "#e3f2fd" : "transparent",
                     }}
-                  />
-                </ListItem>
-              ))}
+                  >
+                    <Badge 
+                      badgeContent={showBadge ? count : 0} 
+                      color="error"
+                      sx={{ width: '100%' }}
+                    >
+                      <ListItemText
+                        primary={item.label}
+                        primaryTypographyProps={{
+                          fontWeight: isActive(item.path) ? 700 : 500,
+                        }}
+                      />
+                    </Badge>
+                  </ListItem>
+                );
+              })}
             </List>
           </Drawer>
         </>
