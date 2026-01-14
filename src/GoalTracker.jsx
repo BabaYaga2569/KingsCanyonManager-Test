@@ -65,10 +65,11 @@ export default function GoalTracker() {
           const invoice = docSnap.data();
           
           if (invoice.status?.toLowerCase() === "paid") {
-            // Check invoice year
+            // Check invoice year - prioritize invoiceDate field
             let invoiceYear = targetYear;
-            if (invoice.createdAt || invoice.date) {
-              const dateStr = invoice.createdAt || invoice.date;
+            if (invoice.invoiceDate || invoice.date || invoice.createdAt) {
+              // Check invoiceDate FIRST (the actual invoice date)
+              const dateStr = invoice.invoiceDate || invoice.date || invoice.createdAt;
               const invoiceDate = dateStr.toDate ? dateStr.toDate() : new Date(dateStr);
               invoiceYear = invoiceDate.getFullYear();
             }
