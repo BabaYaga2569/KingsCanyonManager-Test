@@ -32,7 +32,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
 import EditIcon from "@mui/icons-material/Edit";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
@@ -48,6 +48,7 @@ export default function InvoicesDashboard() {
   const [sortedInvoices, setSortedInvoices] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
   const navigate = useNavigate();
+  const location = useLocation(); // ADD THIS LINE
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   
@@ -61,10 +62,12 @@ export default function InvoicesDashboard() {
       console.error("Error loading invoices:", err);
     }
   };
-
+  
+  
   useEffect(() => {
     fetchInvoices();
-  }, []);
+  }, [location.pathname, location.key]); // This will definitely trigger
+  
   useEffect(() => {
     markAsViewed('invoices');
   }, []);
@@ -72,26 +75,26 @@ export default function InvoicesDashboard() {
   // Helper function to convert Firebase Timestamp to JavaScript Date
   const getDateFromInvoice = (invoice) => {
     try {
-      // Check createdAt first
-      if (invoice.createdAt) {
-        if (invoice.createdAt.toDate) {
-          return invoice.createdAt.toDate(); // Firebase Timestamp
-        }
-        return new Date(invoice.createdAt); // String date
-      }
-      // Fallback to invoiceDate
+      // Check invoiceDate FIRST (the actual invoice date field)
       if (invoice.invoiceDate) {
         if (invoice.invoiceDate.toDate) {
           return invoice.invoiceDate.toDate();
         }
         return new Date(invoice.invoiceDate);
       }
-      // Fallback to date
+      // Fallback to date field (legacy)
       if (invoice.date) {
         if (invoice.date.toDate) {
           return invoice.date.toDate();
         }
         return new Date(invoice.date);
+      }
+      // Last fallback to createdAt
+      if (invoice.createdAt) {
+        if (invoice.createdAt.toDate) {
+          return invoice.createdAt.toDate(); // Firebase Timestamp
+        }
+        return new Date(invoice.createdAt); // String date
       }
       return null;
     } catch (error) {
