@@ -52,7 +52,7 @@ import {
 import { AuthProvider, useAuth } from "./AuthProvider";
 
 // Import notification counts hook
-import { useNotificationCounts } from "./useNotificationCounts";
+import { useNotificationCounts, markAsViewed } from "./useNotificationCounts";
 
 import ContractsDashboard from "./ContractsDashboard";
 import CreateBid from "./CreateBid";
@@ -91,7 +91,7 @@ import MyHours from "./MyHours";
 import ApproveTime from "./ApproveTime";
 
 // --------------------- BIDS LIST WITH SORTING ---------------------
-function BidsList() {
+function BidsList() {  
   const [bids, setBids] = useState([]);
   const [sortedBids, setSortedBids] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
@@ -128,6 +128,10 @@ function BidsList() {
     };
     fetchBids();
   }, []);
+  useEffect(() => {
+    markAsViewed('bids');
+  }, []);
+
 
   // Sort bids whenever bids or sortOrder changes
   useEffect(() => {
@@ -473,6 +477,10 @@ function AppContent() {
 
   // Load notification counts
   const { counts, loading: countsLoading } = useNotificationCounts();
+ 
+ useEffect(() => {
+    window.dispatchEvent(new Event('refreshBadges'));
+  }, [location.pathname]);
 
   const isActive = (p) => location.pathname === p;
   

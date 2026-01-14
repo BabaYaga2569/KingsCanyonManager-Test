@@ -46,7 +46,7 @@ export default function ScheduleDashboard() {
     loadData();
   }, []);
   useEffect(() => {
-    markAsViewed('schedules');
+    markAsViewed('schedule');
   }, []);
 
   const loadData = async () => {

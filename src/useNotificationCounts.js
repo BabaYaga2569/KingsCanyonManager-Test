@@ -80,7 +80,15 @@ export function useNotificationCounts() {
 
     // Refresh counts every 60 seconds
     const interval = setInterval(fetchCounts, 60000);
-    return () => clearInterval(interval);
+    
+    // Listen for manual refresh events
+    const handleRefresh = () => fetchCounts();
+    window.addEventListener('refreshBadges', handleRefresh);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('refreshBadges', handleRefresh);
+    };
   }, []);
 
   return { counts, loading };
