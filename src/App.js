@@ -79,6 +79,7 @@ import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
 import JobExpenses from "./JobExpenses";
 import NotesManager from "./NotesManager"; // ← ADDED: Notes Manager
+import EmployeeAccountManager from './EmployeeAccountManager';
 import { createFullJobPackage } from "./utils/createFullJobPackage";
 import generateBidPDF from "./pdf/generateBidPDF";
 import ContractSigningPage from "./ContractSigningPage";
@@ -515,6 +516,7 @@ function AppContent() {
       { label: "Tax Report", path: "/tax-report", notificationKey: null },
       { label: "Crew", path: "/crew-manager", notificationKey: null },
       { label: "Equipment", path: "/equipment-manager", notificationKey: null },
+	  { label: "👥 Employees", path: "/employees", notificationKey: null },
     ];
   }
 
@@ -709,6 +711,7 @@ function AppContent() {
         <Route path="/payments-dashboard" element={<PaymentsDashboard />} />
         <Route path="/crew-manager" element={<CrewManager />} />
         <Route path="/equipment-manager" element={<EquipmentManager />} />
+		<Route path="/employees" element={<EmployeeAccountManager currentUser={user} currentUserRole={userRole} />} />
         <Route path="/nda/:crewId" element={<NDAEditor />} />
         <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
         
