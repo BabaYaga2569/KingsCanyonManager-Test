@@ -70,20 +70,22 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
     hourlyRate: ''
   });
 
-  // Only allow 'god' role to access this page
-  if (currentUserRole !== 'god') {
-    return (
-      <Container maxWidth="lg" sx={{ mt: 4 }}>
-        <Alert severity="error">
-          Access Denied: Only administrators can manage employee accounts.
-        </Alert>
-      </Container>
-    );
-  }
-
   useEffect(() => {
+  if (currentUserRole === 'god') {
     loadEmployees();
-  }, []);
+  }
+}, [currentUserRole]);
+
+// Only allow 'god' role to access this page
+if (currentUserRole !== 'god') {
+  return (
+    <Container maxWidth="lg" sx={{ mt: 4 }}>
+      <Alert severity="error">
+        Access Denied: Only administrators can manage employee accounts.
+      </Alert>
+    </Container>
+  );
+}
 
   const loadEmployees = async () => {
     try {
