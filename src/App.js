@@ -82,6 +82,7 @@ import TaxReport from "./TaxReport";
 import JobExpenses from "./JobExpenses";
 import NotesManager from "./NotesManager"; // ← ADDED: Notes Manager
 import EmployeeAccountManager from './EmployeeAccountManager';
+import EmployeeDashboard from './EmployeeDashboard'; // Employee Dashboard
 import { createFullJobPackage } from "./utils/createFullJobPackage";
 import generateBidPDF from "./pdf/generateBidPDF";
 import ContractSigningPage from "./ContractSigningPage";
@@ -777,11 +778,16 @@ function AppContent() {
                     }
                   });
                 }
-                navigate('/');
+                // Redirect to Employee Dashboard after NDA signing
+                navigate('/employee-dashboard');
               }}
             />
           } 
         />
+        
+        {/* Employee Dashboard - for crew after NDA signing */}
+        <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
+        
         <Route path="/expenses-manager" element={<ExpensesManager />} />
         <Route path="/crew-payroll" element={<CrewPayroll />} />
         <Route path="/crew-payment-history" element={<CrewPaymentHistory />} />

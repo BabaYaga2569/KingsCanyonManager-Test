@@ -63,7 +63,7 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
   const [editMode, setEditMode] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   
-  // Form state - NOW WITH JOB TITLE!
+  // Form state
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -118,7 +118,7 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
       setFormData({
         name: employee.name || '',
         email: employee.email || '',
-        password: '', // Don't pre-fill password for security
+        password: '',
         role: employee.role || 'crew',
         jobTitle: employee.jobTitle || 'Crew Member',
         phoneNumber: employee.phoneNumber || '',
@@ -171,23 +171,45 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
         return;
       }
 
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email.trim())) {
+        Swal.fire('Error', 'Please enter a valid email address (e.g., user@example.com)', 'error');
+        return;
+      }
+
       if (formData.password.length < 6) {
         Swal.fire('Error', 'Password must be at least 6 characters long', 'error');
         return;
       }
 
-      setLoading(true);
-
-      // CRITICAL FIX: Save current user's credentials so we can re-login
+      // CRITICAL FIX: Save form data and close dialog FIRST
+      const employeeData = { 
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        password: formData.password,
+        role: formData.role,
+        jobTitle: formData.jobTitle,
+        phoneNumber: formData.phoneNumber.trim(),
+        hourlyRate: formData.hourlyRate
+      };
       const currentUserEmail = currentUser.email;
       
-      // Prompt for current user's password
+      console.log('Creating employee with data:', { ...employeeData, password: '***' });
+      
+      handleCloseDialog();
+
+      // Prompt for YOUR password with high z-index
       const { value: currentPassword } = await Swal.fire({
         title: 'Confirm Your Password',
         text: 'To create an employee account, please enter YOUR password:',
         input: 'password',
         inputPlaceholder: 'Your password',
         showCancelButton: true,
+        allowOutsideClick: false,
+        customClass: {
+          container: 'swal-high-zindex'
+        },
         inputValidator: (value) => {
           if (!value) {
             return 'You need to enter your password!'
@@ -196,57 +218,80 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
       });
 
       if (!currentPassword) {
-        setLoading(false);
-        return; // User cancelled
+        // User cancelled - reopen dialog with saved data
+        setFormData(employeeData);
+        setOpenDialog(true);
+        return;
       }
 
-      // Step 1: Create Firebase Authentication account for new employee
+      // Show loading
+      Swal.fire({
+        title: 'Creating Employee...',
+        text: 'Please wait',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
+      console.log('Step 1: Creating Firebase Auth account for:', employeeData.email);
+
+      // Step 1: Create Firebase Authentication account (this logs us in as the new user)
       const userCredential = await createUserWithEmailAndPassword(
         auth,
-        formData.email,
-        formData.password
+        employeeData.email,
+        employeeData.password
       );
       
       const newUserId = userCredential.user.uid;
+      console.log('Step 2: Auth account created with UID:', newUserId);
 
-      // Step 2: Create Firestore user document with role AND NDA TRACKING
+      // CRITICAL FIX: Re-login as god IMMEDIATELY before creating Firestore doc
+      console.log('Step 3: Re-logging in as god:', currentUserEmail);
+      await signInWithEmailAndPassword(auth, currentUserEmail, currentPassword);
+      console.log('Step 4: Successfully re-logged in as god');
+
+      // Wait a moment for auth state to stabilize
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Step 2: NOW create Firestore user document (while logged in as god)
+      console.log('Step 5: Creating Firestore document for new employee');
       await setDoc(doc(db, 'users', newUserId), {
-        name: formData.name,
-        email: formData.email,
-        role: formData.role,
-        jobTitle: formData.jobTitle,
-        phoneNumber: formData.phoneNumber || '',
-        hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : 0,
+        name: employeeData.name,
+        email: employeeData.email,
+        role: employeeData.role,
+        jobTitle: employeeData.jobTitle,
+        phoneNumber: employeeData.phoneNumber || '',
+        hourlyRate: employeeData.hourlyRate ? parseFloat(employeeData.hourlyRate) : 0,
         createdAt: new Date().toISOString(),
         createdBy: currentUser.uid,
         active: true,
-        // IMPORTANT: These fields trigger first-login NDA flow
         firstLogin: true,
         ndaSigned: false,
         ndaSignedDate: null,
         ndaSignatureUrl: null,
         startDate: new Date().toISOString()
       });
+      console.log('Step 6: Firestore document created successfully');
 
-      // CRITICAL FIX: Sign back in as the god user!
-      await signInWithEmailAndPassword(auth, currentUserEmail, currentPassword);
+      // Wait for Firestore to propagate
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-      await Swal.fire({
+      Swal.fire({
         icon: 'success',
         title: 'Employee Created!',
         html: `
-          <p><strong>${formData.name}</strong> has been created successfully!</p>
-          <p><strong>Job Title:</strong> ${formData.jobTitle}</p>
-          <p><strong>Email:</strong> ${formData.email}</p>
-          <p><strong>Role:</strong> ${formData.role}</p>
-          <p><strong>Temporary Password:</strong> ${formData.password}</p>
-          <p style="color: orange;">⚠️ Please share this password with the employee.</p>
-          <p style="color: blue;">📝 They will be asked to sign the NDA on their first login.</p>
+          <p><strong>${employeeData.name}</strong> has been created successfully!</p>
+          <p><strong>Job Title:</strong> ${employeeData.jobTitle}</p>
+          <p><strong>Email:</strong> ${employeeData.email}</p>
+          <p><strong>Role:</strong> ${employeeData.role}</p>
+          <p><strong>Temporary Password:</strong> ${employeeData.password}</p>
+          <p style="color: orange;">⚠️ Share this password with the employee.</p>
+          <p style="color: blue;">📝 They will sign the NDA on first login.</p>
         `,
         confirmButtonText: 'Got it!'
       });
 
-      handleCloseDialog();
       loadEmployees();
 
     } catch (error) {
@@ -254,18 +299,16 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
       let errorMessage = error.message;
       
       if (error.code === 'auth/email-already-in-use') {
-        errorMessage = 'This email is already registered. Please use a different email.';
+        errorMessage = 'This email is already registered.';
       } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address. Please check the email format.';
+        errorMessage = 'Invalid email address.';
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'Password is too weak. Please use at least 6 characters.';
+        errorMessage = 'Password too weak.';
       } else if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Incorrect password. Please try again with your correct password.';
+        errorMessage = 'Incorrect password. Try again.';
       }
       
-      Swal.fire('Error', 'Failed to create employee: ' + errorMessage, 'error');
-    } finally {
-      setLoading(false);
+      Swal.fire('Error', errorMessage, 'error');
     }
   };
 
@@ -275,7 +318,6 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
 
       setLoading(true);
 
-      // Build update object
       const updates = {
         name: formData.name,
         role: formData.role,
@@ -286,25 +328,13 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
         updatedBy: currentUser.uid
       };
 
-      // Update Firestore document
       const userRef = doc(db, 'users', selectedEmployee.id);
       await updateDoc(userRef, updates);
-
-      // If password is provided, update it (requires re-authentication)
-      if (formData.password && formData.password.length >= 6) {
-        // Note: This requires the user to be signed in, which they might not be
-        // In production, you'd want to use Cloud Functions for this
-        await Swal.fire({
-          icon: 'warning',
-          title: 'Password Update',
-          text: 'Password updates require the employee to reset their password themselves for security reasons.',
-        });
-      }
 
       await Swal.fire({
         icon: 'success',
         title: 'Employee Updated!',
-        text: `${formData.name}'s information has been updated successfully.`,
+        text: `${formData.name}'s information updated successfully.`,
       });
 
       handleCloseDialog();
@@ -361,36 +391,26 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
       const confirm = await Swal.fire({
         title: `Delete ${employee.name}?`,
         html: `
-          <p><strong>Warning:</strong> This will permanently delete:</p>
-          <ul style="text-align: left">
-            <li>Their user account</li>
-            <li>All their data</li>
-            <li>Their authentication access</li>
-          </ul>
+          <p><strong>Warning:</strong> This will permanently delete their account and data.</p>
           <p style="color: red">This action cannot be undone!</p>
         `,
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonText: 'Yes, delete permanently',
+        confirmButtonText: 'Yes, delete',
         cancelButtonText: 'Cancel',
         confirmButtonColor: '#d33',
       });
 
       if (!confirm.isConfirmed) return;
 
-      // Delete Firestore document
       await deleteDoc(doc(db, 'users', employee.id));
 
-      // Note: Deleting Firebase Auth user requires admin privileges
-      // In production, use Cloud Functions for this
       await Swal.fire({
-        icon: 'info',
-        title: 'Partially Deleted',
-        html: `
-          <p>The employee's Firestore data has been deleted.</p>
-          <p><strong>Note:</strong> Their authentication account still exists but cannot log in without a user document.</p>
-          <p>For complete deletion, contact your Firebase administrator.</p>
-        `,
+        icon: 'success',
+        title: 'Employee Deleted',
+        text: `${employee.name}'s account removed.`,
+        timer: 2000,
+        showConfirmButton: false
       });
 
       loadEmployees();
@@ -641,7 +661,7 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
                 value={formData.email}
                 onChange={handleInputChange}
                 required
-                disabled={editMode} // Can't change email in edit mode
+                disabled={editMode}
               />
             </Grid>
             <Grid item xs={12}>
@@ -655,8 +675,8 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
                 required={!editMode}
                 helperText={
                   editMode 
-                    ? 'Leave blank to keep current password. For security, ask employee to reset password themselves.' 
-                    : 'Minimum 6 characters. Employee should change this after first login.'
+                    ? 'Leave blank to keep current password.' 
+                    : 'Minimum 6 characters.'
                 }
               />
             </Grid>
@@ -669,14 +689,13 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
                   onChange={handleInputChange}
                   label="Role *"
                 >
-                  <MenuItem value="crew">👷 Crew (Worker) - Time Clock & Notes only</MenuItem>
-                  <MenuItem value="admin">⚙️ Admin (Manager) - Most features except financials</MenuItem>
-                  <MenuItem value="god">👑 God (Owner) - Full access to everything</MenuItem>
+                  <MenuItem value="crew">👷 Crew - Time Clock only</MenuItem>
+                  <MenuItem value="admin">⚙️ Admin - Most features</MenuItem>
+                  <MenuItem value="god">👑 God - Full access</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
             
-            {/* JOB TITLE FIELD */}
             <Grid item xs={12}>
               <FormControl fullWidth>
                 <InputLabel>Job Title *</InputLabel>
@@ -729,7 +748,6 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
             variant="contained"
             color="primary"
             disabled={loading}
-            startIcon={loading ? <CircularProgress size={20} /> : null}
           >
             {editMode ? 'Update Employee' : 'Create Employee'}
           </Button>
