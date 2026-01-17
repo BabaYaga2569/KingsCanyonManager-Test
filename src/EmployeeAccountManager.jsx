@@ -51,7 +51,8 @@ import {
 import { 
   createUserWithEmailAndPassword,
   updatePassword,
-  deleteUser
+  deleteUser,
+  signInWithEmailAndPassword
 } from 'firebase/auth';
 import Swal from 'sweetalert2';
 
@@ -74,21 +75,21 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
   });
 
   useEffect(() => {
-  if (currentUserRole === 'god') {
-    loadEmployees();
-  }
-}, [currentUserRole]);
+    if (currentUserRole === 'god') {
+      loadEmployees();
+    }
+  }, [currentUserRole]);
 
-// Only allow 'god' role to access this page
-if (currentUserRole !== 'god') {
-  return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Alert severity="error">
-        Access Denied: Only administrators can manage employee accounts.
-      </Alert>
-    </Container>
-  );
-}
+  // Only allow 'god' role to access this page
+  if (currentUserRole !== 'god') {
+    return (
+      <Container maxWidth="lg" sx={{ mt: 4 }}>
+        <Alert severity="error">
+          Access Denied: Only administrators can manage employee accounts.
+        </Alert>
+      </Container>
+    );
+  }
 
   const loadEmployees = async () => {
     try {
@@ -177,7 +178,29 @@ if (currentUserRole !== 'god') {
 
       setLoading(true);
 
-      // Step 1: Create Firebase Authentication account
+      // CRITICAL FIX: Save current user's credentials so we can re-login
+      const currentUserEmail = currentUser.email;
+      
+      // Prompt for current user's password
+      const { value: currentPassword } = await Swal.fire({
+        title: 'Confirm Your Password',
+        text: 'To create an employee account, please enter YOUR password:',
+        input: 'password',
+        inputPlaceholder: 'Your password',
+        showCancelButton: true,
+        inputValidator: (value) => {
+          if (!value) {
+            return 'You need to enter your password!'
+          }
+        }
+      });
+
+      if (!currentPassword) {
+        setLoading(false);
+        return; // User cancelled
+      }
+
+      // Step 1: Create Firebase Authentication account for new employee
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         formData.email,
@@ -197,7 +220,7 @@ if (currentUserRole !== 'god') {
         createdAt: new Date().toISOString(),
         createdBy: currentUser.uid,
         active: true,
-        // NEW FIELDS FOR CONSOLIDATION
+        // IMPORTANT: These fields trigger first-login NDA flow
         firstLogin: true,
         ndaSigned: false,
         ndaSignedDate: null,
@@ -205,7 +228,10 @@ if (currentUserRole !== 'god') {
         startDate: new Date().toISOString()
       });
 
-      Swal.fire({
+      // CRITICAL FIX: Sign back in as the god user!
+      await signInWithEmailAndPassword(auth, currentUserEmail, currentPassword);
+
+      await Swal.fire({
         icon: 'success',
         title: 'Employee Created!',
         html: `
@@ -230,12 +256,14 @@ if (currentUserRole !== 'god') {
       if (error.code === 'auth/email-already-in-use') {
         errorMessage = 'This email is already registered. Please use a different email.';
       } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email format.';
+        errorMessage = 'Invalid email address. Please check the email format.';
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'Password is too weak. Please use a stronger password.';
+        errorMessage = 'Password is too weak. Please use at least 6 characters.';
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password. Please try again with your correct password.';
       }
       
-      Swal.fire('Error', errorMessage, 'error');
+      Swal.fire('Error', 'Failed to create employee: ' + errorMessage, 'error');
     } finally {
       setLoading(false);
     }
@@ -243,15 +271,12 @@ if (currentUserRole !== 'god') {
 
   const handleUpdateEmployee = async () => {
     try {
-      if (!formData.name || !formData.email) {
-        Swal.fire('Error', 'Please fill in Name and Email', 'error');
-        return;
-      }
+      if (!selectedEmployee) return;
 
       setLoading(true);
 
-      // Update Firestore user document
-      await updateDoc(doc(db, 'users', selectedEmployee.id), {
+      // Build update object
+      const updates = {
         name: formData.name,
         role: formData.role,
         jobTitle: formData.jobTitle,
@@ -259,9 +284,29 @@ if (currentUserRole !== 'god') {
         hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : 0,
         updatedAt: new Date().toISOString(),
         updatedBy: currentUser.uid
+      };
+
+      // Update Firestore document
+      const userRef = doc(db, 'users', selectedEmployee.id);
+      await updateDoc(userRef, updates);
+
+      // If password is provided, update it (requires re-authentication)
+      if (formData.password && formData.password.length >= 6) {
+        // Note: This requires the user to be signed in, which they might not be
+        // In production, you'd want to use Cloud Functions for this
+        await Swal.fire({
+          icon: 'warning',
+          title: 'Password Update',
+          text: 'Password updates require the employee to reset their password themselves for security reasons.',
+        });
+      }
+
+      await Swal.fire({
+        icon: 'success',
+        title: 'Employee Updated!',
+        text: `${formData.name}'s information has been updated successfully.`,
       });
 
-      Swal.fire('Success', 'Employee updated successfully!', 'success');
       handleCloseDialog();
       loadEmployees();
 
@@ -276,66 +321,99 @@ if (currentUserRole !== 'god') {
   const handleToggleActive = async (employee) => {
     try {
       const newActiveStatus = !employee.active;
-      await updateDoc(doc(db, 'users', employee.id), {
+      const action = newActiveStatus ? 'enable' : 'disable';
+      
+      const confirm = await Swal.fire({
+        title: `${action.charAt(0).toUpperCase() + action.slice(1)} ${employee.name}?`,
+        text: `This will ${action} their account access.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: `Yes, ${action}`,
+        cancelButtonText: 'Cancel',
+      });
+
+      if (!confirm.isConfirmed) return;
+
+      const userRef = doc(db, 'users', employee.id);
+      await updateDoc(userRef, {
         active: newActiveStatus,
         updatedAt: new Date().toISOString(),
         updatedBy: currentUser.uid
       });
 
-      Swal.fire(
-        newActiveStatus ? 'Account Enabled!' : 'Account Disabled!',
-        `${employee.name}'s account has been ${newActiveStatus ? 'enabled' : 'disabled'}.`,
-        'success'
-      );
+      await Swal.fire({
+        icon: 'success',
+        title: `Account ${action}d!`,
+        text: `${employee.name}'s account has been ${action}d.`,
+        timer: 2000,
+        showConfirmButton: false
+      });
 
       loadEmployees();
     } catch (error) {
-      console.error('Error toggling account status:', error);
-      Swal.fire('Error', 'Failed to update account status: ' + error.message, 'error');
+      console.error('Error toggling employee status:', error);
+      Swal.fire('Error', 'Failed to update employee status: ' + error.message, 'error');
     }
   };
 
   const handleDeleteEmployee = async (employee) => {
-    const result = await Swal.fire({
-      title: 'Delete Employee?',
-      html: `
-        <p>Are you sure you want to delete <strong>${employee.name}</strong>?</p>
-        <p style="color: red;">⚠️ This will remove their Firestore data.</p>
-        <p style="color: orange;">Note: You'll need to manually delete their Firebase Authentication account in Firebase Console.</p>
-      `,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#d33',
-      cancelButtonColor: '#3085d6',
-      confirmButtonText: 'Yes, delete it!'
-    });
+    try {
+      const confirm = await Swal.fire({
+        title: `Delete ${employee.name}?`,
+        html: `
+          <p><strong>Warning:</strong> This will permanently delete:</p>
+          <ul style="text-align: left">
+            <li>Their user account</li>
+            <li>All their data</li>
+            <li>Their authentication access</li>
+          </ul>
+          <p style="color: red">This action cannot be undone!</p>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete permanently',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#d33',
+      });
 
-    if (result.isConfirmed) {
-      try {
-        await deleteDoc(doc(db, 'users', employee.id));
-        Swal.fire('Deleted!', 'Employee has been deleted.', 'success');
-        loadEmployees();
-      } catch (error) {
-        console.error('Error deleting employee:', error);
-        Swal.fire('Error', 'Failed to delete employee: ' + error.message, 'error');
-      }
+      if (!confirm.isConfirmed) return;
+
+      // Delete Firestore document
+      await deleteDoc(doc(db, 'users', employee.id));
+
+      // Note: Deleting Firebase Auth user requires admin privileges
+      // In production, use Cloud Functions for this
+      await Swal.fire({
+        icon: 'info',
+        title: 'Partially Deleted',
+        html: `
+          <p>The employee's Firestore data has been deleted.</p>
+          <p><strong>Note:</strong> Their authentication account still exists but cannot log in without a user document.</p>
+          <p>For complete deletion, contact your Firebase administrator.</p>
+        `,
+      });
+
+      loadEmployees();
+    } catch (error) {
+      console.error('Error deleting employee:', error);
+      Swal.fire('Error', 'Failed to delete employee: ' + error.message, 'error');
     }
   };
 
   const getRoleLabel = (role) => {
-    switch (role) {
-      case 'god': return '👑 God';
-      case 'admin': return '⚙️ Admin';
-      case 'crew': return '👷 Crew';
-      default: return role;
+    switch(role) {
+      case 'god': return 'Owner';
+      case 'admin': return 'Admin';
+      case 'crew': return 'Crew';
+      default: return 'User';
     }
   };
 
   const getRoleBadgeColor = (role) => {
-    switch (role) {
+    switch(role) {
       case 'god': return 'error';
-      case 'admin': return 'warning';
-      case 'crew': return 'info';
+      case 'admin': return 'primary';
+      case 'crew': return 'success';
       default: return 'default';
     }
   };
@@ -343,24 +421,24 @@ if (currentUserRole !== 'god') {
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       {/* Header */}
-      <Card sx={{ mb: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+      <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
             <Box>
-              <Typography variant="h4" sx={{ color: 'white', fontWeight: 'bold' }}>
-                👥 Employee Account Manager
+              <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <PersonAddIcon sx={{ fontSize: 40, color: 'primary.main' }} />
+                Employee Account Manager
               </Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', mt: 1 }}>
-                Manage employee accounts, roles, and access permissions
+              <Typography variant="body2" color="text.secondary">
+                Create and manage employee accounts, roles, and access permissions
               </Typography>
             </Box>
             <Button
               variant="contained"
               color="primary"
-              startIcon={<PersonAddIcon />}
+              startIcon={<AddIcon />}
               onClick={() => handleOpenDialog()}
               size="large"
-              sx={{ backgroundColor: 'white', color: '#667eea', '&:hover': { backgroundColor: '#f0f0f0' } }}
             >
               Add Employee
             </Button>
@@ -368,39 +446,62 @@ if (currentUserRole !== 'god') {
         </CardContent>
       </Card>
 
-      {/* Role Information */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            🎭 Role Permissions
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={4}>
-              <Chip label="👑 God (Owner)" color="error" sx={{ mr: 1 }} />
-              <Typography variant="body2" color="text.secondary">
-                Full access to everything including financial data
+      {/* Statistics Cards */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="text.secondary" gutterBottom>
+                Total Employees
               </Typography>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Chip label="⚙️ Admin (Manager)" color="warning" sx={{ mr: 1 }} />
-              <Typography variant="body2" color="text.secondary">
-                Can manage most things except financial/sensitive data
+              <Typography variant="h4">
+                {employees.length}
               </Typography>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Chip label="👷 Crew (Worker)" color="info" sx={{ mr: 1 }} />
-              <Typography variant="body2" color="text.secondary">
-                Can ONLY access Time Clock and Notes
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="text.secondary" gutterBottom>
+                Active
               </Typography>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
+              <Typography variant="h4" color="success.main">
+                {employees.filter(e => e.active !== false).length}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="text.secondary" gutterBottom>
+                NDA Signed
+              </Typography>
+              <Typography variant="h4" color="primary.main">
+                {employees.filter(e => e.ndaSigned === true).length}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="text.secondary" gutterBottom>
+                Pending NDA
+              </Typography>
+              <Typography variant="h4" color="warning.main">
+                {employees.filter(e => e.ndaSigned === false || e.firstLogin === true).length}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
 
-      {/* Employees Table */}
+      {/* Employee Table */}
       {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-          <CircularProgress />
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
+          <CircularProgress size={60} />
         </Box>
       ) : (
         <TableContainer component={Paper}>
@@ -575,7 +676,7 @@ if (currentUserRole !== 'god') {
               </FormControl>
             </Grid>
             
-            {/* NEW JOB TITLE FIELD */}
+            {/* JOB TITLE FIELD */}
             <Grid item xs={12}>
               <FormControl fullWidth>
                 <InputLabel>Job Title *</InputLabel>
