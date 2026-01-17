@@ -55,6 +55,7 @@ import {
   signInWithEmailAndPassword
 } from 'firebase/auth';
 import Swal from 'sweetalert2';
+import generateEmployeeNDAPDF from './pdf/generateEmployeeNDAPDF';
 
 const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
   const [employees, setEmployees] = useState([]);
@@ -62,6 +63,14 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
   const [openDialog, setOpenDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  
+  // NDA Viewer State
+  const [ndaViewerOpen, setNdaViewerOpen] = useState(false);
+  const [viewingNDA, setViewingNDA] = useState(null);
+  const [generatingPDF, setGeneratingPDF] = useState(false);
+  
+  // Logo for PDF
+  const [logoDataUrl, setLogoDataUrl] = useState(null);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -79,6 +88,26 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
       loadEmployees();
     }
   }, [currentUserRole]);
+
+  // Load logo for PDF generation
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        setLogoDataUrl(canvas.toDataURL('image/png'));
+      } catch (e) {
+        console.warn('Logo loading failed:', e);
+        setLogoDataUrl(null);
+      }
+    };
+    img.src = '/logo-kcl.png';
+  }, []);
 
   // Only allow 'god' role to access this page
   if (currentUserRole !== 'god') {
@@ -420,6 +449,59 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
     }
   };
 
+  const handleViewNDA = (employee) => {
+    if (!employee.ndaSigned) {
+      Swal.fire('Info', 'This employee has not signed the NDA yet.', 'info');
+      return;
+    }
+    setViewingNDA(employee);
+    setNdaViewerOpen(true);
+  };
+
+  const handleCloseNDAViewer = () => {
+    setNdaViewerOpen(false);
+    setViewingNDA(null);
+  };
+
+  const handleDownloadNDAPDF = async () => {
+    if (!viewingNDA) return;
+
+    try {
+      setGeneratingPDF(true);
+
+      // Generate PDF
+      const pdf = await generateEmployeeNDAPDF(viewingNDA, logoDataUrl);
+
+      // Download PDF
+      const fileName = `NDA_${viewingNDA.name.replace(/\s+/g, '_')}_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`;
+      pdf.save(fileName);
+
+      await Swal.fire({
+        icon: 'success',
+        title: 'PDF Downloaded!',
+        text: `Saved as ${fileName}`,
+        timer: 2000,
+        showConfirmButton: false
+      });
+
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Failed to generate PDF. Please try again.'
+      });
+    } finally {
+      setGeneratingPDF(false);
+    }
+  };
+
+  const handleViewSignature = () => {
+    if (viewingNDA && viewingNDA.ndaSignatureUrl) {
+      window.open(viewingNDA.ndaSignatureUrl, '_blank');
+    }
+  };
+
   const getRoleLabel = (role) => {
     switch(role) {
       case 'god': return 'Owner';
@@ -579,6 +661,8 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
                           label="Signed" 
                           color="success" 
                           size="small"
+                          onClick={() => handleViewNDA(employee)}
+                          sx={{ cursor: 'pointer' }}
                         />
                       ) : (
                         <Chip 
@@ -750,6 +834,129 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
             disabled={loading}
           >
             {editMode ? 'Update Employee' : 'Create Employee'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* NDA Viewer Dialog */}
+      <Dialog open={ndaViewerOpen} onClose={handleCloseNDAViewer} maxWidth="md" fullWidth>
+        <DialogTitle>
+          📋 NDA Signature - {viewingNDA?.name}
+        </DialogTitle>
+        <DialogContent>
+          {viewingNDA && (
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <Alert severity="success" icon={<CheckCircleIcon />}>
+                  <strong>NDA Signed!</strong> This employee has completed and signed the Non-Disclosure Agreement.
+                </Alert>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Employee Name
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                  {viewingNDA.name}
+                </Typography>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Email
+                </Typography>
+                <Typography variant="body1">
+                  {viewingNDA.email}
+                </Typography>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Job Title
+                </Typography>
+                <Typography variant="body1">
+                  {viewingNDA.jobTitle}
+                </Typography>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Date Signed
+                </Typography>
+                <Typography variant="body1">
+                  {viewingNDA.ndaSignedDate 
+                    ? new Date(viewingNDA.ndaSignedDate).toLocaleString()
+                    : 'N/A'}
+                </Typography>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Digital Signature
+                </Typography>
+                <Paper 
+                  elevation={2} 
+                  sx={{ 
+                    p: 2, 
+                    backgroundColor: '#f5f5f5',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    minHeight: 200
+                  }}
+                >
+                  {viewingNDA.ndaSignatureUrl ? (
+                    <Box sx={{ textAlign: 'center' }}>
+                      <img 
+                        src={viewingNDA.ndaSignatureUrl} 
+                        alt="Signature"
+                        style={{ 
+                          maxWidth: '100%', 
+                          maxHeight: '200px',
+                          border: '2px solid #1976d2',
+                          borderRadius: '4px',
+                          backgroundColor: 'white'
+                        }}
+                      />
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={handleViewSignature}
+                        sx={{ mt: 2 }}
+                      >
+                        View Full Size
+                      </Button>
+                    </Box>
+                  ) : (
+                    <Typography color="text.secondary">
+                      No signature image available
+                    </Typography>
+                  )}
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Alert severity="info">
+                  <Typography variant="body2">
+                    <strong>Complete NDA Document:</strong> Download the full signed NDA as a PDF with all terms, conditions, and the employee's signature.
+                  </Typography>
+                </Alert>
+              </Grid>
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseNDAViewer} color="inherit">
+            Close
+          </Button>
+          <Button
+            onClick={handleDownloadNDAPDF}
+            variant="contained"
+            color="primary"
+            disabled={generatingPDF}
+            startIcon={generatingPDF ? <CircularProgress size={20} color="inherit" /> : null}
+          >
+            {generatingPDF ? 'Generating PDF...' : 'Download Full NDA PDF'}
           </Button>
         </DialogActions>
       </Dialog>
