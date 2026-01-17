@@ -163,14 +163,18 @@ export default async function generateEmployeeNDAPDF(employee, logoDataUrl = nul
       pdf.setLineWidth(2);
       pdf.rect(margin, yPos, contentWidth, 80);
       
+      // Fetch image with CORS handling
+      const response = await fetch(employee.ndaSignatureUrl);
+      const blob = await response.blob();
+      const base64data = await blobToBase64(blob);
+      
       // Add signature image
-      const img = await loadImage(employee.ndaSignatureUrl);
       const imgWidth = Math.min(contentWidth - 20, 300);
       const imgHeight = 60;
       const imgX = margin + (contentWidth - imgWidth) / 2;
       const imgY = yPos + 10;
       
-      pdf.addImage(img, 'PNG', imgX, imgY, imgWidth, imgHeight);
+      pdf.addImage(base64data, 'PNG', imgX, imgY, imgWidth, imgHeight);
       yPos += 90;
     } catch (error) {
       console.error('Error loading signature:', error);
@@ -216,14 +220,13 @@ export default async function generateEmployeeNDAPDF(employee, logoDataUrl = nul
 }
 
 /**
- * Helper function to load image from URL
+ * Helper function to convert blob to base64
  */
-function loadImage(url) {
+function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = url;
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
   });
 }
