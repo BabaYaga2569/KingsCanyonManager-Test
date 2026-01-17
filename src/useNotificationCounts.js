@@ -6,6 +6,7 @@ import moment from 'moment';
 /**
  * Custom hook to track notification counts for different sections
  * Compares item creation dates with "last viewed" timestamps
+ * ✅ FIXED: Now gracefully handles missing or inaccessible collections
  */
 export function useNotificationCounts() {
   const [counts, setCounts] = useState({
@@ -42,29 +43,39 @@ export function useNotificationCounts() {
 
         // Fetch counts for each collection
         for (const [section, timestamp] of Object.entries(lastViewed)) {
-          if (!timestamp) {
-            // Never viewed - count all items
-            const collectionName = section === 'schedules' ? 'schedules' : section;
-            const snapshot = await getDocs(collection(db, collectionName));
-            newCounts[section] = snapshot.size;
-          } else {
-            // Count items created after last viewed
-            const collectionName = section === 'schedules' ? 'schedules' : section;
-            const lastViewedDate = new Date(timestamp);
-            
-            const snapshot = await getDocs(collection(db, collectionName));
-            const count = snapshot.docs.filter(doc => {
-              const data = doc.data();
-              // Check if item was created after last viewed
-              if (data.createdAt) {
-                // Handle both Firestore Timestamp and ISO string
-                const createdDate = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
-                return createdDate > lastViewedDate;
-              }
-              return false;
-            }).length;
-            
-            newCounts[section] = count;
+          try {
+            if (!timestamp) {
+              // Never viewed - count all items
+              const collectionName = section === 'schedules' ? 'schedules' : section;
+              const snapshot = await getDocs(collection(db, collectionName));
+              newCounts[section] = snapshot.size;
+            } else {
+              // Count items created after last viewed
+              const collectionName = section === 'schedules' ? 'schedules' : section;
+              const lastViewedDate = new Date(timestamp);
+              
+              const snapshot = await getDocs(collection(db, collectionName));
+              const count = snapshot.docs.filter(doc => {
+                const data = doc.data();
+                // Check if item was created after last viewed
+                if (data.createdAt) {
+                  // Handle both Firestore Timestamp and ISO string
+                  const createdDate = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+                  return createdDate > lastViewedDate;
+                }
+                return false;
+              }).length;
+              
+              newCounts[section] = count;
+            }
+          } catch (collectionError) {
+            // ✅ FIXED: Gracefully handle missing or inaccessible collections
+            // This prevents console errors when collections don't exist yet
+            newCounts[section] = 0;
+            // Only log if it's NOT a missing permissions error
+            if (!collectionError.message?.includes('Missing or insufficient permissions')) {
+              console.warn(`Could not fetch count for ${section}:`, collectionError.message);
+            }
           }
         }
 
