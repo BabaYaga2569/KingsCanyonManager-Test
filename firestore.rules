@@ -2,101 +2,159 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Users collection (NEW - for roles)
-    match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if false; // Only admins via Firebase Console
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
     }
     
-    // Bids collection
-    match /bids/{bidId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Contracts collection
-    match /contracts/{contractId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Invoices collection
-    match /invoices/{invoiceId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Jobs collection
-    match /jobs/{jobId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Settings collection
-    match /settings/{settingId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Customers collection
-    match /customers/{customerId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Crews collection
-    match /crews/{crewId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Equipment collection
-    match /equipment/{equipmentId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Schedules collection
-    match /schedules/{scheduleId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Payments collection
-    match /payments/{paymentId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Expenses collection
-    match /expenses/{expenseId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Crew Payments collection
-    match /crew_payments/{paymentId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // NDAs collection
-    match /ndas/{ndaId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Notes collection (NEW - for Notes Manager)
-    match /notes/{noteId} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // Job Time Entries collection (UPDATED FOR TIME CLOCK)
-    match /job_time_entries/{entryId} {
-      // Crew can read their own entries, admins can read all
-      allow read: if request.auth != null && 
-        (request.auth.uid == resource.data.crewId || 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['god', 'admin']);
-      
-      // Crew can create their own entries (clock in/out)
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.crewId;
-      
-      // Only admins can update/delete (approve/reject/edit)
-      allow update, delete: if request.auth != null && 
+    // Helper function to check if user has god or admin role (FIXED: handles null)
+    function isGodOrAdmin() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['god', 'admin'];
     }
     
-    // Default: deny all other access
-    match /{document=**} {
-      allow read, write: if false;
+    // Helper function to check if user is god (owner) (FIXED: handles null)
+    function isGod() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'god';
+    }
+    
+    // ============================================
+    // USERS COLLECTION (Employee Account Manager)
+    // ============================================
+    match /users/{userId} {
+      // CRITICAL: Anyone authenticated can READ all user documents
+      // This is needed so the helper functions (isGod, isGodOrAdmin) can work
+      allow read: if isAuthenticated();
+      
+      // Only god users can CREATE new users (FIXED: safer check)
+      allow create: if isGod();
+      
+      // God can UPDATE any user
+      allow update: if isGod();
+      
+      // FIXED: Users can UPDATE their OWN document for NDA signing (but cannot change role)
+      // This checks: if role field is NOT in the update, OR if it's unchanged from original
+      allow update: if isAuthenticated() && 
+                      request.auth.uid == userId &&
+                      (!('role' in request.resource.data) || request.resource.data.role == resource.data.role);
+      
+      // Only god users can DELETE users
+      allow delete: if isGod();
+    }
+    
+    // ============================================
+    // BIDS COLLECTION
+    // ============================================
+    match /bids/{bidId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // CONTRACTS COLLECTION
+    // ============================================
+    match /contracts/{contractId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // INVOICES COLLECTION
+    // ============================================
+    match /invoices/{invoiceId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // JOBS COLLECTION
+    // ============================================
+    match /jobs/{jobId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // CUSTOMERS COLLECTION
+    // ============================================
+    match /customers/{customerId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // EXPENSES COLLECTION
+    // ============================================
+    match /expenses/{expenseId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // PAYMENTS COLLECTION
+    // ============================================
+    match /payments/{paymentId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // SCHEDULE COLLECTION
+    // ============================================
+    match /schedule/{scheduleId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // CALENDAR COLLECTION
+    // ============================================
+    match /calendar/{calendarId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // TIME CLOCK COLLECTION
+    // ============================================
+    match /timeClock/{timeClockId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // NOTES COLLECTION
+    // ============================================
+    match /notes/{noteId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // CREW COLLECTION (Legacy - will be removed after consolidation)
+    // ============================================
+    match /crew/{crewId} {
+      allow read, write: if isGodOrAdmin();
+    }
+    
+    // ============================================
+    // NDA SIGNATURES COLLECTION (NEW for consolidation)
+    // ============================================
+    match /ndaSignatures/{signatureId} {
+      // God and Admin can read all
+      allow read: if isGodOrAdmin();
+      
+      // Employees can create their own signature
+      allow create: if isAuthenticated() && request.auth.uid == signatureId;
+      
+      // Employees can read their own signature
+      allow read: if isAuthenticated() && request.auth.uid == signatureId;
+    }
+    
+    // ============================================
+    // NOTIFICATIONS COLLECTION
+    // ============================================
+    match /notifications/{notificationId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // NOTIFICATION COUNTS COLLECTION
+    // ============================================
+    match /notificationCounts/{userId} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

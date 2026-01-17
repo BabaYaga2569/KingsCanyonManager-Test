@@ -46,8 +46,9 @@ import {
   getDocs,
   deleteDoc,
   doc,
+  getDoc,
+  onSnapshot,
 } from "firebase/firestore";
-
 // Import AuthProvider
 import { AuthProvider, useAuth } from "./AuthProvider";
 
@@ -73,6 +74,7 @@ import CrewManager from "./CrewManager";
 import EquipmentManager from "./EquipmentManager";
 import NDAEditor from "./NDAEditor";
 import NDASigningPage from "./NDASigningPage";
+import NDASigning from "./NDASigning"; // NEW: Employee first-login NDA
 import ExpensesManager from "./ExpensesManager";
 import CrewPayroll from "./CrewPayroll";
 import CrewPaymentHistory from "./CrewPaymentHistory";
@@ -474,15 +476,60 @@ function AppContent() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Get auth context
+
+  // Get auth context
   const { userRole, logout, user } = useAuth();
+  
+  // NEW: User data state for first-login detection
+  const [userData, setUserData] = useState(null);
 
   // Load notification counts
   const { counts, loading: countsLoading } = useNotificationCounts();
  
- useEffect(() => {
+  useEffect(() => {
     window.dispatchEvent(new Event('refreshBadges'));
   }, [location.pathname]);
 
+  // NEW: Listen to user data changes for first-login detection
+  useEffect(() => {
+    if (!user) {
+      setUserData(null);
+      return;
+    }
+
+    // Subscribe to user document changes
+    const unsubscribe = onSnapshot(
+      doc(db, 'users', user.uid),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setUserData(docSnap.data());
+        }
+      },
+      (error) => {
+        console.error('Error listening to user data:', error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // NEW: First-login NDA redirect logic
+  useEffect(() => {
+    if (!user || !userData) return;
+    
+    const currentPath = location.pathname;
+    
+    // Don't redirect if already on NDA page or public pages
+    if (currentPath === '/nda-signing' || currentPath.startsWith('/public/')) {
+      return;
+    }
+
+    // Check if employee needs to sign NDA
+    if (userData.firstLogin === true && userData.ndaSigned === false) {
+      console.log('First login detected, redirecting to NDA signing...');
+      navigate('/nda-signing');
+    }
+  }, [user, userData, location.pathname, navigate]);
   const isActive = (p) => location.pathname === p;
   
   const isPublicPage = location.pathname.startsWith('/public/');
@@ -715,6 +762,26 @@ function AppContent() {
         <Route path="/nda/:crewId" element={<NDAEditor />} />
         <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
         
+        {/* NEW: Employee First-Login NDA Signing */}
+        <Route 
+          path="/nda-signing" 
+          element={
+            <NDASigning 
+              currentUser={user} 
+              onNDAComplete={() => {
+                // Refresh user data after NDA signing
+                if (user) {
+                  getDoc(doc(db, 'users', user.uid)).then((docSnap) => {
+                    if (docSnap.exists()) {
+                      setUserData(docSnap.data());
+                    }
+                  });
+                }
+                navigate('/');
+              }}
+            />
+          } 
+        />
         <Route path="/expenses-manager" element={<ExpensesManager />} />
         <Route path="/crew-payroll" element={<CrewPayroll />} />
         <Route path="/crew-payment-history" element={<CrewPaymentHistory />} />

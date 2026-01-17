@@ -34,7 +34,9 @@ import {
   Delete as DeleteIcon,
   PersonAdd as PersonAddIcon,
   Lock as LockIcon,
-  LockOpen as LockOpenIcon
+  LockOpen as LockOpenIcon,
+  CheckCircle as CheckCircleIcon,
+  Pending as PendingIcon
 } from '@mui/icons-material';
 import { db, auth } from './firebase';
 import { 
@@ -60,12 +62,13 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
   const [editMode, setEditMode] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   
-  // Form state
+  // Form state - NOW WITH JOB TITLE!
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
     role: 'crew',
+    jobTitle: 'Crew Member',
     phoneNumber: '',
     hourlyRate: ''
   });
@@ -116,6 +119,7 @@ if (currentUserRole !== 'god') {
         email: employee.email || '',
         password: '', // Don't pre-fill password for security
         role: employee.role || 'crew',
+        jobTitle: employee.jobTitle || 'Crew Member',
         phoneNumber: employee.phoneNumber || '',
         hourlyRate: employee.hourlyRate || ''
       });
@@ -127,6 +131,7 @@ if (currentUserRole !== 'god') {
         email: '',
         password: '',
         role: 'crew',
+        jobTitle: 'Crew Member',
         phoneNumber: '',
         hourlyRate: ''
       });
@@ -143,6 +148,7 @@ if (currentUserRole !== 'god') {
       email: '',
       password: '',
       role: 'crew',
+      jobTitle: 'Crew Member',
       phoneNumber: '',
       hourlyRate: ''
     });
@@ -180,16 +186,23 @@ if (currentUserRole !== 'god') {
       
       const newUserId = userCredential.user.uid;
 
-      // Step 2: Create Firestore user document with role
+      // Step 2: Create Firestore user document with role AND NDA TRACKING
       await setDoc(doc(db, 'users', newUserId), {
         name: formData.name,
         email: formData.email,
         role: formData.role,
+        jobTitle: formData.jobTitle,
         phoneNumber: formData.phoneNumber || '',
         hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : 0,
         createdAt: new Date().toISOString(),
         createdBy: currentUser.uid,
-        active: true
+        active: true,
+        // NEW FIELDS FOR CONSOLIDATION
+        firstLogin: true,
+        ndaSigned: false,
+        ndaSignedDate: null,
+        ndaSignatureUrl: null,
+        startDate: new Date().toISOString()
       });
 
       Swal.fire({
@@ -197,10 +210,12 @@ if (currentUserRole !== 'god') {
         title: 'Employee Created!',
         html: `
           <p><strong>${formData.name}</strong> has been created successfully!</p>
+          <p><strong>Job Title:</strong> ${formData.jobTitle}</p>
           <p><strong>Email:</strong> ${formData.email}</p>
           <p><strong>Role:</strong> ${formData.role}</p>
           <p><strong>Temporary Password:</strong> ${formData.password}</p>
-          <p style="color: orange;">⚠️ Please share this password with the employee. They should change it after their first login.</p>
+          <p style="color: orange;">⚠️ Please share this password with the employee.</p>
+          <p style="color: blue;">📝 They will be asked to sign the NDA on their first login.</p>
         `,
         confirmButtonText: 'Got it!'
       });
@@ -238,24 +253,13 @@ if (currentUserRole !== 'god') {
       // Update Firestore user document
       await updateDoc(doc(db, 'users', selectedEmployee.id), {
         name: formData.name,
-        email: formData.email,
         role: formData.role,
+        jobTitle: formData.jobTitle,
         phoneNumber: formData.phoneNumber || '',
         hourlyRate: formData.hourlyRate ? parseFloat(formData.hourlyRate) : 0,
         updatedAt: new Date().toISOString(),
         updatedBy: currentUser.uid
       });
-
-      // If password was provided, update it (Note: This requires the user to be signed in)
-      // For security, password updates should be done by the user themselves
-      if (formData.password && formData.password.length >= 6) {
-        Swal.fire({
-          icon: 'info',
-          title: 'Password Update',
-          text: 'For security reasons, please ask the employee to reset their password themselves through the "Forgot Password" feature.',
-          confirmButtonText: 'OK'
-        });
-      }
 
       Swal.fire('Success', 'Employee updated successfully!', 'success');
       handleCloseDialog();
@@ -271,116 +275,83 @@ if (currentUserRole !== 'god') {
 
   const handleToggleActive = async (employee) => {
     try {
-      const result = await Swal.fire({
-        title: `${employee.active ? 'Disable' : 'Enable'} Employee?`,
-        text: `This will ${employee.active ? 'disable' : 'enable'} ${employee.name}'s account.`,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: employee.active ? '#d33' : '#3085d6',
-        cancelButtonColor: '#6c757d',
-        confirmButtonText: `Yes, ${employee.active ? 'disable' : 'enable'} it!`
+      const newActiveStatus = !employee.active;
+      await updateDoc(doc(db, 'users', employee.id), {
+        active: newActiveStatus,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser.uid
       });
 
-      if (result.isConfirmed) {
-        await updateDoc(doc(db, 'users', employee.id), {
-          active: !employee.active,
-          updatedAt: new Date().toISOString(),
-          updatedBy: currentUser.uid
-        });
+      Swal.fire(
+        newActiveStatus ? 'Account Enabled!' : 'Account Disabled!',
+        `${employee.name}'s account has been ${newActiveStatus ? 'enabled' : 'disabled'}.`,
+        'success'
+      );
 
-        Swal.fire(
-          `${employee.active ? 'Disabled' : 'Enabled'}!`,
-          `${employee.name}'s account has been ${employee.active ? 'disabled' : 'enabled'}.`,
-          'success'
-        );
-
-        loadEmployees();
-      }
+      loadEmployees();
     } catch (error) {
-      console.error('Error toggling employee status:', error);
-      Swal.fire('Error', 'Failed to update employee status: ' + error.message, 'error');
+      console.error('Error toggling account status:', error);
+      Swal.fire('Error', 'Failed to update account status: ' + error.message, 'error');
     }
   };
 
   const handleDeleteEmployee = async (employee) => {
-    try {
-      const result = await Swal.fire({
-        title: 'Delete Employee?',
-        html: `
-          <p>Are you sure you want to delete <strong>${employee.name}</strong>?</p>
-          <p style="color: red;">⚠️ This action cannot be undone!</p>
-          <p>This will:</p>
-          <ul style="text-align: left;">
-            <li>Remove their Firestore user document</li>
-            <li>Note: Firebase Authentication account must be deleted manually in Firebase Console</li>
-          </ul>
-        `,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#d33',
-        cancelButtonColor: '#6c757d',
-        confirmButtonText: 'Yes, delete it!'
-      });
+    const result = await Swal.fire({
+      title: 'Delete Employee?',
+      html: `
+        <p>Are you sure you want to delete <strong>${employee.name}</strong>?</p>
+        <p style="color: red;">⚠️ This will remove their Firestore data.</p>
+        <p style="color: orange;">Note: You'll need to manually delete their Firebase Authentication account in Firebase Console.</p>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, delete it!'
+    });
 
-      if (result.isConfirmed) {
-        // Delete Firestore document
+    if (result.isConfirmed) {
+      try {
         await deleteDoc(doc(db, 'users', employee.id));
-
-        Swal.fire({
-          icon: 'success',
-          title: 'Deleted!',
-          html: `
-            <p>${employee.name} has been removed from the system.</p>
-            <p style="color: orange;">⚠️ Remember to also delete their Firebase Authentication account in Firebase Console if needed.</p>
-          `
-        });
-
+        Swal.fire('Deleted!', 'Employee has been deleted.', 'success');
         loadEmployees();
+      } catch (error) {
+        console.error('Error deleting employee:', error);
+        Swal.fire('Error', 'Failed to delete employee: ' + error.message, 'error');
       }
-    } catch (error) {
-      console.error('Error deleting employee:', error);
-      Swal.fire('Error', 'Failed to delete employee: ' + error.message, 'error');
-    }
-  };
-
-  const getRoleBadgeColor = (role) => {
-    switch (role) {
-      case 'god':
-        return 'error';
-      case 'admin':
-        return 'warning';
-      case 'crew':
-        return 'info';
-      default:
-        return 'default';
     }
   };
 
   const getRoleLabel = (role) => {
     switch (role) {
-      case 'god':
-        return 'Owner (God)';
-      case 'admin':
-        return 'Manager (Admin)';
-      case 'crew':
-        return 'Worker (Crew)';
-      default:
-        return role;
+      case 'god': return '👑 God';
+      case 'admin': return '⚙️ Admin';
+      case 'crew': return '👷 Crew';
+      default: return role;
+    }
+  };
+
+  const getRoleBadgeColor = (role) => {
+    switch (role) {
+      case 'god': return 'error';
+      case 'admin': return 'warning';
+      case 'crew': return 'info';
+      default: return 'default';
     }
   };
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       {/* Header */}
-      <Card sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Box>
-              <Typography variant="h4" component="h1" gutterBottom>
+              <Typography variant="h4" sx={{ color: 'white', fontWeight: 'bold' }}>
                 👥 Employee Account Manager
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Manage employee login accounts and roles
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', mt: 1 }}>
+                Manage employee accounts, roles, and access permissions
               </Typography>
             </Box>
             <Button
@@ -389,6 +360,7 @@ if (currentUserRole !== 'god') {
               startIcon={<PersonAddIcon />}
               onClick={() => handleOpenDialog()}
               size="large"
+              sx={{ backgroundColor: 'white', color: '#667eea', '&:hover': { backgroundColor: '#f0f0f0' } }}
             >
               Add Employee
             </Button>
@@ -436,10 +408,12 @@ if (currentUserRole !== 'god') {
             <TableHead>
               <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
                 <TableCell><strong>Name</strong></TableCell>
+                <TableCell><strong>Job Title</strong></TableCell>
                 <TableCell><strong>Email</strong></TableCell>
                 <TableCell><strong>Role</strong></TableCell>
                 <TableCell><strong>Phone</strong></TableCell>
                 <TableCell><strong>Hourly Rate</strong></TableCell>
+                <TableCell><strong>NDA Status</strong></TableCell>
                 <TableCell><strong>Status</strong></TableCell>
                 <TableCell><strong>Created</strong></TableCell>
                 <TableCell align="center"><strong>Actions</strong></TableCell>
@@ -448,7 +422,7 @@ if (currentUserRole !== 'god') {
             <TableBody>
               {employees.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={10} align="center">
                     <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
                       No employees yet. Click "Add Employee" to create the first one!
                     </Typography>
@@ -458,6 +432,13 @@ if (currentUserRole !== 'god') {
                 employees.map((employee) => (
                   <TableRow key={employee.id} hover>
                     <TableCell>{employee.name || 'N/A'}</TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={employee.jobTitle || 'N/A'} 
+                        size="small"
+                        variant="outlined"
+                      />
+                    </TableCell>
                     <TableCell>{employee.email || 'N/A'}</TableCell>
                     <TableCell>
                       <Chip 
@@ -469,6 +450,23 @@ if (currentUserRole !== 'god') {
                     <TableCell>{employee.phoneNumber || 'N/A'}</TableCell>
                     <TableCell>
                       {employee.hourlyRate ? `$${employee.hourlyRate.toFixed(2)}/hr` : 'N/A'}
+                    </TableCell>
+                    <TableCell>
+                      {employee.ndaSigned ? (
+                        <Chip 
+                          icon={<CheckCircleIcon />}
+                          label="Signed" 
+                          color="success" 
+                          size="small"
+                        />
+                      ) : (
+                        <Chip 
+                          icon={<PendingIcon />}
+                          label="Pending" 
+                          color="warning" 
+                          size="small"
+                        />
+                      )}
                     </TableCell>
                     <TableCell>
                       <Chip 
@@ -576,6 +574,27 @@ if (currentUserRole !== 'god') {
                 </Select>
               </FormControl>
             </Grid>
+            
+            {/* NEW JOB TITLE FIELD */}
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel>Job Title *</InputLabel>
+                <Select
+                  name="jobTitle"
+                  value={formData.jobTitle}
+                  onChange={handleInputChange}
+                  label="Job Title *"
+                >
+                  <MenuItem value="Owner">👑 Owner</MenuItem>
+                  <MenuItem value="Manager">⚙️ Manager</MenuItem>
+                  <MenuItem value="Foreman">🔨 Foreman</MenuItem>
+                  <MenuItem value="Crew Member">👷 Crew Member</MenuItem>
+                  <MenuItem value="Equipment Operator">🚜 Equipment Operator</MenuItem>
+                  <MenuItem value="Landscaper">🌳 Landscaper</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
