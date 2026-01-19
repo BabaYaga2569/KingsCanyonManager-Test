@@ -10,13 +10,18 @@ import {
   InputAdornment,
   IconButton,
   Link,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import EmailIcon from '@mui/icons-material/Email';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from './firebase';
+import Swal from 'sweetalert2';
 
 const Login = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('');
@@ -24,6 +29,11 @@ const Login = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Forgot password state
+  const [openForgotPassword, setOpenForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -66,6 +76,52 @@ const Login = ({ onLoginSuccess }) => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!resetEmail) {
+      Swal.fire('Error', 'Please enter your email address', 'error');
+      return;
+    }
+
+    setResetLoading(true);
+
+    try {
+      await sendPasswordResetEmail(auth, resetEmail);
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'Password Reset Email Sent!',
+        html: `
+          <p>We've sent a password reset link to:</p>
+          <p><strong>${resetEmail}</strong></p>
+          <p>Check your email and click the link to reset your password.</p>
+          <p style="color: #666; font-size: 0.9em; margin-top: 15px;">
+            <em>Don't see it? Check your spam folder.</em>
+          </p>
+        `,
+        confirmButtonText: 'OK'
+      });
+
+      setOpenForgotPassword(false);
+      setResetEmail('');
+      
+    } catch (error) {
+      console.error('Password reset error:', error);
+      
+      let errorMessage = 'Failed to send password reset email';
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email address';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many requests. Please try again later.';
+      }
+      
+      Swal.fire('Error', errorMessage, 'error');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -188,9 +244,21 @@ const Login = ({ onLoginSuccess }) => {
           </form>
 
           <Box sx={{ mt: 3, textAlign: 'center' }}>
-            <Typography variant="caption" color="text.secondary">
-              Forgot your password? Contact administrator
-            </Typography>
+            <Link
+              component="button"
+              variant="body2"
+              onClick={() => {
+                setOpenForgotPassword(true);
+                setResetEmail(email); // Pre-fill with login email if available
+              }}
+              sx={{
+                cursor: 'pointer',
+                textDecoration: 'none',
+                '&:hover': { textDecoration: 'underline' }
+              }}
+            >
+              Forgot your password?
+            </Link>
           </Box>
 
           <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid #e0e0e0', textAlign: 'center' }}>
@@ -202,6 +270,58 @@ const Login = ({ onLoginSuccess }) => {
           </Box>
         </Paper>
       </Container>
+
+      {/* Forgot Password Dialog */}
+      <Dialog 
+        open={openForgotPassword} 
+        onClose={() => !resetLoading && setOpenForgotPassword(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <EmailIcon sx={{ mr: 1, color: 'primary.main' }} />
+            Reset Password
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Enter your email address and we'll send you a link to reset your password.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Email Address"
+            type="email"
+            value={resetEmail}
+            onChange={(e) => setResetEmail(e.target.value)}
+            placeholder="your.email@example.com"
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <EmailIcon color="action" />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button 
+            onClick={() => setOpenForgotPassword(false)} 
+            disabled={resetLoading}
+            color="inherit"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleForgotPassword} 
+            variant="contained"
+            disabled={resetLoading}
+          >
+            {resetLoading ? 'Sending...' : 'Send Reset Link'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

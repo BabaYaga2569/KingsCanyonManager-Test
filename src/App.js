@@ -80,9 +80,8 @@ import CrewPayroll from "./CrewPayroll";
 import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
 import JobExpenses from "./JobExpenses";
-import NotesManager from "./NotesManager"; // ← ADDED: Notes Manager
+import NotesManager from "./NotesManager"; // â† ADDED: Notes Manager
 import EmployeeAccountManager from './EmployeeAccountManager';
-import EmployeeDashboard from './EmployeeDashboard'; // Employee Dashboard
 import { createFullJobPackage } from "./utils/createFullJobPackage";
 import generateBidPDF from "./pdf/generateBidPDF";
 import ContractSigningPage from "./ContractSigningPage";
@@ -93,6 +92,8 @@ import BidEditor from "./BidEditor";
 import TimeClock from "./TimeClock";
 import MyHours from "./MyHours";
 import ApproveTime from "./ApproveTime";
+import UserProfile from "./UserProfile"; // User profile and password change
+
 
 // --------------------- BIDS LIST WITH SORTING ---------------------
 function BidsList() {  
@@ -259,12 +260,12 @@ function BidsList() {
             label="Sort By"
             onChange={(e) => setSortOrder(e.target.value)}
           >
-            <MenuItem value="newest">📅 Newest First</MenuItem>
-            <MenuItem value="oldest">📅 Oldest First</MenuItem>
-            <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
-            <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
-            <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
-            <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
+            <MenuItem value="newest">ðŸ“… Newest First</MenuItem>
+            <MenuItem value="oldest">ðŸ“… Oldest First</MenuItem>
+            <MenuItem value="name-asc">ðŸ”¤ Name (A-Z)</MenuItem>
+            <MenuItem value="name-desc">ðŸ”¤ Name (Z-A)</MenuItem>
+            <MenuItem value="amount-high">ðŸ’° Highest Amount</MenuItem>
+            <MenuItem value="amount-low">ðŸ’° Lowest Amount</MenuItem>
           </Select>
         </FormControl>
       </Box>
@@ -386,7 +387,7 @@ function BidsList() {
                 <td style={{ padding: 10 }}>{bid.description}</td>
                 <td style={{ padding: 10 }}>{bid.materials}</td>
                 <td style={{ padding: 10 }}>
-                  {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : '—'}
+                  {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : 'â€”'}
                 </td>
                 <td style={{ padding: 10 }}>
                   <Button
@@ -541,8 +542,9 @@ function AppContent() {
   if (userRole === 'crew') {
     // CREW sees only time clock and their hours
     menuItems = [
-      { label: "⏰ Time Clock", path: "/time-clock", notificationKey: null },
-      { label: "📊 My Hours", path: "/my-hours", notificationKey: null },
+      { label: "â° Time Clock", path: "/time-clock", notificationKey: null },
+      { label: "My Profile", path: "/profile", notificationKey: null },
+      { label: "ðŸ“Š My Hours", path: "/my-hours", notificationKey: null },
     ];
   } else {
     // ADMIN and GOD see full menu
@@ -553,7 +555,7 @@ function AppContent() {
       { label: "Contracts", path: "/contracts", notificationKey: "contracts" },
       { label: "Invoices", path: "/invoices", notificationKey: "invoices" },
       { label: "Jobs", path: "/jobs", notificationKey: "jobs" },
-      { label: "📝 Notes", path: "/notes", notificationKey: "notes" },
+      { label: "ðŸ“ Notes", path: "/notes", notificationKey: "notes" },
       { label: "Customers", path: "/customers", notificationKey: "customers" },
       { label: "Schedule", path: "/schedule-dashboard", notificationKey: "schedules" },
       { label: "Calendar", path: "/calendar-view", notificationKey: null },
@@ -564,7 +566,8 @@ function AppContent() {
       { label: "Tax Report", path: "/tax-report", notificationKey: null },
       { label: "Crew", path: "/crew-manager", notificationKey: null },
       { label: "Equipment", path: "/equipment-manager", notificationKey: null },
-	  { label: "👥 Employees", path: "/employees", notificationKey: null },
+	  { label: "ðŸ‘¥ Employees", path: "/employees", notificationKey: null },
+      { label: "My Profile", path: "/profile", notificationKey: null },
     ];
   }
 
@@ -586,9 +589,9 @@ function AppContent() {
 
   // Role badge emoji
   const getRoleBadge = () => {
-    if (userRole === 'god') return '⚡';
-    if (userRole === 'admin') return '🔧';
-    if (userRole === 'crew') return '👷';
+    if (userRole === 'god') return 'âš¡';
+    if (userRole === 'admin') return 'ðŸ”§';
+    if (userRole === 'crew') return 'ðŸ‘·';
     return '';
   };
 
@@ -732,6 +735,7 @@ function AppContent() {
         {/* CREW ROUTES */}
         <Route path="/time-clock" element={<TimeClock />} />
         <Route path="/my-hours" element={<MyHours />} />
+        <Route path="/profile" element={<UserProfile />} />
         
         {/* ADMIN/GOD ROUTES */}
         <Route path="/approve-time" element={<ApproveTime />} />
@@ -748,7 +752,7 @@ function AppContent() {
         <Route path="/invoices" element={<InvoicesDashboard />} />
         <Route path="/invoice/:id" element={<InvoiceEditor />} />
         <Route path="/jobs" element={<JobsManager />} />
-        <Route path="/notes" element={<NotesManager />} /> {/* ← ADDED: Notes route */}
+        <Route path="/notes" element={<NotesManager />} /> {/* â† ADDED: Notes route */}
         <Route path="/customers" element={<CustomersDashboard />} />
         <Route path="/customer-edit/:id" element={<CustomerEditor />} />
         <Route path="/customer/:id" element={<CustomerProfile />} />
@@ -778,16 +782,11 @@ function AppContent() {
                     }
                   });
                 }
-                // Redirect to Employee Dashboard after NDA signing
-                navigate('/employee-dashboard');
+                navigate('/');
               }}
             />
           } 
         />
-        
-        {/* Employee Dashboard - for crew after NDA signing */}
-        <Route path="/employee-dashboard" element={<EmployeeDashboard />} />
-        
         <Route path="/expenses-manager" element={<ExpensesManager />} />
         <Route path="/crew-payroll" element={<CrewPayroll />} />
         <Route path="/crew-payment-history" element={<CrewPaymentHistory />} />

@@ -19,6 +19,7 @@ import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import moment from "moment";
 import Swal from "sweetalert2";
+import ServiceClockOut from "./ServiceClockOut";
 
 export default function TimeClock() {
   const { user, userRole } = useAuth();
@@ -29,6 +30,7 @@ export default function TimeClock() {
   const [currentEntry, setCurrentEntry] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [todayHours, setTodayHours] = useState(0);
+  const [showServiceClockOut, setShowServiceClockOut] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -127,14 +129,25 @@ export default function TimeClock() {
     }
 
     try {
-      const job = jobs.find(j => j.id === selectedJob);
+      let jobName;
+      let jobId;
+      
+      if (selectedJob === "WEED_EXTRACTION") {
+        jobName = "Weed Extraction Service";
+        jobId = "WEED_EXTRACTION";
+      } else {
+        const job = jobs.find(j => j.id === selectedJob);
+        jobName = job?.displayName || "Unknown Job";
+        jobId = selectedJob;
+      }
+      
       const now = new Date().toISOString();
 
       const entryData = {
         crewId: user.uid,
         crewName: user.displayName || user.email,
-        jobId: selectedJob,
-        jobName: job?.displayName || "Unknown Job",
+        jobId: jobId,
+        jobName: jobName,
         clockIn: now,
         clockOut: null,
         hoursWorked: null,
@@ -150,7 +163,7 @@ export default function TimeClock() {
       Swal.fire({
         icon: "success",
         title: "Clocked In!",
-        text: `Started work on ${job?.displayName || "job"}`,
+        text: `Started work on ${jobName}`,
         timer: 2000,
         showConfirmButton: false,
       });
@@ -160,42 +173,22 @@ export default function TimeClock() {
     }
   };
 
-  const handleClockOut = async () => {
+  const handleClockOut = () => {
     if (!currentEntry) return;
-
-    try {
-      const now = new Date().toISOString();
-      const clockInTime = moment(currentEntry.clockIn);
-      const clockOutTime = moment(now);
-      const hours = clockOutTime.diff(clockInTime, 'hours', true);
-
-      await updateDoc(doc(db, "job_time_entries", currentEntry.id), {
-        clockOut: now,
-        hoursWorked: parseFloat(hours.toFixed(2)),
-        updatedAt: now,
-      });
-
-      setClockedIn(false);
-      setCurrentEntry(null);
-      setElapsedTime(0);
-      setSelectedJob("");
-      
-      await loadTodayHours();
-
-      Swal.fire({
-        icon: "success",
-        title: "Clocked Out!",
-        html: `
-          <p>You worked <strong>${hours.toFixed(2)} hours</strong></p>
-          <p>Your time is pending approval</p>
-        `,
-        timer: 3000,
-      });
-    } catch (error) {
-      console.error("Error clocking out:", error);
-      Swal.fire("Error", "Failed to clock out", "error");
-    }
+    // Open the service clock-out modal
+    setShowServiceClockOut(true);
   };
+
+  const handleServiceComplete = async () => {
+    // Called when ServiceClockOut modal completes successfully
+    setClockedIn(false);
+    setCurrentEntry(null);
+    setElapsedTime(0);
+    setSelectedJob("");
+    await loadTodayHours();
+    setShowServiceClockOut(false);
+  };
+
 
   const formatElapsedTime = (seconds) => {
     const hours = Math.floor(seconds / 3600);
@@ -215,7 +208,7 @@ export default function TimeClock() {
   return (
     <Container sx={{ mt: 3, pb: 4, maxWidth: 'sm' }}>
       <Typography variant="h4" gutterBottom sx={{ textAlign: 'center', mb: 3 }}>
-        ⏰ Time Clock
+        â° Time Clock
       </Typography>
 
       {/* Today's Summary */}
@@ -277,26 +270,28 @@ export default function TimeClock() {
               Select Job
             </Typography>
             
-            {jobs.length === 0 ? (
-              <Typography color="error" sx={{ mb: 2 }}>
-                No jobs available. Contact your manager.
+            {jobs.length === 0 && (
+              <Typography color="text.secondary" sx={{ mb: 2, fontSize: '0.9rem' }}>
+                No active jobs loaded. You can still select Weed Extraction.
               </Typography>
-            ) : (
-              <TextField
-                select
-                fullWidth
-                value={selectedJob}
-                onChange={(e) => setSelectedJob(e.target.value)}
-                sx={{ mb: 2 }}
-              >
-                <MenuItem value="">-- Select a Job --</MenuItem>
-                {jobs.map((job) => (
-                  <MenuItem key={job.id} value={job.id}>
-                    {job.displayName}
-                  </MenuItem>
-                ))}
-              </TextField>
             )}
+            <TextField
+              select
+              fullWidth
+              value={selectedJob}
+              onChange={(e) => setSelectedJob(e.target.value)}
+              sx={{ mb: 2 }}
+            >
+              <MenuItem value="">-- Select a Job --</MenuItem>
+              <MenuItem value="WEED_EXTRACTION" sx={{ backgroundColor: '#e8f5e9', fontWeight: 'bold' }}>
+                Weed Extraction Service
+              </MenuItem>
+              {jobs.map((job) => (
+                <MenuItem key={job.id} value={job.id}>
+                  {job.displayName}
+                </MenuItem>
+              ))}
+            </TextField>
 
             <Button
               fullWidth
@@ -304,7 +299,7 @@ export default function TimeClock() {
               color="success"
               size="large"
               onClick={handleClockIn}
-              disabled={!selectedJob || jobs.length === 0}
+              disabled={!selectedJob}
               startIcon={<AccessTimeIcon />}
               sx={{ py: 2, fontSize: '1.1rem' }}
             >
@@ -329,15 +324,24 @@ export default function TimeClock() {
       {/* Instructions */}
       <Paper sx={{ p: 2, mt: 3, backgroundColor: '#f5f5f5' }}>
         <Typography variant="subtitle2" gutterBottom fontWeight="bold">
-          📋 Instructions:
+          ðŸ“‹ Instructions:
         </Typography>
         <Typography variant="body2">
           1. Select the job you're working on<br/>
           2. Click "CLOCK IN" when you start work<br/>
           3. Click "CLOCK OUT" when you're done<br/>
-          4. Your hours will be sent for approval
+          4. Complete service details and collect payment
         </Typography>
       </Paper>
+
+      {/* Service Clock-Out Modal */}
+      <ServiceClockOut
+        open={showServiceClockOut}
+        onClose={() => setShowServiceClockOut(false)}
+        timeEntry={currentEntry}
+        jobType={currentEntry?.jobId}
+        onComplete={handleServiceComplete}
+      />
     </Container>
   );
 }

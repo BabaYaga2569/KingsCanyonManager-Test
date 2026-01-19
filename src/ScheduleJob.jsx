@@ -312,7 +312,7 @@ export default function ScheduleJob() {
               >
                 {allContracts.map((c) => (
                   <MenuItem key={c.id} value={c.id}>
-                    {c.clientName} - {c.description || "No description"}
+                    {c.clientName} ({c.id.slice(0, 6)})
                   </MenuItem>
                 ))}
               </Select>

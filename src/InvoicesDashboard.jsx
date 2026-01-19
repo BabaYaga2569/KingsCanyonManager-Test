@@ -9,6 +9,7 @@ import {
   addDoc,
   query,
   where,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import {
@@ -31,6 +32,14 @@ import {
   InputLabel,
   useMediaQuery,
   useTheme,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Checkbox,
+  FormControlLabel,
+  Alert,
 } from "@mui/material";
 import { useNavigate, useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
@@ -39,6 +48,9 @@ import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PaymentIcon from "@mui/icons-material/Payment";
 import SortIcon from "@mui/icons-material/Sort";
+import GrassIcon from "@mui/icons-material/Grass";
+import SpeedIcon from "@mui/icons-material/Speed";
+import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import moment from "moment";
 import generateInvoicePDF from "./pdf/generateInvoicePDF";
 import { markAsViewed } from './useNotificationCounts';
@@ -52,6 +64,28 @@ export default function InvoicesDashboard() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   
+  // Quick Weed Invoice state
+  const [weedDialogOpen, setWeedDialogOpen] = useState(false);
+  const [customers, setCustomers] = useState([]);
+  const [weedInvoice, setWeedInvoice] = useState({
+    customerId: "",
+    customerName: "",
+    serviceDate: moment().format("YYYY-MM-DD"),
+    startTime: "08:00",
+    endTime: "17:00",
+    frontYard: false,
+    backYard: false,
+    other: false,
+  });
+  
+  // Quick Add Customer state
+  const [addCustomerDialogOpen, setAddCustomerDialogOpen] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
+  });
 
   const fetchInvoices = async () => {
     try {
@@ -63,9 +97,21 @@ export default function InvoicesDashboard() {
     }
   };
   
+  const fetchCustomers = async () => {
+    try {
+      const snap = await getDocs(collection(db, "customers"));
+      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Sort by name for dropdown
+      data.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      setCustomers(data);
+    } catch (err) {
+      console.error("Error loading customers:", err);
+    }
+  };
   
   useEffect(() => {
     fetchInvoices();
+    fetchCustomers(); // Load customers for quick weed invoice
   }, [location.pathname, location.key]); // This will definitely trigger
   
   useEffect(() => {
@@ -107,7 +153,7 @@ export default function InvoicesDashboard() {
   const formatInvoiceDate = (invoice) => {
     const date = getDateFromInvoice(invoice);
     if (!date || isNaN(date.getTime())) {
-      return "—";
+      return "â€”";
     }
     return date.toLocaleDateString();
   };
@@ -154,7 +200,7 @@ export default function InvoicesDashboard() {
       const invoiceData = invoiceSnap.data();
       const oldStatus = invoiceData.status;
       
-      // ✅ AUTO-HANDLE: When changing to "Paid"
+      // âœ… AUTO-HANDLE: When changing to "Paid"
       if (newStatus === "Paid" && oldStatus !== "Paid") {
         const total = parseFloat(invoiceData.total || invoiceData.amount || 0);
         
@@ -178,7 +224,7 @@ export default function InvoicesDashboard() {
             receiptGenerated: false,
             createdAt: new Date().toISOString(),
           });
-          console.log("✅ Auto-created payment record for tax reporting");
+          console.log("âœ… Auto-created payment record for tax reporting");
         }
         
         // Auto-complete related job
@@ -191,7 +237,7 @@ export default function InvoicesDashboard() {
                 status: "Completed",
                 completedDate: new Date().toISOString(),
               });
-              console.log("✅ Auto-completed related job");
+              console.log("âœ… Auto-completed related job");
             }
           } catch (jobError) {
             console.warn("Could not auto-complete job:", jobError);
@@ -219,6 +265,179 @@ export default function InvoicesDashboard() {
       console.error("Error updating invoice status:", err);
     }
   };
+
+  // ===================== QUICK WEED INVOICE HANDLERS =====================
+  
+  const calculateWeedTotal = () => {
+    let total = 0;
+    if (weedInvoice.frontYard) total += 50;
+    if (weedInvoice.backYard) total += 50;
+    if (weedInvoice.other) total += 75;
+    return total;
+  };
+
+  const handleWeedInvoiceChange = (field, value) => {
+    setWeedInvoice(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleCustomerSelect = (customerId) => {
+    const customer = customers.find(c => c.id === customerId);
+    setWeedInvoice(prev => ({
+      ...prev,
+      customerId,
+      customerName: customer ? customer.name : "",
+    }));
+  };
+
+  const handleCreateWeedInvoice = async () => {
+    // Validation
+    if (!weedInvoice.customerId) {
+      Swal.fire("Error", "Please select a customer", "error");
+      return;
+    }
+
+    const total = calculateWeedTotal();
+    if (total === 0) {
+      Swal.fire("Error", "Please select at least one service", "error");
+      return;
+    }
+
+    try {
+      // Build description
+      const services = [];
+      if (weedInvoice.frontYard) services.push("Front Yard Weed Spraying");
+      if (weedInvoice.backYard) services.push("Back Yard Weed Spraying");
+      if (weedInvoice.other) services.push("Other Weed Extraction");
+      
+      const description = `Weed Control Services:\n${services.join("\n")}`;
+
+      // Get customer data
+      const customer = customers.find(c => c.id === weedInvoice.customerId);
+
+      // Create invoice
+      const invoiceData = {
+        clientName: customer.name,
+        clientEmail: customer.email || "",
+        clientPhone: customer.phone || "",
+        clientAddress: customer.address || "",
+        description,
+        subtotal: total,
+        tax: 0,
+        total,
+        status: "Sent",
+        invoiceDate: weedInvoice.serviceDate,
+        createdAt: serverTimestamp(),
+        type: "Quick Weed Invoice",
+        materials: services.map((service, idx) => {
+          let cost = 0;
+          if (service.includes("Front Yard")) cost = 50;
+          else if (service.includes("Back Yard")) cost = 50;
+          else if (service.includes("Other")) cost = 75;
+          
+          return `${service} - $${cost}`;
+        }).join("\n"),
+      };
+
+      const invoiceRef = await addDoc(collection(db, "invoices"), invoiceData);
+
+      // Create calendar entry to show work was done
+      await addDoc(collection(db, "schedules"), {
+        clientName: customer.name,
+        jobDescription: description,
+        startDate: weedInvoice.serviceDate,
+        endDate: weedInvoice.serviceDate,
+        startTime: weedInvoice.startTime,
+        endTime: weedInvoice.endTime,
+        priority: "normal",
+        status: "completed",
+        selectedCrews: [],
+        selectedEquipment: [],
+        notes: "Quick weed spraying job - auto-created from invoice",
+        createdAt: serverTimestamp(),
+      });
+
+      // Success!
+      Swal.fire({
+        title: "Invoice Created!",
+        html: `
+          <p><strong>${customer.name}</strong></p>
+          <p><strong>Total: $${total}</strong></p>
+          <p>✅ Invoice created</p>
+          <p>✅ Added to calendar</p>
+        `,
+        icon: "success",
+      });
+
+      // Reset form and close dialog
+      setWeedDialogOpen(false);
+      setWeedInvoice({
+        customerId: "",
+        customerName: "",
+        serviceDate: moment().format("YYYY-MM-DD"),
+        startTime: "08:00",
+        endTime: "17:00",
+        frontYard: false,
+        backYard: false,
+        other: false,
+      });
+
+      // Refresh invoices
+      fetchInvoices();
+    } catch (error) {
+      console.error("Error creating weed invoice:", error);
+      Swal.fire("Error", "Failed to create invoice: " + error.message, "error");
+    }
+  };
+
+  // Quick Add Customer handler
+  const handleQuickAddCustomer = async () => {
+    if (!newCustomer.name || newCustomer.name.trim() === "") {
+      Swal.fire("Error", "Customer name is required", "error");
+      return;
+    }
+
+    try {
+      const customerData = {
+        name: newCustomer.name.trim(),
+        phone: newCustomer.phone.trim(),
+        email: newCustomer.email.trim(),
+        address: newCustomer.address.trim(),
+        createdAt: serverTimestamp(),
+        lifetimeValue: 0,
+        contractCount: 0,
+        bidCount: 0,
+        notes: "Quick-added from weed invoice",
+      };
+
+      const customerRef = await addDoc(collection(db, "customers"), customerData);
+      
+      // Reload customers and auto-select the new one
+      await fetchCustomers();
+      
+      // Auto-select the newly created customer
+      setWeedInvoice(prev => ({
+        ...prev,
+        customerId: customerRef.id,
+        customerName: newCustomer.name.trim(),
+      }));
+
+      // Reset and close
+      setNewCustomer({ name: "", phone: "", email: "", address: "" });
+      setAddCustomerDialogOpen(false);
+
+      Swal.fire({
+        title: "Customer Added!",
+        text: `${newCustomer.name} has been added and selected`,
+        icon: "success",
+        timer: 2000,
+      });
+    } catch (error) {
+      console.error("Error adding customer:", error);
+      Swal.fire("Error", "Failed to add customer: " + error.message, "error");
+    }
+  };
+
+  // ===================================================================
 
   const handleDelete = async (id, client) => {
     const confirm = await Swal.fire({
@@ -258,7 +477,7 @@ export default function InvoicesDashboard() {
           expenses = expensesSnap.docs
             .map((d) => ({ id: d.id, ...d.data() }))
             .filter((e) => e.jobId === inv.jobId);
-          console.log(`📊 Loaded ${expenses.length} expenses for invoice PDF`);
+          console.log(`ðŸ“Š Loaded ${expenses.length} expenses for invoice PDF`);
         } catch (e) {
           console.warn("Failed to load expenses:", e);
         }
@@ -399,8 +618,23 @@ export default function InvoicesDashboard() {
           Invoices ({sortedInvoices.length})
         </Typography>
 
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel id="sort-label">
+        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={<GrassIcon />}
+            onClick={() => setWeedDialogOpen(true)}
+            sx={{ 
+              fontWeight: "bold",
+              boxShadow: 3,
+              '&:hover': { boxShadow: 6 }
+            }}
+          >
+            {isMobile ? <SpeedIcon /> : "Quick Weed Invoice"}
+          </Button>
+
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="sort-label">
             <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
             Sort By
           </InputLabel>
@@ -410,16 +644,17 @@ export default function InvoicesDashboard() {
             label="Sort By"
             onChange={(e) => setSortOrder(e.target.value)}
           >
-            <MenuItem value="newest">📅 Newest First</MenuItem>
-            <MenuItem value="oldest">📅 Oldest First</MenuItem>
-            <MenuItem value="name-asc">🔤 Client (A-Z)</MenuItem>
-            <MenuItem value="name-desc">🔤 Client (Z-A)</MenuItem>
-            <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
-            <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
-            <MenuItem value="status-unpaid">💸 Unpaid First</MenuItem>
-            <MenuItem value="status-paid">✅ Paid First</MenuItem>
+            <MenuItem value="newest">Newest First</MenuItem>
+            <MenuItem value="oldest">Oldest First</MenuItem>
+            <MenuItem value="name-asc">Client (A-Z)</MenuItem>
+            <MenuItem value="name-desc">Client (Z-A)</MenuItem>
+            <MenuItem value="amount-high">Highest Amount</MenuItem>
+            <MenuItem value="amount-low">Lowest Amount</MenuItem>
+            <MenuItem value="status-unpaid">Unpaid First</MenuItem>
+            <MenuItem value="status-paid">Paid First</MenuItem>
           </Select>
         </FormControl>
+        </Box>
       </Box>
 
       {/* Mobile: Card Layout */}
@@ -444,7 +679,7 @@ export default function InvoicesDashboard() {
               </Box>
 
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
-                📅 Created: {formatInvoiceDate(inv)}
+                ðŸ“… Created: {formatInvoiceDate(inv)}
               </Typography>
 
               <FormControl fullWidth size="small" sx={{ mb: 2 }}>
@@ -615,6 +850,208 @@ export default function InvoicesDashboard() {
           </TableBody>
         </Table>
       </Paper>
+
+      {/* ===================== QUICK WEED INVOICE DIALOG ===================== */}
+      <Dialog 
+        open={weedDialogOpen} 
+        onClose={() => setWeedDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: "success.main", color: "white", display: "flex", alignItems: "center", gap: 1 }}>
+          <GrassIcon /> Quick Weed Invoice
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <Alert severity="info">
+              Fast invoice creation for weed spraying jobs. Select services and customer, and we'll automatically create the invoice and add it to your calendar!
+            </Alert>
+
+            <FormControl fullWidth required>
+              <InputLabel>Customer</InputLabel>
+              <Select
+                value={weedInvoice.customerId}
+                label="Customer"
+                onChange={(e) => handleCustomerSelect(e.target.value)}
+              >
+                {customers.map((customer) => (
+                  <MenuItem key={customer.id} value={customer.id}>
+                    {customer.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <Button
+              variant="outlined"
+              color="success"
+              startIcon={<PersonAddIcon />}
+              onClick={() => setAddCustomerDialogOpen(true)}
+              fullWidth
+            >
+              Add New Customer
+            </Button>
+
+            <TextField
+              label="Service Date"
+              type="date"
+              value={weedInvoice.serviceDate}
+              onChange={(e) => handleWeedInvoiceChange("serviceDate", e.target.value)}
+              fullWidth
+              required
+              InputLabelProps={{ shrink: true }}
+              helperText="Date when weed spraying was completed"
+            />
+
+            <Box sx={{ display: "flex", gap: 2 }}>
+              <TextField
+                label="Start Time"
+                type="time"
+                value={weedInvoice.startTime}
+                onChange={(e) => handleWeedInvoiceChange("startTime", e.target.value)}
+                fullWidth
+                required
+                InputLabelProps={{ shrink: true }}
+                helperText="When you started"
+              />
+              <TextField
+                label="End Time"
+                type="time"
+                value={weedInvoice.endTime}
+                onChange={(e) => handleWeedInvoiceChange("endTime", e.target.value)}
+                fullWidth
+                required
+                InputLabelProps={{ shrink: true }}
+                helperText="When you finished"
+              />
+            </Box>
+
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                Services:
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={weedInvoice.frontYard}
+                    onChange={(e) => handleWeedInvoiceChange("frontYard", e.target.checked)}
+                  />
+                }
+                label="Front Yard Weed Spraying - $50"
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={weedInvoice.backYard}
+                    onChange={(e) => handleWeedInvoiceChange("backYard", e.target.checked)}
+                  />
+                }
+                label="Back Yard Weed Spraying - $50"
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={weedInvoice.other}
+                    onChange={(e) => handleWeedInvoiceChange("other", e.target.checked)}
+                  />
+                }
+                label="Other Weed Extraction - $75"
+              />
+            </Box>
+
+            <Paper sx={{ p: 2, bgcolor: "success.light" }}>
+              <Typography variant="h6" fontWeight="bold" textAlign="center">
+                Total: ${calculateWeedTotal()}
+              </Typography>
+            </Paper>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWeedDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button 
+            variant="contained" 
+            color="success"
+            onClick={handleCreateWeedInvoice}
+            startIcon={<GrassIcon />}
+          >
+            Create Invoice
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ===================== QUICK ADD CUSTOMER DIALOG ===================== */}
+      <Dialog 
+        open={addCustomerDialogOpen} 
+        onClose={() => setAddCustomerDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: "primary.main", color: "white", display: "flex", alignItems: "center", gap: 1 }}>
+          <PersonAddIcon /> Quick Add Customer
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <Alert severity="info">
+              Add a new customer quickly. Name is required, other fields are optional.
+            </Alert>
+
+            <TextField
+              label="Customer Name"
+              value={newCustomer.name}
+              onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
+              fullWidth
+              required
+              autoFocus
+              helperText="Required"
+            />
+
+            <TextField
+              label="Phone Number"
+              value={newCustomer.phone}
+              onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+              fullWidth
+              placeholder="(555) 123-4567"
+              helperText="Optional"
+            />
+
+            <TextField
+              label="Email"
+              type="email"
+              value={newCustomer.email}
+              onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+              fullWidth
+              placeholder="customer@email.com"
+              helperText="Optional"
+            />
+
+            <TextField
+              label="Address"
+              value={newCustomer.address}
+              onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
+              fullWidth
+              multiline
+              rows={2}
+              placeholder="123 Main St, Bullhead City, AZ"
+              helperText="Optional"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddCustomerDialogOpen(false)}>
+            Cancel
+          </Button>
+          <Button 
+            variant="contained" 
+            color="primary"
+            onClick={handleQuickAddCustomer}
+            startIcon={<PersonAddIcon />}
+          >
+            Add Customer
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

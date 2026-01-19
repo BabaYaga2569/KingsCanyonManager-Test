@@ -95,7 +95,14 @@ service cloud.firestore {
     }
     
     // ============================================
-    // SCHEDULE COLLECTION
+    // SCHEDULES COLLECTION (FIXED: plural to match actual collection name)
+    // ============================================
+    match /schedules/{scheduleId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // SCHEDULE COLLECTION (Legacy singular - for backwards compatibility)
     // ============================================
     match /schedule/{scheduleId} {
       allow read, write: if isAuthenticated();
@@ -130,6 +137,20 @@ service cloud.firestore {
     }
     
     // ============================================
+    // CREWS COLLECTION (Plural version)
+    // ============================================
+    match /crews/{crewId} {
+      allow read, write: if isGodOrAdmin();
+    }
+    
+    // ============================================
+    // EQUIPMENT COLLECTION
+    // ============================================
+    match /equipment/{equipmentId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
     // NDA SIGNATURES COLLECTION (NEW for consolidation)
     // ============================================
     match /ndaSignatures/{signatureId} {
@@ -154,6 +175,21 @@ service cloud.firestore {
     // NOTIFICATION COUNTS COLLECTION
     // ============================================
     match /notificationCounts/{userId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // ============================================
+    // SETTINGS COLLECTION (NEW - for goal tracking, app settings, etc.)
+    // ============================================
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isGodOrAdmin();
+    }
+    
+    // ============================================
+    // MAINTENANCE CONTRACTS COLLECTION (NEW - for recurring monthly maintenance)
+    // ============================================
+    match /maintenance_contracts/{contractId} {
       allow read, write: if isAuthenticated();
     }
   }
