@@ -542,9 +542,9 @@ function AppContent() {
   if (userRole === 'crew') {
     // CREW sees only time clock and their hours
     menuItems = [
-      { label: "â° Time Clock", path: "/time-clock", notificationKey: null },
+      { label: "Time Clock", path: "/time-clock", notificationKey: null },
       { label: "My Profile", path: "/profile", notificationKey: null },
-      { label: "ðŸ“Š My Hours", path: "/my-hours", notificationKey: null },
+      { label: "My Hours", path: "/my-hours", notificationKey: null },
     ];
   } else {
     // ADMIN and GOD see full menu
@@ -555,7 +555,7 @@ function AppContent() {
       { label: "Contracts", path: "/contracts", notificationKey: "contracts" },
       { label: "Invoices", path: "/invoices", notificationKey: "invoices" },
       { label: "Jobs", path: "/jobs", notificationKey: "jobs" },
-      { label: "ðŸ“ Notes", path: "/notes", notificationKey: "notes" },
+      { label: "Notes", path: "/notes", notificationKey: "notes" },
       { label: "Customers", path: "/customers", notificationKey: "customers" },
       { label: "Schedule", path: "/schedule-dashboard", notificationKey: "schedules" },
       { label: "Calendar", path: "/calendar-view", notificationKey: null },
@@ -566,7 +566,7 @@ function AppContent() {
       { label: "Tax Report", path: "/tax-report", notificationKey: null },
       { label: "Crew", path: "/crew-manager", notificationKey: null },
       { label: "Equipment", path: "/equipment-manager", notificationKey: null },
-	  { label: "ðŸ‘¥ Employees", path: "/employees", notificationKey: null },
+	  { label: "Employees", path: "/employees", notificationKey: null },
       { label: "My Profile", path: "/profile", notificationKey: null },
     ];
   }

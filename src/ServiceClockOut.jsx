@@ -238,16 +238,26 @@ const ServiceClockOut = ({
 
     try {
       setLoading(true);
+      console.log('🔵 Starting service completion...');
+      console.log('Selected customer ID:', selectedCustomer);
+      console.log('Available customers:', customers);
 
       // Get customer data
       const customer = customers.find(c => c.id === selectedCustomer);
+      console.log('Found customer:', customer);
+      
       if (!customer) {
-        throw new Error('Customer not found');
+        setLoading(false);
+        Swal.fire('Error', 'Customer not found. Please select a valid customer.', 'error');
+        return;
       }
 
+      console.log('🔵 Uploading photos...');
       // Upload photos
       const photoData = await uploadPhotosToStorage();
+      console.log('Photos uploaded:', photoData.length);
 
+      console.log('🔵 Creating invoice...');
       // Create invoice line items
       let lineItems = [];
       let invoiceDescription = '';
@@ -293,10 +303,13 @@ const ServiceClockOut = ({
         timeEntryId: timeEntry.id
       };
 
+      console.log('🔵 Creating invoice in Firestore...');
       const invoiceRef = await addDoc(collection(db, 'invoices'), invoiceData);
+      console.log('✅ Invoice created:', invoiceRef.id);
 
       // If paid on site, create payment record
       if (paidOnSite) {
+        console.log('🔵 Creating payment record...');
         const paymentData = {
           invoiceId: invoiceRef.id,
           customerId: selectedCustomer,
@@ -312,6 +325,7 @@ const ServiceClockOut = ({
         };
 
         await addDoc(collection(db, 'payments'), paymentData);
+        console.log('✅ Payment record created');
 
         // Update invoice with payment info
         await updateDoc(doc(db, 'invoices', invoiceRef.id), {
@@ -319,8 +333,10 @@ const ServiceClockOut = ({
           paidAt: new Date().toISOString(),
           paidAmount: total
         });
+        console.log('✅ Invoice updated with payment');
       }
 
+      console.log('🔵 Clocking out employee...');
       // Clock out the employee
       const clockOutTime = new Date().toISOString();
       const clockInTime = moment(timeEntry.clockIn);
@@ -338,7 +354,9 @@ const ServiceClockOut = ({
         paidOnSite: paidOnSite,
         completedAt: clockOutTime
       });
+      console.log('✅ Time entry updated with clock-out');
 
+      console.log('🎉 All operations complete! Showing success message...');
       // Show success message
       await Swal.fire({
         icon: 'success',
@@ -352,12 +370,27 @@ const ServiceClockOut = ({
         confirmButtonText: 'Done'
       });
 
+      console.log('✅ Success message shown, calling onComplete...');
       onComplete();
       handleClose();
 
     } catch (error) {
-      console.error('Error completing service:', error);
-      Swal.fire('Error', 'Failed to complete service: ' + error.message, 'error');
+      console.error('❌ ERROR completing service:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+      setLoading(false);
+      Swal.fire({
+        icon: 'error',
+        title: 'Failed to Complete Service',
+        html: `
+          <p><strong>Error:</strong> ${error.message}</p>
+          <p style="font-size: 0.9em; color: #666;">Check console for details</p>
+        `,
+        confirmButtonText: 'OK'
+      });
     } finally {
       setLoading(false);
     }

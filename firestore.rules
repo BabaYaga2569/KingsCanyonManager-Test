@@ -123,6 +123,23 @@ service cloud.firestore {
     }
     
     // ============================================
+    // JOB TIME ENTRIES COLLECTION (NEW - CRITICAL FOR CLOCK IN/OUT)
+    // ============================================
+    match /job_time_entries/{entryId} {
+      // All authenticated users can create time entries
+      allow create: if isAuthenticated();
+      
+      // All authenticated users can read time entries
+      allow read: if isAuthenticated();
+      
+      // All authenticated users can update time entries
+      allow update: if isAuthenticated();
+      
+      // Only god/admin can delete
+      allow delete: if isGodOrAdmin();
+    }
+    
+    // ============================================
     // NOTES COLLECTION
     // ============================================
     match /notes/{noteId} {

@@ -54,8 +54,8 @@ export default function TimeClock() {
       const jobsSnap = await getDocs(collection(db, "jobs"));
       const jobsData = jobsSnap.docs.map((d) => {
         const data = d.data();
-        // Try multiple possible field names for the job name
-        const jobName = data.customerName || data.jobName || data.description || data.title || `Job ${d.id.slice(0, 6)}`;
+        // Use ONLY customerName or jobName - NOT description (too long)
+        const jobName = data.customerName || data.jobName || `Job ${d.id.slice(0, 6)}`;
         return { 
           id: d.id, 
           ...data,
@@ -135,6 +135,9 @@ export default function TimeClock() {
       if (selectedJob === "WEED_EXTRACTION") {
         jobName = "Weed Extraction Service";
         jobId = "WEED_EXTRACTION";
+      } else if (selectedJob === "MAINTENANCE_SERVICE") {
+        jobName = "Maintenance Service";
+        jobId = "MAINTENANCE_SERVICE";
       } else {
         const job = jobs.find(j => j.id === selectedJob);
         jobName = job?.displayName || "Unknown Job";
@@ -285,6 +288,9 @@ export default function TimeClock() {
               <MenuItem value="">-- Select a Job --</MenuItem>
               <MenuItem value="WEED_EXTRACTION" sx={{ backgroundColor: '#e8f5e9', fontWeight: 'bold' }}>
                 Weed Extraction Service
+              </MenuItem>
+              <MenuItem value="MAINTENANCE_SERVICE" sx={{ backgroundColor: '#e3f2fd', fontWeight: 'bold' }}>
+                Maintenance Service
               </MenuItem>
               {jobs.map((job) => (
                 <MenuItem key={job.id} value={job.id}>
