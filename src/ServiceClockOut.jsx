@@ -284,7 +284,8 @@ const ServiceClockOut = ({
       // Create invoice
       const invoiceData = {
         customerId: selectedCustomer,
-        customerName: customer.name,
+        clientName: customer.name,  // Changed from customerName to clientName
+        customerName: customer.name,  // Keep both for compatibility
         customerAddress: customer.address,
         customerPhone: customer.phone,
         customerEmail: customer.email || '',
@@ -356,9 +357,14 @@ const ServiceClockOut = ({
       });
       console.log('✅ Time entry updated with clock-out');
 
-      console.log('🎉 All operations complete! Showing success message...');
-      // Show success message
-      await Swal.fire({
+      console.log('🎉 All operations complete! Closing modal and showing success...');
+      
+      // Close modal immediately (don't wait for Swal)
+      onComplete();
+      handleClose();
+      
+      // Show success message (async, don't block)
+      Swal.fire({
         icon: 'success',
         title: paidOnSite ? 'Service Complete & Paid!' : 'Service Complete!',
         html: `
@@ -367,12 +373,14 @@ const ServiceClockOut = ({
           <p><strong>Hours Worked:</strong> ${hoursWorked.toFixed(2)}</p>
           ${paidOnSite ? `<p><strong>Payment:</strong> ${paymentMethod}</p>` : '<p>Invoice created - payment pending</p>'}
         `,
-        confirmButtonText: 'Done'
+        confirmButtonText: 'Done',
+        timer: 5000
+      }).catch(err => {
+        console.log('Swal display error (non-critical):', err);
       });
 
-      console.log('✅ Success message shown, calling onComplete...');
-      onComplete();
-      handleClose();
+      console.log('✅ Modal closed successfully');
+
 
     } catch (error) {
       console.error('❌ ERROR completing service:', error);
