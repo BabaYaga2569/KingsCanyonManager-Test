@@ -54,8 +54,14 @@ export default function TimeClock() {
       const jobsSnap = await getDocs(collection(db, "jobs"));
       const jobsData = jobsSnap.docs.map((d) => {
         const data = d.data();
-        // Use ONLY customerName or jobName - NOT description (too long)
-        const jobName = data.customerName || data.jobName || `Job ${d.id.slice(0, 6)}`;
+        // Try multiple field names in order of preference
+        const jobName = data.customerName || 
+                       data.customer || 
+                       data.name || 
+                       data.jobName || 
+                       data.title ||
+                       data.address ||
+                       `Job ${d.id.slice(0, 6)}`;
         return { 
           id: d.id, 
           ...data,
@@ -211,7 +217,7 @@ export default function TimeClock() {
   return (
     <Container sx={{ mt: 3, pb: 4, maxWidth: 'sm' }}>
       <Typography variant="h4" gutterBottom sx={{ textAlign: 'center', mb: 3 }}>
-        â° Time Clock
+        Time Clock
       </Typography>
 
       {/* Today's Summary */}
@@ -330,7 +336,7 @@ export default function TimeClock() {
       {/* Instructions */}
       <Paper sx={{ p: 2, mt: 3, backgroundColor: '#f5f5f5' }}>
         <Typography variant="subtitle2" gutterBottom fontWeight="bold">
-          ðŸ“‹ Instructions:
+          Instructions:
         </Typography>
         <Typography variant="body2">
           1. Select the job you're working on<br/>
