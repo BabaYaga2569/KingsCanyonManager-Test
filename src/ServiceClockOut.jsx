@@ -363,21 +363,23 @@ const ServiceClockOut = ({
       onComplete();
       handleClose();
       
-      // Show success message (async, don't block)
-      Swal.fire({
-        icon: 'success',
-        title: paidOnSite ? 'Service Complete & Paid!' : 'Service Complete!',
-        html: `
-          <p><strong>Customer:</strong> ${customer.name}</p>
-          <p><strong>Total:</strong> $${total.toFixed(2)}</p>
-          <p><strong>Hours Worked:</strong> ${hoursWorked.toFixed(2)}</p>
-          ${paidOnSite ? `<p><strong>Payment:</strong> ${paymentMethod}</p>` : '<p>Invoice created - payment pending</p>'}
-        `,
-        confirmButtonText: 'Done',
-        timer: 5000
-      }).catch(err => {
+      // Show success message (fire and forget - don't chain anything)
+      try {
+        Swal.fire({
+          icon: 'success',
+          title: paidOnSite ? 'Service Complete & Paid!' : 'Service Complete!',
+          html: `
+            <p><strong>Customer:</strong> ${customer.name}</p>
+            <p><strong>Total:</strong> $${total.toFixed(2)}</p>
+            <p><strong>Hours Worked:</strong> ${hoursWorked.toFixed(2)}</p>
+            ${paidOnSite ? `<p><strong>Payment:</strong> ${paymentMethod}</p>` : '<p>Invoice created - payment pending</p>'}
+          `,
+          confirmButtonText: 'Done',
+          timer: 5000
+        });
+      } catch (err) {
         console.log('Swal display error (non-critical):', err);
-      });
+      }
 
       console.log('✅ Modal closed successfully');
 

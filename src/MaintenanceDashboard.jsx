@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { collection, getDocs, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { collection, getDocs, deleteDoc, doc, updateDoc, addDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import {
   Box,
@@ -18,6 +18,13 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
@@ -28,11 +35,19 @@ import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import PauseIcon from "@mui/icons-material/Pause";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import ReceiptIcon from "@mui/icons-material/Receipt";
+import PaymentIcon from "@mui/icons-material/Payment";
 import moment from "moment";
 
 export default function MaintenanceDashboard() {
   const [contracts, setContracts] = useState([]);
   const [filterStatus, setFilterStatus] = useState("all");
+  const [paymentDialog, setPaymentDialog] = useState({ open: false, contract: null });
+  const [paymentData, setPaymentData] = useState({
+    amount: '',
+    method: 'Cash',
+    notes: '',
+    createInvoice: false
+  });
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -106,6 +121,87 @@ export default function MaintenanceDashboard() {
     }
   };
 
+  const handleCollectPayment = (contract) => {
+    setPaymentDialog({ open: true, contract });
+    setPaymentData({
+      amount: contract.monthlyRate || '',
+      method: 'Cash',
+      notes: `Monthly maintenance payment for ${moment().format('MMMM YYYY')}`,
+      createInvoice: false
+    });
+  };
+
+  const handleSavePayment = async () => {
+    if (!paymentData.amount || parseFloat(paymentData.amount) <= 0) {
+      Swal.fire('Error', 'Please enter a valid amount', 'error');
+      return;
+    }
+
+    try {
+      const contract = paymentDialog.contract;
+      
+      // Create payment record
+      const paymentRecord = {
+        customerId: contract.customerId,
+        customerName: contract.customerName,
+        amount: parseFloat(paymentData.amount),
+        paymentMethod: paymentData.method,
+        paymentDate: new Date().toISOString(),
+        notes: paymentData.notes,
+        status: 'completed',
+        createdAt: new Date().toISOString(),
+        maintenanceContractId: contract.id,
+        type: 'maintenance'
+      };
+
+      await addDoc(collection(db, 'payments'), paymentRecord);
+
+      // Optionally create invoice
+      if (paymentData.createInvoice) {
+        const invoiceData = {
+          customerId: contract.customerId,
+          clientName: contract.customerName,
+          customerName: contract.customerName,
+          description: `Monthly Maintenance - ${getFrequencyDisplay(contract.frequency)}`,
+          lineItems: [{
+            description: contract.servicesIncluded || 'Monthly maintenance service',
+            amount: parseFloat(paymentData.amount)
+          }],
+          subtotal: parseFloat(paymentData.amount),
+          total: parseFloat(paymentData.amount),
+          status: 'Paid',
+          paidAt: new Date().toISOString(),
+          paidAmount: parseFloat(paymentData.amount),
+          date: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          maintenanceContractId: contract.id,
+          type: 'maintenance'
+        };
+
+        await addDoc(collection(db, 'invoices'), invoiceData);
+      }
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Payment Recorded!',
+        html: `
+          <p><strong>Customer:</strong> ${contract.customerName}</p>
+          <p><strong>Amount:</strong> $${paymentData.amount}</p>
+          <p><strong>Method:</strong> ${paymentData.method}</p>
+          ${paymentData.createInvoice ? '<p>Invoice created</p>' : ''}
+        `,
+        timer: 3000
+      });
+
+      setPaymentDialog({ open: false, contract: null });
+      setPaymentData({ amount: '', method: 'Cash', notes: '', createInvoice: false });
+
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      Swal.fire('Error', 'Failed to record payment', 'error');
+    }
+  };
+
   const getFrequencyDisplay = (frequency) => {
     switch (frequency) {
       case "weekly": return "Weekly";
@@ -159,7 +255,7 @@ export default function MaintenanceDashboard() {
       {/* Header */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Typography variant="h5" sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}>
-          🌿 Monthly Maintenance ({filteredContracts.length})
+          Monthly Maintenance ({filteredContracts.length})
         </Typography>
 
         <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
@@ -330,6 +426,15 @@ export default function MaintenanceDashboard() {
                 </Button>
                 <Button
                   size="small"
+                  startIcon={<PaymentIcon />}
+                  onClick={() => handleCollectPayment(contract)}
+                  color="success"
+                  variant="contained"
+                >
+                  Pay
+                </Button>
+                <Button
+                  size="small"
                   startIcon={<DeleteIcon />}
                   onClick={() => handleDelete(contract.id, contract.customerName)}
                   color="error"
@@ -341,6 +446,73 @@ export default function MaintenanceDashboard() {
           </Grid>
         ))}
       </Grid>
+
+      {/* Payment Collection Dialog */}
+      <Dialog
+        open={paymentDialog.open}
+        onClose={() => setPaymentDialog({ open: false, contract: null })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Collect Payment - {paymentDialog.contract?.customerName}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              label="Amount"
+              type="number"
+              value={paymentData.amount}
+              onChange={(e) => setPaymentData({ ...paymentData, amount: e.target.value })}
+              fullWidth
+              InputProps={{
+                startAdornment: <Typography>$</Typography>
+              }}
+            />
+
+            <FormControl fullWidth>
+              <InputLabel>Payment Method</InputLabel>
+              <Select
+                value={paymentData.method}
+                label="Payment Method"
+                onChange={(e) => setPaymentData({ ...paymentData, method: e.target.value })}
+              >
+                <MenuItem value="Cash">Cash</MenuItem>
+                <MenuItem value="Check">Check</MenuItem>
+                <MenuItem value="Zelle">Zelle</MenuItem>
+                <MenuItem value="Card">Card</MenuItem>
+              </Select>
+            </FormControl>
+
+            <TextField
+              label="Notes"
+              value={paymentData.notes}
+              onChange={(e) => setPaymentData({ ...paymentData, notes: e.target.value })}
+              fullWidth
+              multiline
+              rows={2}
+            />
+
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={paymentData.createInvoice}
+                  onChange={(e) => setPaymentData({ ...paymentData, createInvoice: e.target.checked })}
+                />
+              }
+              label="Also create invoice record"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPaymentDialog({ open: false, contract: null })}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={handleSavePayment}>
+            Record Payment
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

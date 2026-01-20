@@ -68,6 +68,13 @@ import CustomerEditor from "./CustomerEditor";
 import ScheduleJob from "./ScheduleJob";
 import ScheduleDashboard from "./ScheduleDashboard";
 import CalendarView from "./CalendarView";
+// ========================================
+// 🔒 CRITICAL: MAINTENANCE COMPONENTS - DO NOT REMOVE
+// If these are missing, the Maintenance tab won't work!
+// ========================================
+import MaintenanceDashboard from "./MaintenanceDashboard";
+import MaintenanceEditor from "./MaintenanceEditor";
+// ========================================
 import PaymentTracker from "./PaymentTracker";
 import PaymentsDashboard from "./PaymentsDashboard";
 import CrewManager from "./CrewManager";
@@ -559,6 +566,8 @@ function AppContent() {
       { label: "Customers", path: "/customers", notificationKey: "customers" },
       { label: "Schedule", path: "/schedule-dashboard", notificationKey: "schedules" },
       { label: "Calendar", path: "/calendar-view", notificationKey: null },
+      // 🔒 CRITICAL: Maintenance menu item - DO NOT REMOVE
+      { label: "Maintenance", path: "/maintenance", notificationKey: null },
       { label: "Payments", path: "/payments-dashboard", notificationKey: "payments" },
       { label: "Expenses", path: "/expenses-manager", notificationKey: "expenses" },
       { label: "Payroll", path: "/crew-payroll", notificationKey: null },
@@ -759,6 +768,10 @@ function AppContent() {
         <Route path="/schedule-job" element={<ScheduleJob />} />
         <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
         <Route path="/calendar-view" element={<CalendarView />} />
+        {/* 🔒 CRITICAL: Maintenance routes - DO NOT REMOVE */}
+        <Route path="/maintenance" element={<MaintenanceDashboard />} />
+        <Route path="/maintenance/:id" element={<MaintenanceEditor />} />
+        {/* ========================================= */}
         <Route path="/payment-tracker/:id" element={<PaymentTracker />} />
         <Route path="/payments-dashboard" element={<PaymentsDashboard />} />
         <Route path="/crew-manager" element={<CrewManager />} />
