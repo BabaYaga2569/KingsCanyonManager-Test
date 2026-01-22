@@ -11,7 +11,8 @@ import {
   where,
   serverTimestamp,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { db, storage } from "./firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
   Paper,
   Table,
@@ -51,6 +52,8 @@ import SortIcon from "@mui/icons-material/Sort";
 import GrassIcon from "@mui/icons-material/Grass";
 import SpeedIcon from "@mui/icons-material/Speed";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
+import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import moment from "moment";
 import generateInvoicePDF from "./pdf/generateInvoicePDF";
 import { markAsViewed } from './useNotificationCounts';
@@ -76,6 +79,10 @@ export default function InvoicesDashboard() {
     frontYard: false,
     backYard: false,
     other: false,
+    beforePhoto: null,
+    afterPhoto: null,
+    beforePhotoURL: "",
+    afterPhotoURL: "",
   });
   
   // Quick Add Customer state
@@ -303,6 +310,38 @@ export default function InvoicesDashboard() {
     }
 
     try {
+      // Show loading state if photos are being uploaded
+      if (weedInvoice.beforePhoto || weedInvoice.afterPhoto) {
+        Swal.fire({
+          title: "Creating Invoice...",
+          html: "Uploading photos, please wait...",
+          allowOutsideClick: false,
+          didOpen: () => {
+            Swal.showLoading();
+          },
+        });
+      }
+
+      // Upload photos to Firebase Storage
+      let beforePhotoURL = "";
+      let afterPhotoURL = "";
+
+      if (weedInvoice.beforePhoto) {
+        beforePhotoURL = await uploadPhotoToStorage(
+          weedInvoice.beforePhoto,
+          weedInvoice.customerId,
+          "before"
+        );
+      }
+
+      if (weedInvoice.afterPhoto) {
+        afterPhotoURL = await uploadPhotoToStorage(
+          weedInvoice.afterPhoto,
+          weedInvoice.customerId,
+          "after"
+        );
+      }
+
       // Build description
       const services = [];
       if (weedInvoice.frontYard) services.push("Front Yard Weed Spraying");
@@ -314,7 +353,7 @@ export default function InvoicesDashboard() {
       // Get customer data
       const customer = customers.find(c => c.id === weedInvoice.customerId);
 
-      // Create invoice
+      // Create invoice with photos
       const invoiceData = {
         clientName: customer.name,
         clientEmail: customer.email || "",
@@ -336,6 +375,9 @@ export default function InvoicesDashboard() {
           
           return `${service} - $${cost}`;
         }).join("\n"),
+        beforePhoto: beforePhotoURL,
+        afterPhoto: afterPhotoURL,
+        hasPhotos: !!(beforePhotoURL || afterPhotoURL),
       };
 
       const invoiceRef = await addDoc(collection(db, "invoices"), invoiceData);
@@ -357,6 +399,14 @@ export default function InvoicesDashboard() {
       });
 
       // Success!
+      const photoMessage = beforePhotoURL && afterPhotoURL 
+        ? "<p>✅ Before & After photos uploaded</p>"
+        : beforePhotoURL 
+        ? "<p>✅ Before photo uploaded</p>"
+        : afterPhotoURL
+        ? "<p>✅ After photo uploaded</p>"
+        : "";
+
       Swal.fire({
         title: "Invoice Created!",
         html: `
@@ -364,9 +414,14 @@ export default function InvoicesDashboard() {
           <p><strong>Total: $${total}</strong></p>
           <p>✅ Invoice created</p>
           <p>✅ Added to calendar</p>
+          ${photoMessage}
         `,
         icon: "success",
       });
+
+      // Clean up photo URLs
+      if (weedInvoice.beforePhotoURL) URL.revokeObjectURL(weedInvoice.beforePhotoURL);
+      if (weedInvoice.afterPhotoURL) URL.revokeObjectURL(weedInvoice.afterPhotoURL);
 
       // Reset form and close dialog
       setWeedDialogOpen(false);
@@ -379,6 +434,10 @@ export default function InvoicesDashboard() {
         frontYard: false,
         backYard: false,
         other: false,
+        beforePhoto: null,
+        afterPhoto: null,
+        beforePhotoURL: "",
+        afterPhotoURL: "",
       });
 
       // Refresh invoices
@@ -435,6 +494,76 @@ export default function InvoicesDashboard() {
       console.error("Error adding customer:", error);
       Swal.fire("Error", "Failed to add customer: " + error.message, "error");
     }
+  };
+
+  // ===================== PHOTO HANDLERS FOR QUICK WEED INVOICE =====================
+  
+  const handlePhotoSelect = async (photoType, event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      Swal.fire("Error", "Please select an image file", "error");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      Swal.fire("Error", "Image must be smaller than 5MB", "error");
+      return;
+    }
+
+    // Create preview URL and store file
+    const previewURL = URL.createObjectURL(file);
+    
+    if (photoType === 'before') {
+      setWeedInvoice(prev => ({
+        ...prev,
+        beforePhoto: file,
+        beforePhotoURL: previewURL,
+      }));
+    } else {
+      setWeedInvoice(prev => ({
+        ...prev,
+        afterPhoto: file,
+        afterPhotoURL: previewURL,
+      }));
+    }
+  };
+
+  const handleRemovePhoto = (photoType) => {
+    if (photoType === 'before') {
+      if (weedInvoice.beforePhotoURL) {
+        URL.revokeObjectURL(weedInvoice.beforePhotoURL);
+      }
+      setWeedInvoice(prev => ({
+        ...prev,
+        beforePhoto: null,
+        beforePhotoURL: "",
+      }));
+    } else {
+      if (weedInvoice.afterPhotoURL) {
+        URL.revokeObjectURL(weedInvoice.afterPhotoURL);
+      }
+      setWeedInvoice(prev => ({
+        ...prev,
+        afterPhoto: null,
+        afterPhotoURL: "",
+      }));
+    }
+  };
+
+  const uploadPhotoToStorage = async (file, customerId, photoType) => {
+    if (!file) return null;
+
+    const timestamp = Date.now();
+    const filename = `weed-invoices/${customerId}/${photoType}-${timestamp}.jpg`;
+    const storageRef = ref(storage, filename);
+
+    await uploadBytes(storageRef, file);
+    const downloadURL = await getDownloadURL(storageRef);
+    return downloadURL;
   };
 
   // ===================================================================
@@ -957,6 +1086,156 @@ export default function InvoicesDashboard() {
                 }
                 label="Other Weed Extraction - $75"
               />
+            </Box>
+
+            {/* Photo Upload Section */}
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                📷 Photos (Optional):
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Add before and after photos to document the work completed
+              </Typography>
+
+              {/* Before Photo */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" fontWeight="bold" gutterBottom>
+                  Before Photo:
+                </Typography>
+                {weedInvoice.beforePhotoURL ? (
+                  <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                    <img 
+                      src={weedInvoice.beforePhotoURL} 
+                      alt="Before" 
+                      style={{ 
+                        maxWidth: '100%', 
+                        maxHeight: '200px',
+                        borderRadius: '8px',
+                        border: '2px solid #4caf50'
+                      }} 
+                    />
+                    <Button
+                      variant="contained"
+                      color="error"
+                      size="small"
+                      onClick={() => handleRemovePhoto('before')}
+                      sx={{ 
+                        position: 'absolute', 
+                        top: 8, 
+                        right: 8,
+                        minWidth: 'auto',
+                        padding: '4px 8px'
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      startIcon={<CameraAltIcon />}
+                      component="label"
+                      size="small"
+                    >
+                      Take Photo
+                      <input
+                        hidden
+                        accept="image/*"
+                        type="file"
+                        capture="environment"
+                        onChange={(e) => handlePhotoSelect('before', e)}
+                      />
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      startIcon={<PhotoLibraryIcon />}
+                      component="label"
+                      size="small"
+                    >
+                      Choose Photo
+                      <input
+                        hidden
+                        accept="image/*"
+                        type="file"
+                        onChange={(e) => handlePhotoSelect('before', e)}
+                      />
+                    </Button>
+                  </Box>
+                )}
+              </Box>
+
+              {/* After Photo */}
+              <Box>
+                <Typography variant="body2" fontWeight="bold" gutterBottom>
+                  After Photo:
+                </Typography>
+                {weedInvoice.afterPhotoURL ? (
+                  <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                    <img 
+                      src={weedInvoice.afterPhotoURL} 
+                      alt="After" 
+                      style={{ 
+                        maxWidth: '100%', 
+                        maxHeight: '200px',
+                        borderRadius: '8px',
+                        border: '2px solid #4caf50'
+                      }} 
+                    />
+                    <Button
+                      variant="contained"
+                      color="error"
+                      size="small"
+                      onClick={() => handleRemovePhoto('after')}
+                      sx={{ 
+                        position: 'absolute', 
+                        top: 8, 
+                        right: 8,
+                        minWidth: 'auto',
+                        padding: '4px 8px'
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      startIcon={<CameraAltIcon />}
+                      component="label"
+                      size="small"
+                    >
+                      Take Photo
+                      <input
+                        hidden
+                        accept="image/*"
+                        type="file"
+                        capture="environment"
+                        onChange={(e) => handlePhotoSelect('after', e)}
+                      />
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      startIcon={<PhotoLibraryIcon />}
+                      component="label"
+                      size="small"
+                    >
+                      Choose Photo
+                      <input
+                        hidden
+                        accept="image/*"
+                        type="file"
+                        onChange={(e) => handlePhotoSelect('after', e)}
+                      />
+                    </Button>
+                  </Box>
+                )}
+              </Box>
             </Box>
 
             <Paper sx={{ p: 2, bgcolor: "success.light" }}>
