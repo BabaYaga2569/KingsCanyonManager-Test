@@ -58,7 +58,9 @@ const COMPANY_PHONE = "(928) 450-5733";
 export default function ContractsDashboard() {
   const [contracts, setContracts] = useState([]);
   const [sortedContracts, setSortedContracts] = useState([]);
+  const [filteredContracts, setFilteredContracts] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
+  const [selectedYear, setSelectedYear] = useState("all");
   const [loading, setLoading] = useState(true);
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [selectedContract, setSelectedContract] = useState(null);
@@ -88,14 +90,53 @@ export default function ContractsDashboard() {
     markAsViewed('contracts');
   }, []);
 
-  // Sort contracts whenever contracts or sortOrder changes
+  // Helper function to parse dates from various formats
+  const parseContractDate = (contract) => {
+    // Try createdAt first
+    if (contract.createdAt) {
+      if (contract.createdAt.toDate) {
+        return contract.createdAt.toDate();
+      }
+      const parsed = new Date(contract.createdAt);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+    // Try contractDate
+    if (contract.contractDate) {
+      if (contract.contractDate.toDate) {
+        return contract.contractDate.toDate();
+      }
+      const parsed = new Date(contract.contractDate);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+    // Default to very old date so it sorts to the end
+    return new Date(0);
+  };
+
+  // Filter contracts by year whenever contracts or selectedYear changes
   useEffect(() => {
-    const sorted = [...contracts].sort((a, b) => {
+    if (selectedYear === "all") {
+      setFilteredContracts(contracts);
+    } else {
+      const filtered = contracts.filter((contract) => {
+        const date = parseContractDate(contract);
+        return date.getFullYear().toString() === selectedYear;
+      });
+      setFilteredContracts(filtered);
+    }
+  }, [contracts, selectedYear]);
+
+  // Sort contracts whenever filteredContracts or sortOrder changes
+  useEffect(() => {
+    const sorted = [...filteredContracts].sort((a, b) => {
       switch (sortOrder) {
         case "newest":
-          return new Date(b.createdAt || b.contractDate || 0) - new Date(a.createdAt || a.contractDate || 0);
+          return parseContractDate(b).getTime() - parseContractDate(a).getTime();
         case "oldest":
-          return new Date(a.createdAt || a.contractDate || 0) - new Date(b.createdAt || b.contractDate || 0);
+          return parseContractDate(a).getTime() - parseContractDate(b).getTime();
         case "name-asc":
           return (a.clientName || "").localeCompare(b.clientName || "");
         case "name-desc":
@@ -117,7 +158,7 @@ export default function ContractsDashboard() {
       }
     });
     setSortedContracts(sorted);
-  }, [contracts, sortOrder]);
+  }, [filteredContracts, sortOrder]);
 
   const handleDeleteContract = async (id, clientName) => {
     const confirm = await Swal.fire({
@@ -221,11 +262,11 @@ export default function ContractsDashboard() {
               style="width:100%; padding:10px; font-size:12px; margin:10px 0; border: 2px solid #1565c0; border-radius:4px;"
               rows="3">${signatureLink}</textarea>
             <p style="font-size:0.9em; color:#666; margin-top:10px;">
-              📱 <strong>Text message example:</strong><br>
+              ðŸ“± <strong>Text message example:</strong><br>
               "Hi ${selectedContract.clientName}, here's your contract to review and sign: ${signatureLink}"
             </p>
             <p style="font-size:0.85em; color:#999; margin-top:15px;">
-              ✅ This link is SAFE - customer can ONLY see their contract, nothing else in your system
+              âœ… This link is SAFE - customer can ONLY see their contract, nothing else in your system
             </p>
           `,
           confirmButtonText: "OK",
@@ -257,13 +298,25 @@ export default function ContractsDashboard() {
 
   const getStatusLabel = (contract) => {
     if (contract.clientSignature && contract.contractorSignature) {
-      return "✅ Fully Signed";
+      return "Fully Signed";
     } else if (contract.clientSignature) {
-      return "🟡 Awaiting Owner Signature";
+      return "Awaiting Owner Signature";
     } else if (contract.status === "Sent - Awaiting Client Signature") {
-      return "📧 Sent - Not Signed Yet";
+      return "Sent - Not Signed Yet";
     }
     return contract.status || "Pending";
+  };
+
+  // Get unique years from contracts for year filter
+  const getAvailableYears = () => {
+    const years = new Set();
+    contracts.forEach((contract) => {
+      const date = parseContractDate(contract);
+      if (date.getTime() > 0) {
+        years.add(date.getFullYear().toString());
+      }
+    });
+    return Array.from(years).sort((a, b) => b - a); // Newest year first
   };
 
   if (loading) {
@@ -292,33 +345,54 @@ export default function ContractsDashboard() {
   if (isMobile) {
     return (
       <Box sx={{ p: 2 }}>
-        {/* Header with Sort Dropdown */}
+        {/* Header with Sort and Year Dropdowns */}
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
           <Typography variant="h5">
             Contracts ({sortedContracts.length})
           </Typography>
 
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel id="sort-label">
-              <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
-              Sort By
-            </InputLabel>
-            <Select
-              labelId="sort-label"
-              value={sortOrder}
-              label="Sort By"
-              onChange={(e) => setSortOrder(e.target.value)}
-            >
-              <MenuItem value="newest">📅 Newest First</MenuItem>
-              <MenuItem value="oldest">📅 Oldest First</MenuItem>
-              <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
-              <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
-              <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
-              <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
-              <MenuItem value="status-unsigned">⏳ Unsigned First</MenuItem>
-              <MenuItem value="status-signed">✅ Signed First</MenuItem>
-            </Select>
-          </FormControl>
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            {/* Year Filter */}
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel id="year-label">Year</InputLabel>
+              <Select
+                labelId="year-label"
+                value={selectedYear}
+                label="Year"
+                onChange={(e) => setSelectedYear(e.target.value)}
+              >
+                <MenuItem value="all">All Years</MenuItem>
+                {getAvailableYears().map((year) => (
+                  <MenuItem key={year} value={year}>
+                    {year}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Sort Dropdown */}
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel id="sort-label">
+                <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+                Sort By
+              </InputLabel>
+              <Select
+                labelId="sort-label"
+                value={sortOrder}
+                label="Sort By"
+                onChange={(e) => setSortOrder(e.target.value)}
+              >
+                <MenuItem value="newest">Newest First</MenuItem>
+                <MenuItem value="oldest">Oldest First</MenuItem>
+                <MenuItem value="name-asc">Name (A-Z)</MenuItem>
+                <MenuItem value="name-desc">Name (Z-A)</MenuItem>
+                <MenuItem value="amount-high">Highest Amount</MenuItem>
+                <MenuItem value="amount-low">Lowest Amount</MenuItem>
+                <MenuItem value="status-unsigned">Unsigned First</MenuItem>
+                <MenuItem value="status-signed">Signed First</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
         </Box>
 
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 2 }}>
@@ -327,6 +401,17 @@ export default function ContractsDashboard() {
               <CardContent>
                 <Typography variant="h6" gutterBottom>
                   {contract.clientName || "Unnamed Client"}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Date: {contract.createdAt 
+                    ? (contract.createdAt.toDate 
+                        ? contract.createdAt.toDate().toLocaleDateString() 
+                        : new Date(contract.createdAt).toLocaleDateString())
+                    : contract.contractDate
+                    ? (contract.contractDate.toDate
+                        ? contract.contractDate.toDate().toLocaleDateString()
+                        : new Date(contract.contractDate).toLocaleDateString())
+                    : "—"}
                 </Typography>
                 <Typography variant="body1" color="text.secondary" gutterBottom>
                   Amount: ${Number(contract.amount || 0).toFixed(2)}
@@ -412,7 +497,7 @@ export default function ContractsDashboard() {
                 control={<Radio />} 
                 label={
                   <Box>
-                    <Typography variant="subtitle2">👋 Sign Now (In-Person)</Typography>
+                    <Typography variant="subtitle2">ðŸ‘‹ Sign Now (In-Person)</Typography>
                     <Typography variant="caption" color="text.secondary">
                       Customer is here - hand them the tablet to sign now
                     </Typography>
@@ -424,7 +509,7 @@ export default function ContractsDashboard() {
                 control={<Radio />} 
                 label={
                   <Box>
-                    <Typography variant="subtitle2">📧 Send Signature Link (Remote)</Typography>
+                    <Typography variant="subtitle2">ðŸ“§ Send Signature Link (Remote)</Typography>
                     <Typography variant="caption" color="text.secondary">
                       Email a link - customer signs from their phone later
                     </Typography>
@@ -462,33 +547,54 @@ export default function ContractsDashboard() {
   // Desktop view
   return (
     <Box sx={{ p: 3 }}>
-      {/* Header with Sort Dropdown */}
+      {/* Header with Sort and Year Dropdowns */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Typography variant="h5">
           Contracts Dashboard ({sortedContracts.length})
         </Typography>
 
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel id="sort-label">
-            <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
-            Sort By
-          </InputLabel>
-          <Select
-            labelId="sort-label"
-            value={sortOrder}
-            label="Sort By"
-            onChange={(e) => setSortOrder(e.target.value)}
-          >
-            <MenuItem value="newest">📅 Newest First</MenuItem>
-            <MenuItem value="oldest">📅 Oldest First</MenuItem>
-            <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
-            <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
-            <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
-            <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
-            <MenuItem value="status-unsigned">⏳ Unsigned First</MenuItem>
-            <MenuItem value="status-signed">✅ Signed First</MenuItem>
+        <Box sx={{ display: "flex", gap: 2 }}>
+          {/* Year Filter */}
+          <FormControl size="small" sx={{ minWidth: 140 }}>
+            <InputLabel id="year-label">Year</InputLabel>
+            <Select
+              labelId="year-label"
+              value={selectedYear}
+              label="Year"
+              onChange={(e) => setSelectedYear(e.target.value)}
+            >
+              <MenuItem value="all">All Years</MenuItem>
+              {getAvailableYears().map((year) => (
+                <MenuItem key={year} value={year}>
+                  {year}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* Sort Dropdown */}
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="sort-label">
+              <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+              Sort By
+            </InputLabel>
+            <Select
+              labelId="sort-label"
+              value={sortOrder}
+              label="Sort By"
+              onChange={(e) => setSortOrder(e.target.value)}
+            >
+            <MenuItem value="newest">Newest First</MenuItem>
+            <MenuItem value="oldest">Oldest First</MenuItem>
+            <MenuItem value="name-asc">Name (A-Z)</MenuItem>
+            <MenuItem value="name-desc">Name (Z-A)</MenuItem>
+            <MenuItem value="amount-high">Highest Amount</MenuItem>
+            <MenuItem value="amount-low">Lowest Amount</MenuItem>
+            <MenuItem value="status-unsigned">Unsigned First</MenuItem>
+            <MenuItem value="status-signed">Signed First</MenuItem>
           </Select>
         </FormControl>
+        </Box>
       </Box>
 
       <TableContainer
@@ -504,6 +610,7 @@ export default function ContractsDashboard() {
           <TableHead>
             <TableRow sx={{ backgroundColor: "#f5f5f5" }}>
               <TableCell sx={{ fontWeight: "bold" }}>Client</TableCell>
+              <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
               <TableCell sx={{ fontWeight: "bold" }}>Amount</TableCell>
               <TableCell sx={{ fontWeight: "bold" }}>Status</TableCell>
               <TableCell sx={{ fontWeight: "bold" }}>Actions</TableCell>
@@ -514,6 +621,17 @@ export default function ContractsDashboard() {
             {sortedContracts.map((contract) => (
               <TableRow key={contract.id}>
                 <TableCell>{contract.clientName || "Unnamed Client"}</TableCell>
+                <TableCell>
+                  {contract.createdAt 
+                    ? (contract.createdAt.toDate 
+                        ? contract.createdAt.toDate().toLocaleDateString() 
+                        : new Date(contract.createdAt).toLocaleDateString())
+                    : contract.contractDate
+                    ? (contract.contractDate.toDate
+                        ? contract.contractDate.toDate().toLocaleDateString()
+                        : new Date(contract.contractDate).toLocaleDateString())
+                    : "—"}
+                </TableCell>
                 <TableCell>
                   ${Number(contract.amount || 0).toFixed(2)}
                 </TableCell>
@@ -620,7 +738,7 @@ export default function ContractsDashboard() {
               control={<Radio />} 
               label={
                 <Box>
-                  <Typography variant="subtitle2">👋 Sign Now (In-Person)</Typography>
+                  <Typography variant="subtitle2">ðŸ‘‹ Sign Now (In-Person)</Typography>
                   <Typography variant="caption" color="text.secondary">
                     Customer is here with you - hand them the tablet/phone to sign immediately
                   </Typography>
@@ -632,7 +750,7 @@ export default function ContractsDashboard() {
               control={<Radio />} 
               label={
                 <Box>
-                  <Typography variant="subtitle2">📧 Send Signature Link (Remote)</Typography>
+                  <Typography variant="subtitle2">ðŸ“§ Send Signature Link (Remote)</Typography>
                   <Typography variant="caption" color="text.secondary">
                     Email a link - customer opens on their phone and signs remotely
                   </Typography>

@@ -95,6 +95,11 @@ import ContractSigningPage from "./ContractSigningPage";
 import PaymentPortal from "./PaymentPortal";
 import BidEditor from "./BidEditor";
 
+// REFRESH SYSTEM IMPORTS
+import UpdateNotification from "./UpdateNotification";
+import RefreshButton from "./RefreshButton";
+import VersionDisplay from "./VersionDisplay";
+
 // TIME CLOCK IMPORTS
 import TimeClock from "./TimeClock";
 import MyHours from "./MyHours";
@@ -256,6 +261,7 @@ function BidsList() {
           Bids List ({sortedBids.length})
         </Typography>
         
+        
         <FormControl size="small" sx={{ minWidth: 200 }}>
           <InputLabel id="sort-label">
             <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'middle' }} />
@@ -267,12 +273,12 @@ function BidsList() {
             label="Sort By"
             onChange={(e) => setSortOrder(e.target.value)}
           >
-            <MenuItem value="newest">ðŸ“… Newest First</MenuItem>
-            <MenuItem value="oldest">ðŸ“… Oldest First</MenuItem>
-            <MenuItem value="name-asc">ðŸ”¤ Name (A-Z)</MenuItem>
-            <MenuItem value="name-desc">ðŸ”¤ Name (Z-A)</MenuItem>
-            <MenuItem value="amount-high">ðŸ’° Highest Amount</MenuItem>
-            <MenuItem value="amount-low">ðŸ’° Lowest Amount</MenuItem>
+            <MenuItem value="newest">Newest First</MenuItem>
+            <MenuItem value="oldest">Oldest First</MenuItem>
+            <MenuItem value="name-asc">Name (A-Z)</MenuItem>
+            <MenuItem value="name-desc">Name (Z-A)</MenuItem>
+            <MenuItem value="amount-high">Highest Amount</MenuItem>
+            <MenuItem value="amount-low">Lowest Amount</MenuItem>
           </Select>
         </FormControl>
       </Box>
@@ -606,6 +612,9 @@ function AppContent() {
 
   return (
     <>
+      {/* Auto-update notification */}
+      <UpdateNotification />
+      
       {!isPublicPage && (
         <>
           <AppBar position="static" sx={{ backgroundColor: "#1565c0" }}>
@@ -616,6 +625,7 @@ function AppContent() {
 
               {isMobile ? (
                 <>
+                  <RefreshButton isMobile={true} />
                   <IconButton
                     color="inherit"
                     onClick={handleLogout}
@@ -677,6 +687,7 @@ function AppContent() {
                     })}
                   </ButtonGroup>
 
+                  <RefreshButton isMobile={false} />
                   <Button
                     color="inherit"
                     onClick={handleLogout}
@@ -820,6 +831,9 @@ export default function App() {
       <Router>
         <AppContent />
       </Router>
+      
+      {/* Version display in bottom-right corner */}
+      <VersionDisplay />
     </AuthProvider>
   );
 }
