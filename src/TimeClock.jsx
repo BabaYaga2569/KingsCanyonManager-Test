@@ -56,17 +56,11 @@ export default function TimeClock() {
         // Get client name (check multiple field names for compatibility)
         const clientName = data.clientName || data.customerName || "Unknown Client";
         
-        // Get job descriptor (description, title, or fallback to job ID)
-        const jobDescriptor = data.description || data.jobName || data.title || `Job ${d.id.slice(0, 6)}`;
-        
-        // Format as "ClientName - Description" for easy identification
-        const displayName = `${clientName} - ${jobDescriptor}`;
-        
         return { 
           id: d.id, 
           ...data,
-          clientName: clientName, // Ensure clientName is available
-          displayName: displayName
+          clientName: clientName,
+          displayName: clientName  // KISS - just show the client name!
         };
       });
       
@@ -77,8 +71,27 @@ export default function TimeClock() {
         return nameA.localeCompare(nameB);
       });
       
-      console.log("Loaded jobs:", jobsData); // DEBUG
-      setJobs(jobsData);
+      // Add special service options at the top
+      const specialServices = [
+        {
+          id: "weed-service",
+          displayName: "Weed Extraction Service",
+          clientName: "Weed Extraction Service",
+          isSpecialService: true
+        },
+        {
+          id: "maintenance-service", 
+          displayName: "Maintenance Service",
+          clientName: "Maintenance Service",
+          isSpecialService: true
+        }
+      ];
+      
+      // Combine: special services first, then regular jobs
+      const allJobs = [...specialServices, ...jobsData];
+      
+      console.log("Loaded jobs:", allJobs); // DEBUG
+      setJobs(allJobs);
 
       // Check if currently clocked in
       const timeEntriesRef = collection(db, "job_time_entries");
