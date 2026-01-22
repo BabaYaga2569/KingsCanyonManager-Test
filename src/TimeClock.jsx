@@ -19,7 +19,6 @@ import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import moment from "moment";
 import Swal from "sweetalert2";
-import ServiceClockOut from "./ServiceClockOut";
 
 export default function TimeClock() {
   const { user, userRole } = useAuth();
@@ -30,7 +29,6 @@ export default function TimeClock() {
   const [currentEntry, setCurrentEntry] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [todayHours, setTodayHours] = useState(0);
-  const [showServiceClockOut, setShowServiceClockOut] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -54,19 +52,29 @@ export default function TimeClock() {
       const jobsSnap = await getDocs(collection(db, "jobs"));
       const jobsData = jobsSnap.docs.map((d) => {
         const data = d.data();
-        // Try multiple field names in order of preference
-        const jobName = data.customerName || 
-                       data.customer || 
-                       data.name || 
-                       data.jobName || 
-                       data.title ||
-                       data.address ||
-                       `Job ${d.id.slice(0, 6)}`;
+        
+        // Get client name (check multiple field names for compatibility)
+        const clientName = data.clientName || data.customerName || "Unknown Client";
+        
+        // Get job descriptor (description, title, or fallback to job ID)
+        const jobDescriptor = data.description || data.jobName || data.title || `Job ${d.id.slice(0, 6)}`;
+        
+        // Format as "ClientName - Description" for easy identification
+        const displayName = `${clientName} - ${jobDescriptor}`;
+        
         return { 
           id: d.id, 
           ...data,
-          displayName: jobName
+          clientName: clientName, // Ensure clientName is available
+          displayName: displayName
         };
+      });
+      
+      // Sort jobs alphabetically by client name for easy finding
+      jobsData.sort((a, b) => {
+        const nameA = (a.clientName || "").toUpperCase();
+        const nameB = (b.clientName || "").toUpperCase();
+        return nameA.localeCompare(nameB);
       });
       
       console.log("Loaded jobs:", jobsData); // DEBUG
@@ -135,28 +143,14 @@ export default function TimeClock() {
     }
 
     try {
-      let jobName;
-      let jobId;
-      
-      if (selectedJob === "WEED_EXTRACTION") {
-        jobName = "Weed Extraction Service";
-        jobId = "WEED_EXTRACTION";
-      } else if (selectedJob === "MAINTENANCE_SERVICE") {
-        jobName = "Maintenance Service";
-        jobId = "MAINTENANCE_SERVICE";
-      } else {
-        const job = jobs.find(j => j.id === selectedJob);
-        jobName = job?.displayName || "Unknown Job";
-        jobId = selectedJob;
-      }
-      
+      const job = jobs.find(j => j.id === selectedJob);
       const now = new Date().toISOString();
 
       const entryData = {
         crewId: user.uid,
         crewName: user.displayName || user.email,
-        jobId: jobId,
-        jobName: jobName,
+        jobId: selectedJob,
+        jobName: job?.displayName || "Unknown Job",
         clockIn: now,
         clockOut: null,
         hoursWorked: null,
@@ -172,7 +166,7 @@ export default function TimeClock() {
       Swal.fire({
         icon: "success",
         title: "Clocked In!",
-        text: `Started work on ${jobName}`,
+        text: `Started work on ${job?.displayName || "job"}`,
         timer: 2000,
         showConfirmButton: false,
       });
@@ -182,22 +176,42 @@ export default function TimeClock() {
     }
   };
 
-  const handleClockOut = () => {
+  const handleClockOut = async () => {
     if (!currentEntry) return;
-    // Open the service clock-out modal
-    setShowServiceClockOut(true);
-  };
 
-  const handleServiceComplete = async () => {
-    // Called when ServiceClockOut modal completes successfully
-    setClockedIn(false);
-    setCurrentEntry(null);
-    setElapsedTime(0);
-    setSelectedJob("");
-    await loadTodayHours();
-    setShowServiceClockOut(false);
-  };
+    try {
+      const now = new Date().toISOString();
+      const clockInTime = moment(currentEntry.clockIn);
+      const clockOutTime = moment(now);
+      const hours = clockOutTime.diff(clockInTime, 'hours', true);
 
+      await updateDoc(doc(db, "job_time_entries", currentEntry.id), {
+        clockOut: now,
+        hoursWorked: parseFloat(hours.toFixed(2)),
+        updatedAt: now,
+      });
+
+      setClockedIn(false);
+      setCurrentEntry(null);
+      setElapsedTime(0);
+      setSelectedJob("");
+      
+      await loadTodayHours();
+
+      Swal.fire({
+        icon: "success",
+        title: "Clocked Out!",
+        html: `
+          <p>You worked <strong>${hours.toFixed(2)} hours</strong></p>
+          <p>Your time is pending approval</p>
+        `,
+        timer: 3000,
+      });
+    } catch (error) {
+      console.error("Error clocking out:", error);
+      Swal.fire("Error", "Failed to clock out", "error");
+    }
+  };
 
   const formatElapsedTime = (seconds) => {
     const hours = Math.floor(seconds / 3600);
@@ -279,31 +293,26 @@ export default function TimeClock() {
               Select Job
             </Typography>
             
-            {jobs.length === 0 && (
-              <Typography color="text.secondary" sx={{ mb: 2, fontSize: '0.9rem' }}>
-                No active jobs loaded. You can still select Weed Extraction.
+            {jobs.length === 0 ? (
+              <Typography color="error" sx={{ mb: 2 }}>
+                No jobs available. Contact your manager.
               </Typography>
+            ) : (
+              <TextField
+                select
+                fullWidth
+                value={selectedJob}
+                onChange={(e) => setSelectedJob(e.target.value)}
+                sx={{ mb: 2 }}
+              >
+                <MenuItem value="">-- Select a Job --</MenuItem>
+                {jobs.map((job) => (
+                  <MenuItem key={job.id} value={job.id}>
+                    {job.displayName}
+                  </MenuItem>
+                ))}
+              </TextField>
             )}
-            <TextField
-              select
-              fullWidth
-              value={selectedJob}
-              onChange={(e) => setSelectedJob(e.target.value)}
-              sx={{ mb: 2 }}
-            >
-              <MenuItem value="">-- Select a Job --</MenuItem>
-              <MenuItem value="WEED_EXTRACTION" sx={{ backgroundColor: '#e8f5e9', fontWeight: 'bold' }}>
-                Weed Extraction Service
-              </MenuItem>
-              <MenuItem value="MAINTENANCE_SERVICE" sx={{ backgroundColor: '#e3f2fd', fontWeight: 'bold' }}>
-                Maintenance Service
-              </MenuItem>
-              {jobs.map((job) => (
-                <MenuItem key={job.id} value={job.id}>
-                  {job.displayName}
-                </MenuItem>
-              ))}
-            </TextField>
 
             <Button
               fullWidth
@@ -311,7 +320,7 @@ export default function TimeClock() {
               color="success"
               size="large"
               onClick={handleClockIn}
-              disabled={!selectedJob}
+              disabled={!selectedJob || jobs.length === 0}
               startIcon={<AccessTimeIcon />}
               sx={{ py: 2, fontSize: '1.1rem' }}
             >
@@ -342,18 +351,9 @@ export default function TimeClock() {
           1. Select the job you're working on<br/>
           2. Click "CLOCK IN" when you start work<br/>
           3. Click "CLOCK OUT" when you're done<br/>
-          4. Complete service details and collect payment
+          4. Your hours will be sent for approval
         </Typography>
       </Paper>
-
-      {/* Service Clock-Out Modal */}
-      <ServiceClockOut
-        open={showServiceClockOut}
-        onClose={() => setShowServiceClockOut(false)}
-        timeEntry={currentEntry}
-        jobType={currentEntry?.jobId}
-        onComplete={handleServiceComplete}
-      />
     </Container>
   );
 }
