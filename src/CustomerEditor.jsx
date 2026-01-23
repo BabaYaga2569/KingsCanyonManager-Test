@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, addDoc, updateDoc, collection } from "firebase/firestore";
+import { doc, getDoc, addDoc, updateDoc, collection, getDocs, query, where, or } from "firebase/firestore";
 import { db } from "./firebase";
 import {
   Box,
@@ -83,6 +83,48 @@ export default function CustomerEditor() {
     });
   };
 
+  const checkForDuplicates = async () => {
+    try {
+      const customersRef = collection(db, "customers");
+      
+      // Check for exact name match or phone match
+      const nameQuery = query(customersRef, where("name", "==", customer.name.trim()));
+      const phoneQuery = query(customersRef, where("phone", "==", customer.phone.trim()));
+      
+      const [nameResults, phoneResults] = await Promise.all([
+        getDocs(nameQuery),
+        getDocs(phoneQuery)
+      ]);
+      
+      const duplicates = [];
+      const seenIds = new Set();
+      
+      // Collect unique duplicates
+      nameResults.forEach(doc => {
+        if (!seenIds.has(doc.id)) {
+          seenIds.add(doc.id);
+          duplicates.push({ id: doc.id, ...doc.data(), matchType: 'name' });
+        }
+      });
+      
+      phoneResults.forEach(doc => {
+        if (!seenIds.has(doc.id)) {
+          seenIds.add(doc.id);
+          duplicates.push({ id: doc.id, ...doc.data(), matchType: 'phone' });
+        } else {
+          // If already added by name, mark as both
+          const existing = duplicates.find(d => d.id === doc.id);
+          if (existing) existing.matchType = 'both';
+        }
+      });
+      
+      return duplicates;
+    } catch (error) {
+      console.error("Error checking for duplicates:", error);
+      return [];
+    }
+  };
+
   const handleSave = async () => {
     // Validation
     if (!customer.name || !customer.phone) {
@@ -92,6 +134,59 @@ export default function CustomerEditor() {
 
     setSaving(true);
     try {
+      // Check for duplicates BEFORE creating a new customer
+      if (isNewCustomer) {
+        const duplicates = await checkForDuplicates();
+        
+        if (duplicates.length > 0) {
+          setSaving(false);
+          
+          // Build HTML for duplicate info
+          const duplicate = duplicates[0]; // Show first match
+          const matchInfo = duplicate.matchType === 'both' 
+            ? 'name and phone number'
+            : duplicate.matchType === 'name' 
+            ? 'name' 
+            : 'phone number';
+          
+          const result = await Swal.fire({
+            icon: "warning",
+            title: "Possible Duplicate Found!",
+            html: `
+              <div style="text-align: left;">
+                <p>A customer with the same <strong>${matchInfo}</strong> already exists:</p>
+                <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                  <p style="margin: 5px 0;"><strong>Name:</strong> ${duplicate.name}</p>
+                  ${duplicate.phone ? `<p style="margin: 5px 0;"><strong>Phone:</strong> ${duplicate.phone}</p>` : ''}
+                  ${duplicate.email ? `<p style="margin: 5px 0;"><strong>Email:</strong> ${duplicate.email}</p>` : ''}
+                  ${duplicate.address ? `<p style="margin: 5px 0;"><strong>Address:</strong> ${duplicate.address}</p>` : ''}
+                </div>
+                <p>What would you like to do?</p>
+              </div>
+            `,
+            showCancelButton: true,
+            showDenyButton: true,
+            confirmButtonText: 'View Existing Customer',
+            denyButtonText: 'Create Anyway',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#2196f3',
+            denyButtonColor: '#ff9800',
+          });
+          
+          if (result.isConfirmed) {
+            // Navigate to existing customer
+            navigate(`/customer/${duplicate.id}`);
+            return;
+          } else if (result.isDenied) {
+            // User wants to create anyway, continue with save
+            setSaving(true);
+          } else {
+            // User cancelled
+            return;
+          }
+        }
+      }
+      
       const customerData = {
         name: customer.name,
         phone: customer.phone,
@@ -319,17 +414,17 @@ export default function CustomerEditor() {
       {/* Quick Tips */}
       <Paper sx={{ p: 2, mt: 3, bgcolor: "#f5f5f5" }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-          💡 Pro Tips:
+          ðŸ’¡ Pro Tips:
         </Typography>
         <Typography variant="body2" component="div">
-          • Add gate codes and special instructions in Notes
+          â€¢ Add gate codes and special instructions in Notes
           <br />
-          • Use VIP tag for your best customers
+          â€¢ Use VIP tag for your best customers
           <br />
-          • Use weekly-mowing tag for recurring customers
+          â€¢ Use weekly-mowing tag for recurring customers
           <br />
-          • Full address helps with GPS navigation
-          <br />• Phone number is required for calling/texting
+          â€¢ Full address helps with GPS navigation
+          <br />â€¢ Phone number is required for calling/texting
         </Typography>
       </Paper>
     </Box>
