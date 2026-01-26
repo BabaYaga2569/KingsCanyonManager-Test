@@ -237,7 +237,7 @@ export default function PaymentsDashboard() {
           gap: 2,
         }}
       >
-        <Typography variant="h5">ðŸ’° Payments Dashboard</Typography>
+        <Typography variant="h5">Payments Dashboard</Typography>
         <Button
           variant="outlined"
           startIcon={<DownloadIcon />}
@@ -486,8 +486,8 @@ export default function PaymentsDashboard() {
                         size="small"
                       />
                     </TableCell>
-                    <TableCell>{payment.reference || "â€”"}</TableCell>
-                    <TableCell>{payment.notes || "â€”"}</TableCell>
+                    <TableCell>{payment.reference || "—"}</TableCell>
+                    <TableCell>{payment.notes || "—"}</TableCell>
                     <TableCell>
                       <Button
                         size="small"

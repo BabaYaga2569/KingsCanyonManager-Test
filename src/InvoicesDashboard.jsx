@@ -83,6 +83,7 @@ export default function InvoicesDashboard() {
     afterPhoto: null,
     beforePhotoURL: "",
     afterPhotoURL: "",
+    paymentMethod: "", // Cash, Zelle, Check, or empty for not collected
   });
   
   // Quick Add Customer state
@@ -181,6 +182,10 @@ export default function InvoicesDashboard() {
           return (a.clientName || "").localeCompare(b.clientName || "");
         case "name-desc":
           return (b.clientName || "").localeCompare(a.clientName || "");
+        case "description-asc":
+          return (a.description || "").localeCompare(b.description || "");
+        case "description-desc":
+          return (b.description || "").localeCompare(a.description || "");
         case "amount-high":
           return parseFloat(b.total || b.amount || 0) - parseFloat(a.total || a.amount || 0);
         case "amount-low":
@@ -353,6 +358,9 @@ export default function InvoicesDashboard() {
       // Get customer data
       const customer = customers.find(c => c.id === weedInvoice.customerId);
 
+      // Determine invoice status based on payment collection
+      const invoiceStatus = weedInvoice.paymentMethod ? "Paid" : "Sent";
+
       // Create invoice with photos
       const invoiceData = {
         clientName: customer.name,
@@ -363,7 +371,7 @@ export default function InvoicesDashboard() {
         subtotal: total,
         tax: 0,
         total,
-        status: "Sent",
+        status: invoiceStatus,
         invoiceDate: weedInvoice.serviceDate,
         createdAt: serverTimestamp(),
         type: "Quick Weed Invoice",
@@ -381,6 +389,21 @@ export default function InvoicesDashboard() {
       };
 
       const invoiceRef = await addDoc(collection(db, "invoices"), invoiceData);
+
+      // If payment was collected, create payment record
+      if (weedInvoice.paymentMethod) {
+        await addDoc(collection(db, "payments"), {
+          invoiceId: invoiceRef.id,
+          clientName: customer.name,
+          amount: total,
+          paymentMethod: weedInvoice.paymentMethod,
+          paymentDate: weedInvoice.serviceDate,
+          reference: "Payment collected on-site",
+          notes: `Quick Weed Invoice - ${services.join(", ")}`,
+          receiptGenerated: false,
+          createdAt: new Date().toISOString(),
+        });
+      }
 
       // Create calendar entry to show work was done
       await addDoc(collection(db, "schedules"), {
@@ -407,6 +430,10 @@ export default function InvoicesDashboard() {
         ? "<p>✅ After photo uploaded</p>"
         : "";
 
+      const paymentMessage = weedInvoice.paymentMethod 
+        ? `<p>✅ Payment collected (${weedInvoice.paymentMethod.toUpperCase()})</p><p>✅ Payment record created</p>`
+        : "<p>⏳ Invoice sent (awaiting payment)</p>";
+
       Swal.fire({
         title: "Invoice Created!",
         html: `
@@ -415,6 +442,7 @@ export default function InvoicesDashboard() {
           <p>✅ Invoice created</p>
           <p>✅ Added to calendar</p>
           ${photoMessage}
+          ${paymentMessage}
         `,
         icon: "success",
       });
@@ -438,6 +466,7 @@ export default function InvoicesDashboard() {
         afterPhoto: null,
         beforePhotoURL: "",
         afterPhotoURL: "",
+        paymentMethod: "",
       });
 
       // Refresh invoices
@@ -777,6 +806,8 @@ export default function InvoicesDashboard() {
             <MenuItem value="oldest">Oldest First</MenuItem>
             <MenuItem value="name-asc">Client (A-Z)</MenuItem>
             <MenuItem value="name-desc">Client (Z-A)</MenuItem>
+            <MenuItem value="description-asc">Description (A-Z)</MenuItem>
+            <MenuItem value="description-desc">Description (Z-A)</MenuItem>
             <MenuItem value="amount-high">Highest Amount</MenuItem>
             <MenuItem value="amount-low">Lowest Amount</MenuItem>
             <MenuItem value="status-unpaid">Unpaid First</MenuItem>
@@ -1247,6 +1278,37 @@ export default function InvoicesDashboard() {
                   </Box>
                 )}
               </Box>
+            </Box>
+
+            {/* Payment Collection Section */}
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                💵 Payment Collection:
+              </Typography>
+              <FormControl fullWidth>
+                <InputLabel>Payment Method</InputLabel>
+                <Select
+                  value={weedInvoice.paymentMethod}
+                  label="Payment Method"
+                  onChange={(e) => handleWeedInvoiceChange("paymentMethod", e.target.value)}
+                >
+                  <MenuItem value="">Not Collected Yet</MenuItem>
+                  <MenuItem value="cash">Cash</MenuItem>
+                  <MenuItem value="zelle">Zelle</MenuItem>
+                  <MenuItem value="check">Check</MenuItem>
+                  <MenuItem value="other">Other</MenuItem>
+                </Select>
+              </FormControl>
+              {weedInvoice.paymentMethod && (
+                <Alert severity="success" sx={{ mt: 1 }}>
+                  ✅ Invoice will be marked as PAID and payment recorded
+                </Alert>
+              )}
+              {!weedInvoice.paymentMethod && (
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  Invoice will be marked as SENT (awaiting payment)
+                </Alert>
+              )}
             </Box>
 
             <Paper sx={{ p: 2, bgcolor: "success.light" }}>
