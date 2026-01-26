@@ -54,29 +54,26 @@ export default function GoalTracker() {
     loadGoalSettings();
   }, []);
 
-  // Load revenue from paid invoices
+  // Load revenue from payments table (actual money received)
   useEffect(() => {
     const loadRevenue = async () => {
       try {
-        const invoicesSnap = await getDocs(collection(db, "invoices"));
+        const paymentsSnap = await getDocs(collection(db, "payments"));
         let totalRevenue = 0;
 
-        invoicesSnap.forEach((docSnap) => {
-          const invoice = docSnap.data();
+        paymentsSnap.forEach((docSnap) => {
+          const payment = docSnap.data();
           
-          if (invoice.status?.toLowerCase() === "paid") {
-            // Check invoice year - prioritize invoiceDate field
-            let invoiceYear = targetYear;
-            if (invoice.invoiceDate || invoice.date || invoice.createdAt) {
-              // Check invoiceDate FIRST (the actual invoice date)
-              const dateStr = invoice.invoiceDate || invoice.date || invoice.createdAt;
-              const invoiceDate = dateStr.toDate ? dateStr.toDate() : new Date(dateStr);
-              invoiceYear = invoiceDate.getFullYear();
-            }
+          // Check payment year
+          if (payment.paymentDate) {
+            const paymentDate = payment.paymentDate.toDate ? 
+              payment.paymentDate.toDate() : 
+              new Date(payment.paymentDate);
+            const paymentYear = paymentDate.getFullYear();
             
-            // Only count invoices from target year
-            if (invoiceYear === targetYear) {
-              const amount = parseFloat(invoice.total || invoice.amount || 0);
+            // Only count payments from target year
+            if (paymentYear === targetYear) {
+              const amount = parseFloat(payment.amount || 0);
               totalRevenue += amount;
             }
           }
@@ -210,7 +207,7 @@ export default function GoalTracker() {
           />
           {targetYear >= currentYear && daysPassed > 0 && (
             <Chip
-              label={isAhead ? "⚡ Ahead of Pace" : "⚠️ Behind Pace"}
+              label={isAhead ? "âš¡ Ahead of Pace" : "âš ï¸ Behind Pace"}
               sx={{
                 backgroundColor: isAhead ? "rgba(76, 175, 80, 0.3)" : "rgba(255, 152, 0, 0.3)",
                 color: "white",
@@ -220,7 +217,7 @@ export default function GoalTracker() {
           )}
           {targetYear > currentYear && (
             <Chip
-              label="🎯 Future Goal"
+              label="ðŸŽ¯ Future Goal"
               sx={{ backgroundColor: "rgba(33, 150, 243, 0.3)", color: "white", fontWeight: 600 }}
             />
           )}
@@ -275,7 +272,7 @@ export default function GoalTracker() {
                 <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                   <Typography variant="body2">Projected Year-End</Typography>
                   <Typography variant="body2" fontWeight={600}>
-                    ${projectedYearEnd.toFixed(0)} {projectedYearEnd >= goal ? "🎉" : ""}
+                    ${projectedYearEnd.toFixed(0)} {projectedYearEnd >= goal ? "ðŸŽ‰" : ""}
                   </Typography>
                 </Box>
               </>

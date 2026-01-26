@@ -228,7 +228,7 @@ export default function Dashboard() {
       </Grid>
 
       <Box sx={{ mt: { xs: 2, sm: 3 } }}>
-        <GoalTracker />
+        <GoalTracker />        
       </Box>
 
       <Paper 

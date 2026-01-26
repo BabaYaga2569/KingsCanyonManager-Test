@@ -50,6 +50,7 @@ export default function PaymentsDashboard() {
     endDate: moment().format("YYYY-MM-DD"),
     paymentMethod: "all",
     searchClient: "",
+    year: "all", // all, 2025, 2026
   });
 
   useEffect(() => {
@@ -99,7 +100,11 @@ export default function PaymentsDashboard() {
           .toLowerCase()
           .includes(filters.searchClient.toLowerCase());
 
-      return inDateRange && matchesMethod && matchesClient;
+      const matchesYear =
+        filters.year === "all" ||
+        paymentDate.year() === parseInt(filters.year);
+
+      return inDateRange && matchesMethod && matchesClient && matchesYear;
     });
   };
 
@@ -296,7 +301,21 @@ export default function PaymentsDashboard() {
           <Typography variant="h6">Filters & Sort</Typography>
         </Box>
         <Grid container spacing={2}>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Year</InputLabel>
+              <Select
+                value={filters.year}
+                label="Year"
+                onChange={(e) => handleFilterChange("year", e.target.value)}
+              >
+                <MenuItem value="all">All Years</MenuItem>
+                <MenuItem value="2025">2025</MenuItem>
+                <MenuItem value="2026">2026</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2.5}>
             <TextField
               fullWidth
               label="Start Date"
@@ -307,7 +326,7 @@ export default function PaymentsDashboard() {
               size="small"
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2.5}>
             <TextField
               fullWidth
               label="End Date"
@@ -318,7 +337,7 @@ export default function PaymentsDashboard() {
               size="small"
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2.5}>
             <FormControl fullWidth size="small">
               <InputLabel>Payment Method</InputLabel>
               <Select
@@ -336,7 +355,7 @@ export default function PaymentsDashboard() {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2.5}>
             <TextField
               fullWidth
               label="Search Client"
