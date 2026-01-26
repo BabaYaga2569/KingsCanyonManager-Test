@@ -129,14 +129,14 @@ export default function CustomersDashboard() {
               label="Sort By"
               onChange={(e) => setSortOrder(e.target.value)}
             >
-              <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
-              <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
-              <MenuItem value="value-high">💎 Highest Value</MenuItem>
-              <MenuItem value="value-low">💰 Lowest Value</MenuItem>
-              <MenuItem value="jobs-most">🔄 Most Jobs</MenuItem>
-              <MenuItem value="jobs-least">📊 Fewest Jobs</MenuItem>
-              <MenuItem value="bids-most">📝 Most Bids</MenuItem>
-              <MenuItem value="recent">🆕 Most Recent</MenuItem>
+              <MenuItem value="name-asc">Name (A-Z)</MenuItem>
+              <MenuItem value="name-desc">Name (Z-A)</MenuItem>
+              <MenuItem value="value-high">Highest Value</MenuItem>
+              <MenuItem value="value-low">Lowest Value</MenuItem>
+              <MenuItem value="jobs-most">Most Jobs</MenuItem>
+              <MenuItem value="jobs-least">Fewest Jobs</MenuItem>
+              <MenuItem value="bids-most">Most Bids</MenuItem>
+              <MenuItem value="recent">Most Recent</MenuItem>
             </Select>
           </FormControl>
 
@@ -202,17 +202,17 @@ export default function CustomersDashboard() {
 
                 {customer.email && (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                    📧 {customer.email}
+                    {customer.email}
                   </Typography>
                 )}
                 {customer.phone && (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                    📞 {customer.phone}
+                    {customer.phone}
                   </Typography>
                 )}
                 {customer.address && (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    🏠 {customer.address}
+                    {customer.address}
                   </Typography>
                 )}
 

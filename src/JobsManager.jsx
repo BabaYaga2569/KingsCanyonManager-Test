@@ -180,7 +180,7 @@ export default function JobsManager() {
         `).join('')}
       </div>
       <p style="margin-top: 20px; font-size: 14px; color: #666; text-align: center;">
-        📸 Tap any photo to view full size
+        ðŸ“¸ Tap any photo to view full size
       </p>
     `;
 
@@ -387,13 +387,13 @@ export default function JobsManager() {
             label="Sort By"
             onChange={(e) => setSortOrder(e.target.value)}
           >
-            <MenuItem value="newest">📅 Newest First</MenuItem>
-            <MenuItem value="oldest">📅 Oldest First</MenuItem>
-            <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
-            <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
-            <MenuItem value="status-active">🔄 Active First</MenuItem>
-            <MenuItem value="status-completed">✅ Completed First</MenuItem>
-            <MenuItem value="status-pending">⏳ Pending First</MenuItem>
+            <MenuItem value="newest">Newest First</MenuItem>
+            <MenuItem value="oldest">Oldest First</MenuItem>
+            <MenuItem value="name-asc">Name (A-Z)</MenuItem>
+            <MenuItem value="name-desc">Name (Z-A)</MenuItem>
+            <MenuItem value="status-active">Active First</MenuItem>
+            <MenuItem value="status-completed">Completed First</MenuItem>
+            <MenuItem value="status-pending">Pending First</MenuItem>
           </Select>
         </FormControl>
       </Box>
@@ -480,7 +480,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                ✏️ Edit Job
+                âœï¸ Edit Job
               </Button>
 
               <Button
@@ -490,7 +490,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                📷 Take Before Photo
+                ðŸ“· Take Before Photo
               </Button>
 
               <Button
@@ -501,7 +501,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                📷 Take After Photo
+                ðŸ“· Take After Photo
               </Button>
 
               <Button
@@ -511,7 +511,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                📷 View All Photos ({(job.beforePhotos || []).length + (job.afterPhotos || []).length})
+                ðŸ“· View All Photos ({(job.beforePhotos || []).length + (job.afterPhotos || []).length})
               </Button>
 
               <Button
@@ -521,7 +521,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                💰 View Expenses & Profit
+                ðŸ’° View Expenses & Profit
               </Button>
 
               <Button
@@ -589,7 +589,7 @@ export default function JobsManager() {
                   fullWidth
                   size="large"
                 >
-                  📸 Capture Photo
+                  ðŸ“¸ Capture Photo
                 </Button>
                 
                 <Button
@@ -597,7 +597,7 @@ export default function JobsManager() {
                   onClick={() => fileInputRef.current?.click()}
                   fullWidth
                 >
-                  📁 Upload from Gallery
+                  ðŸ“ Upload from Gallery
                 </Button>
                 <input
                   ref={fileInputRef}
@@ -657,7 +657,7 @@ export default function JobsManager() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>✏️ Edit Job</DialogTitle>
+        <DialogTitle>âœï¸ Edit Job</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
             <TextField
@@ -730,7 +730,7 @@ export default function JobsManager() {
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={handleCloseEditDialog}>Cancel</Button>
           <Button onClick={handleSaveEdit} variant="contained" color="primary">
-            💾 Save Changes
+            ðŸ’¾ Save Changes
           </Button>
         </DialogActions>
       </Dialog>

@@ -16,6 +16,9 @@ import {
   DialogActions,
   TextField,
   MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
   FormControlLabel,
   Checkbox,
   Grid,
@@ -49,6 +52,7 @@ import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import SortIcon from "@mui/icons-material/Sort";
 import DownloadIcon from "@mui/icons-material/Download";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import BugReportIcon from "@mui/icons-material/BugReport";
@@ -61,11 +65,11 @@ const functions = getFunctions();
 // AI Receipt Scanner using Firebase Cloud Function
 const scanReceipt = async (file) => {
   console.log("=".repeat(80));
-  console.log("🔍 RECEIPT SCAN STARTED (Cloud Function)");
+  console.log("ðŸ” RECEIPT SCAN STARTED (Cloud Function)");
   console.log("=".repeat(80));
-  console.log("📁 File:", file.name);
-  console.log("📊 Size:", (file.size / 1024).toFixed(2), "KB");
-  console.log("🎨 Type:", file.type);
+  console.log("ðŸ“ File:", file.name);
+  console.log("ðŸ“Š Size:", (file.size / 1024).toFixed(2), "KB");
+  console.log("ðŸŽ¨ Type:", file.type);
   
   return new Promise(async (resolve, reject) => {
     try {
@@ -74,32 +78,32 @@ const scanReceipt = async (file) => {
       const fileName = `receipt_${timestamp}_${file.name}`;
       const storageRef = ref(storage, `receipts/expenses/${fileName}`);
       
-      console.log("☁️ Uploading to Firebase Storage...");
+      console.log("â˜ï¸ Uploading to Firebase Storage...");
       await uploadBytes(storageRef, file);
       const receiptUrl = await getDownloadURL(storageRef);
-      console.log("✅ Firebase upload complete");
-      console.log("🔗 Receipt URL:", receiptUrl);
+      console.log("âœ… Firebase upload complete");
+      console.log("ðŸ”— Receipt URL:", receiptUrl);
       
       // Convert file to base64
       const reader = new FileReader();
       reader.onload = async (e) => {
-        console.log("📄 File read successfully");
+        console.log("ðŸ“„ File read successfully");
         const base64Image = e.target.result.split(',')[1];
-        console.log("📸 Base64 length:", base64Image.length, "characters");
+        console.log("ðŸ“¸ Base64 length:", base64Image.length, "characters");
         
         try {
           console.log("-".repeat(80));
-          console.log("☁️ CALLING FIREBASE CLOUD FUNCTION");
+          console.log("â˜ï¸ CALLING FIREBASE CLOUD FUNCTION");
           console.log("-".repeat(80));
           
           // Call Firebase Cloud Function
           const scanReceiptFunction = httpsCallable(functions, 'scanReceipt');
           
-          console.log("📤 Sending to Cloud Function...");
+          console.log("ðŸ“¤ Sending to Cloud Function...");
           const result = await scanReceiptFunction({ image: base64Image });
           
-          console.log("✅ Cloud Function returned successfully");
-          console.log("📦 Result:", JSON.stringify(result.data, null, 2));
+          console.log("âœ… Cloud Function returned successfully");
+          console.log("ðŸ“¦ Result:", JSON.stringify(result.data, null, 2));
           
           const data = result.data;
           
@@ -118,7 +122,7 @@ const scanReceipt = async (file) => {
           };
           
           console.log("=".repeat(80));
-          console.log("🎉 SCAN COMPLETE - SUCCESS!");
+          console.log("ðŸŽ‰ SCAN COMPLETE - SUCCESS!");
           console.log("=".repeat(80));
           console.log("Final result:", JSON.stringify(finalResult, null, 2));
           
@@ -126,7 +130,7 @@ const scanReceipt = async (file) => {
           
         } catch (functionError) {
           console.error("=".repeat(80));
-          console.error("❌ CLOUD FUNCTION CALL FAILED");
+          console.error("âŒ CLOUD FUNCTION CALL FAILED");
           console.error("=".repeat(80));
           console.error("Error:", functionError);
           console.error("Message:", functionError.message);
@@ -152,14 +156,14 @@ const scanReceipt = async (file) => {
       };
       
       reader.onerror = () => {
-        console.error("❌ File read failed");
+        console.error("âŒ File read failed");
         reject(new Error("Failed to read file"));
       };
       
       reader.readAsDataURL(file);
       
     } catch (error) {
-      console.error("❌ CRITICAL ERROR:", error);
+      console.error("âŒ CRITICAL ERROR:", error);
       reject(error);
     }
   });
@@ -172,6 +176,8 @@ export default function ExpensesManager() {
 
   const [loading, setLoading] = useState(true);
   const [expenses, setExpenses] = useState([]);
+  const [sortedExpenses, setSortedExpenses] = useState([]);
+  const [sortOrder, setSortOrder] = useState("newest");
   const [jobs, setJobs] = useState([]);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [editExpenseOpen, setEditExpenseOpen] = useState(false);
@@ -216,6 +222,31 @@ export default function ExpensesManager() {
     markAsViewed('expenses');
   }, []);
 
+  // Sort expenses whenever expenses or sortOrder changes
+  useEffect(() => {
+    const sorted = [...expenses].sort((a, b) => {
+      switch (sortOrder) {
+        case "newest":
+          return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+        case "oldest":
+          return new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime();
+        case "amount-high":
+          return parseFloat(b.amount || 0) - parseFloat(a.amount || 0);
+        case "amount-low":
+          return parseFloat(a.amount || 0) - parseFloat(b.amount || 0);
+        case "vendor-asc":
+          return (a.vendor || "").localeCompare(b.vendor || "");
+        case "vendor-desc":
+          return (b.vendor || "").localeCompare(a.vendor || "");
+        case "category":
+          return (a.category || "").localeCompare(b.category || "");
+        default:
+          return 0;
+      }
+    });
+    setSortedExpenses(sorted);
+  }, [expenses, sortOrder]);
+
   const loadData = async () => {
     try {
       const expensesSnap = await getDocs(collection(db, "expenses"));
@@ -255,7 +286,7 @@ export default function ExpensesManager() {
     const file = event.target.files[0];
     if (!file) return;
 
-    console.log("👉 User selected file for scanning");
+    console.log("ðŸ‘‰ User selected file for scanning");
     
     // Set debug info for mobile display
     setDebugInfo({
@@ -271,12 +302,12 @@ export default function ExpensesManager() {
     try {
       const scannedInfo = await scanReceipt(file);
       
-      console.log("📋 Setting scanned data state:", scannedInfo);
+      console.log("ðŸ“‹ Setting scanned data state:", scannedInfo);
       setScannedData(scannedInfo);
       
       // Update debug info
       setDebugInfo({
-        status: scannedInfo.scanSuccess ? "✅ Success" : "❌ Failed",
+        status: scannedInfo.scanSuccess ? "âœ… Success" : "âŒ Failed",
         fileName: file.name,
         fileSize: (file.size / 1024).toFixed(2) + " KB",
         vendor: scannedInfo.vendor,
@@ -316,7 +347,7 @@ export default function ExpensesManager() {
       
       // Update debug info with error
       setDebugInfo({
-        status: "❌ Error",
+        status: "âŒ Error",
         fileName: file.name,
         fileSize: (file.size / 1024).toFixed(2) + " KB",
         error: error.message,
@@ -337,31 +368,31 @@ export default function ExpensesManager() {
 
   const handleAddExpense = async () => {
     console.log("=".repeat(80));
-    console.log("💾 SAVE EXPENSE CLICKED");
+    console.log("ðŸ’¾ SAVE EXPENSE CLICKED");
     console.log("=".repeat(80));
     
     if (!expenseForm.amount || !expenseForm.vendor) {
-      console.log("❌ Validation failed");
+      console.log("âŒ Validation failed");
       Swal.fire("Missing Info", "Amount and Vendor are required", "warning");
       return;
     }
 
-    console.log("✅ Validation passed");
-    console.log("📋 Form data:", expenseForm);
+    console.log("âœ… Validation passed");
+    console.log("ðŸ“‹ Form data:", expenseForm);
     setUploading(true);
 
     try {
-      console.log("📤 Starting save...");
+      console.log("ðŸ“¤ Starting save...");
       let receiptUrl = expenseForm.receiptUrl;
 
       if (expenseForm.receiptFile && !receiptUrl) {
-        console.log("📸 Uploading receipt...");
+        console.log("ðŸ“¸ Uploading receipt...");
         const timestamp = Date.now();
         const fileName = `receipt_${timestamp}_${expenseForm.receiptFileName}`;
         const storageRef = ref(storage, `receipts/expenses/${fileName}`);
         await uploadBytes(storageRef, expenseForm.receiptFile);
         receiptUrl = await getDownloadURL(storageRef);
-        console.log("✅ Receipt uploaded");
+        console.log("âœ… Receipt uploaded");
       }
 
       const expenseData = {
@@ -382,13 +413,13 @@ export default function ExpensesManager() {
         createdAt: new Date().toISOString(),
       };
 
-      console.log("💾 Saving to Firestore...");
+      console.log("ðŸ’¾ Saving to Firestore...");
       const docRef = await addDoc(collection(db, "expenses"), expenseData);
-      console.log("✅ SAVED! Doc ID:", docRef.id);
+      console.log("âœ… SAVED! Doc ID:", docRef.id);
 
       // Update job expenses if linked
       if (expenseForm.jobId) {
-        console.log("🔗 Updating job...");
+        console.log("ðŸ”— Updating job...");
         const jobRef = doc(db, "jobs", expenseForm.jobId);
         const job = jobs.find((j) => j.id === expenseForm.jobId);
         const currentExpenses = job?.totalExpenses || 0;
@@ -397,10 +428,10 @@ export default function ExpensesManager() {
           totalExpenses: newTotal,
           expenseCount: (job?.expenseCount || 0) + 1,
         });
-        console.log("✅ Job updated");
+        console.log("âœ… Job updated");
       }
 
-      console.log("🎉 SUCCESS!");
+      console.log("ðŸŽ‰ SUCCESS!");
       Swal.fire({
         icon: "success",
         title: "Expense Added!",
@@ -408,9 +439,9 @@ export default function ExpensesManager() {
         timer: 2000,
       });
 
-      console.log("🔄 Reloading data...");
+      console.log("ðŸ”„ Reloading data...");
       await loadData();
-      console.log("✅ Data reloaded");
+      console.log("âœ… Data reloaded");
 
       setAddExpenseOpen(false);
       setShowItemizedView(false);
@@ -438,7 +469,7 @@ export default function ExpensesManager() {
       console.log("=".repeat(80));
     } catch (error) {
       console.log("=".repeat(80));
-      console.error("❌ SAVE FAILED!");
+      console.error("âŒ SAVE FAILED!");
       console.error("Error:", error);
       console.error("Message:", error.message);
       console.error("Code:", error.code);
@@ -647,7 +678,7 @@ export default function ExpensesManager() {
   };
 
   // Apply filters
-  const filteredExpenses = expenses.filter((expense) => {
+  const filteredExpenses = sortedExpenses.filter((expense) => {
     const expenseDate = moment(expense.date);
     const inDateRange =
       expenseDate.isSameOrAfter(filters.startDate) &&
@@ -698,7 +729,30 @@ export default function ExpensesManager() {
           gap: 2,
         }}
       >
-        <Typography variant="h5">🧾 Expenses Manager</Typography>
+        <Typography variant="h5">Expenses Manager</Typography>
+        
+        {/* Sort Dropdown */}
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="sort-label">
+            <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+            Sort By
+          </InputLabel>
+          <Select
+            labelId="sort-label"
+            value={sortOrder}
+            label="Sort By"
+            onChange={(e) => setSortOrder(e.target.value)}
+          >
+            <MenuItem value="newest">Newest First</MenuItem>
+            <MenuItem value="oldest">Oldest First</MenuItem>
+            <MenuItem value="amount-high">Highest Amount</MenuItem>
+            <MenuItem value="amount-low">Lowest Amount</MenuItem>
+            <MenuItem value="vendor-asc">Vendor (A-Z)</MenuItem>
+            <MenuItem value="vendor-desc">Vendor (Z-A)</MenuItem>
+            <MenuItem value="category">Category</MenuItem>
+          </Select>
+        </FormControl>
+        
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
           {debugInfo && (
             <Button
@@ -719,7 +773,7 @@ export default function ExpensesManager() {
                       <strong>Time:</strong> ${new Date(debugInfo.timestamp).toLocaleString()}<br/>
                     </div>
                   `,
-                  icon: debugInfo.status.includes('✅') ? 'success' : 'error',
+                  icon: debugInfo.status.includes('âœ…') ? 'success' : 'error',
                 });
               }}
               size="small"
@@ -745,7 +799,7 @@ export default function ExpensesManager() {
             disabled={scanning}
             color="primary"
           >
-            {scanning ? "Scanning..." : isMobile ? "📸 Scan" : "📸 Scan Receipt"}
+            {scanning ? "Scanning..." : isMobile ? "ðŸ“¸ Scan" : "ðŸ“¸ Scan Receipt"}
             <input
               type="file"
               hidden
@@ -913,7 +967,6 @@ export default function ExpensesManager() {
             <Alert severity="info">No expenses found</Alert>
           ) : (
             filteredExpenses
-              .sort((a, b) => new Date(b.date) - new Date(a.date))
               .map((expense) => (
                 <Card key={expense.id} sx={{ mb: 2 }}>
                   <CardContent>
@@ -1088,7 +1141,7 @@ export default function ExpensesManager() {
           {editExpenseOpen ? "Edit Expense" : "Add Expense"}
           {scannedData && scannedData.scanSuccess && (
             <Chip
-              label="✓ AI Scanned"
+              label="âœ“ AI Scanned"
               color="success"
               size="small"
               sx={{ ml: 2 }}
@@ -1100,7 +1153,7 @@ export default function ExpensesManager() {
           {scannedData && scannedData.scanSuccess && (
             <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircleIcon />}>
               <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-                📸 Receipt Scanned Successfully!
+                ðŸ“¸ Receipt Scanned Successfully!
               </Typography>
               <Typography variant="body2">
                 <strong>Vendor:</strong> {scannedData.vendor}<br/>
@@ -1118,7 +1171,7 @@ export default function ExpensesManager() {
           {scannedData && scannedData.scanError && (
             <Alert severity="warning" sx={{ mb: 2 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-                ⚠️ Scan Failed - Manual Entry Required
+                âš ï¸ Scan Failed - Manual Entry Required
               </Typography>
               <Typography variant="body2" sx={{ mb: 1 }}>
                 The receipt was uploaded but scanning encountered an error.
@@ -1139,7 +1192,7 @@ export default function ExpensesManager() {
             <Paper sx={{ p: 2, mb: 3, backgroundColor: '#f5f5f5' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h6">
-                  📋 Itemized Receipt
+                  ðŸ“‹ Itemized Receipt
                 </Typography>
                 <Button 
                   size="small" 
@@ -1156,7 +1209,7 @@ export default function ExpensesManager() {
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
                 {moment(expenseForm.date).format("MMMM DD, YYYY")}
-                {scannedData?.receiptNumber && ` • Receipt #${scannedData.receiptNumber}`}
+                {scannedData?.receiptNumber && ` â€¢ Receipt #${scannedData.receiptNumber}`}
               </Typography>
 
               <List dense sx={{ mb: 2 }}>

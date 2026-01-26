@@ -799,6 +799,11 @@ export default function InvoicesDashboard() {
                   <Typography variant="h5" color="primary" sx={{ fontWeight: 700, mt: 1 }}>
                     ${inv.total || inv.amount || 0}
                   </Typography>
+                  {inv.description && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic' }}>
+                      {inv.description}
+                    </Typography>
+                  )}
                 </Box>
                 <Chip
                   label={inv.status || "Pending"}
@@ -887,6 +892,7 @@ export default function InvoicesDashboard() {
           <TableHead>
             <TableRow>
               <TableCell>Client</TableCell>
+              <TableCell>Description</TableCell>
               <TableCell>Amount</TableCell>
               <TableCell>Date</TableCell>
               <TableCell>Status</TableCell>
@@ -897,6 +903,11 @@ export default function InvoicesDashboard() {
             {sortedInvoices.map((inv) => (
               <TableRow key={inv.id}>
                 <TableCell>{inv.clientName}</TableCell>
+                <TableCell sx={{ maxWidth: 250 }}>
+                  <Typography variant="body2" noWrap title={inv.description || "No description"}>
+                    {inv.description || "—"}
+                  </Typography>
+                </TableCell>
                 <TableCell>${inv.total || inv.amount || 0}</TableCell>
                 <TableCell>{formatInvoiceDate(inv)}</TableCell>
                 <TableCell>

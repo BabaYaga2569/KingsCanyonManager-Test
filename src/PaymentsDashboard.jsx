@@ -237,7 +237,7 @@ export default function PaymentsDashboard() {
           gap: 2,
         }}
       >
-        <Typography variant="h5">💰 Payments Dashboard</Typography>
+        <Typography variant="h5">ðŸ’° Payments Dashboard</Typography>
         <Button
           variant="outlined"
           startIcon={<DownloadIcon />}
@@ -360,12 +360,12 @@ export default function PaymentsDashboard() {
                 label="Sort By"
                 onChange={(e) => setSortOrder(e.target.value)}
               >
-                <MenuItem value="newest">📅 Newest First</MenuItem>
-                <MenuItem value="oldest">📅 Oldest First</MenuItem>
-                <MenuItem value="name-asc">🔤 Name (A-Z)</MenuItem>
-                <MenuItem value="name-desc">🔤 Name (Z-A)</MenuItem>
-                <MenuItem value="amount-high">💰 Highest Amount</MenuItem>
-                <MenuItem value="amount-low">💰 Lowest Amount</MenuItem>
+                <MenuItem value="newest">Newest First</MenuItem>
+                <MenuItem value="oldest">Oldest First</MenuItem>
+                <MenuItem value="name-asc">Name (A-Z)</MenuItem>
+                <MenuItem value="name-desc">Name (Z-A)</MenuItem>
+                <MenuItem value="amount-high">Highest Amount</MenuItem>
+                <MenuItem value="amount-low">Lowest Amount</MenuItem>
               </Select>
             </FormControl>
           </Grid>
@@ -486,8 +486,8 @@ export default function PaymentsDashboard() {
                         size="small"
                       />
                     </TableCell>
-                    <TableCell>{payment.reference || "—"}</TableCell>
-                    <TableCell>{payment.notes || "—"}</TableCell>
+                    <TableCell>{payment.reference || "â€”"}</TableCell>
+                    <TableCell>{payment.notes || "â€”"}</TableCell>
                     <TableCell>
                       <Button
                         size="small"
