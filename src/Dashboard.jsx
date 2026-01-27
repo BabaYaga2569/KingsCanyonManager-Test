@@ -17,6 +17,7 @@ import {
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import GoalTracker from "./GoalTracker";
+import SideBySideComparison from "./SideBySideComparison";
 
 function Tile({ title, count, onView, onNew }) {
   return (
@@ -228,9 +229,9 @@ export default function Dashboard() {
       </Grid>
 
       <Box sx={{ mt: { xs: 2, sm: 3 } }}>
-        <GoalTracker />        
+        <GoalTracker />
+        <SideBySideComparison />/* ← ADD THIS */}
       </Box>
-
       <Paper 
         sx={{ 
           p: { xs: 2, sm: 3 }, 
