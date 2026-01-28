@@ -1327,6 +1327,7 @@ export default function InvoicesDashboard() {
             color="success"
             onClick={handleCreateWeedInvoice}
             startIcon={<GrassIcon />}
+			disabled={!weedInvoice.customerId || calculateWeedTotal() === 0}
           >
             Create Invoice
           </Button>
