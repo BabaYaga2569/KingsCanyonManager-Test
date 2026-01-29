@@ -36,7 +36,7 @@ export default function ScheduleDashboard() {
   const navigate = useNavigate();
 
   const [schedules, setSchedules] = useState([]);
-  const [crews, setCrews] = useState([]);
+  const [employees, setEmployees] = useState([]); // ✅ FIXED: Changed from crews
   const [equipment, setEquipment] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedSchedule, setSelectedSchedule] = useState(null);
@@ -55,9 +55,10 @@ export default function ScheduleDashboard() {
       const schedulesData = schedulesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setSchedules(schedulesData);
 
-      const crewsSnap = await getDocs(collection(db, "crews"));
-      const crewsData = crewsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setCrews(crewsData);
+      // ✅ FIXED: Load employees from users collection (not crews)
+      const employeesSnap = await getDocs(collection(db, "users"));
+      const employeesData = employeesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setEmployees(employeesData.filter((e) => e.active !== false));
 
       const equipSnap = await getDocs(collection(db, "equipment"));
       const equipData = equipSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -115,10 +116,11 @@ export default function ScheduleDashboard() {
     }
   };
 
-  const getCrewNames = (crewIds) => {
-    if (!crewIds || crewIds.length === 0) return "No crew assigned";
-    return crewIds
-      .map((id) => crews.find((c) => c.id === id)?.name)
+  // ✅ FIXED: Get employee names (not crew names)
+  const getEmployeeNames = (employeeIds) => {
+    if (!employeeIds || employeeIds.length === 0) return "No employees assigned";
+    return employeeIds
+      .map((id) => employees.find((e) => e.id === id)?.name)
       .filter(Boolean)
       .join(", ");
   };
@@ -293,7 +295,7 @@ export default function ScheduleDashboard() {
                           <Divider sx={{ my: 1 }} />
 
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                            <strong>Crew:</strong> {getCrewNames(schedule.selectedCrews)}
+                            <strong>Employees:</strong> {getEmployeeNames(schedule.selectedEmployees || schedule.selectedCrews)}
                           </Typography>
 
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -395,10 +397,10 @@ export default function ScheduleDashboard() {
 
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">
-                    Assigned Crew
+                    Assigned Employees
                   </Typography>
                   <Typography variant="body1">
-                    {getCrewNames(selectedSchedule.selectedCrews)}
+                    {getEmployeeNames(selectedSchedule.selectedEmployees || selectedSchedule.selectedCrews)}
                   </Typography>
                 </Box>
 

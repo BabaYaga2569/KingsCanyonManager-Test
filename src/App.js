@@ -579,7 +579,6 @@ function AppContent() {
       { label: "Payroll", path: "/crew-payroll", notificationKey: null },
       { label: "Approve Time", path: "/approve-time", notificationKey: null },
       { label: "Tax Report", path: "/tax-report", notificationKey: null },
-      { label: "Crew", path: "/crew-manager", notificationKey: null },
       { label: "Equipment", path: "/equipment-manager", notificationKey: null },
 	  { label: "Employees", path: "/employees", notificationKey: null },
       { label: "My Profile", path: "/profile", notificationKey: null },
@@ -604,9 +603,9 @@ function AppContent() {
 
   // Role badge emoji
   const getRoleBadge = () => {
-    if (userRole === 'god') return 'âš¡';
-    if (userRole === 'admin') return 'ðŸ”§';
-    if (userRole === 'crew') return 'ðŸ‘·';
+    if (userRole === 'god') return '⚡';
+    if (userRole === 'admin') return '🔧';
+    if (userRole === 'crew') return '👷';
     return '';
   };
 

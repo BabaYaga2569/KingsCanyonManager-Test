@@ -38,7 +38,7 @@ export default function ScheduleJob() {
   const [contract, setContract] = useState(null);
   const [allContracts, setAllContracts] = useState([]); // NEW: For manual selection
   const [selectedContractId, setSelectedContractId] = useState(contractId || ""); // NEW
-  const [crews, setCrews] = useState([]);
+  const [employees, setEmployees] = useState([]); // ✅ FIXED: Changed from crews
   const [equipment, setEquipment] = useState([]);
   
   const [formData, setFormData] = useState({
@@ -46,7 +46,7 @@ export default function ScheduleJob() {
     startTime: "08:00",
     endDate: "",
     endTime: "17:00",
-    selectedCrews: [],
+    selectedEmployees: [], // ✅ FIXED: Changed from selectedCrews
     selectedEquipment: [],
     notes: "",
     priority: "normal",
@@ -86,10 +86,11 @@ export default function ScheduleJob() {
         }
       }
 
-      // Load crews
-      const crewsSnap = await getDocs(collection(db, "crews"));
-      const crewsData = crewsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setCrews(crewsData.filter((c) => c.isAvailable !== false));
+      // ✅ FIXED: Load employees from users collection (not crews)
+      const employeesSnap = await getDocs(collection(db, "users"));
+      const employeesData = employeesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Only show active employees
+      setEmployees(employeesData.filter((e) => e.active !== false));
 
       // Load equipment
       const equipSnap = await getDocs(collection(db, "equipment"));
@@ -113,15 +114,15 @@ export default function ScheduleJob() {
 
       const newConflicts = [];
 
-      // Check crew conflicts
-      formData.selectedCrews.forEach((crewId) => {
-        const crew = crews.find((c) => c.id === crewId);
+      // ✅ FIXED: Check employee conflicts (not crew)
+      formData.selectedEmployees.forEach((employeeId) => {
+        const employee = employees.find((e) => e.id === employeeId);
         const hasConflict = existingSchedules.some((s) => 
-          s.selectedCrews?.includes(crewId) &&
+          s.selectedEmployees?.includes(employeeId) &&
           s.startDate === formData.startDate
         );
         if (hasConflict) {
-          newConflicts.push(`${crew.name} is already scheduled on this date`);
+          newConflicts.push(`${employee.name} is already scheduled on this date`);
         }
       });
 
@@ -144,19 +145,19 @@ export default function ScheduleJob() {
   };
 
   useEffect(() => {
-    if (formData.startDate && (formData.selectedCrews.length > 0 || formData.selectedEquipment.length > 0)) {
+    if (formData.startDate && (formData.selectedEmployees.length > 0 || formData.selectedEquipment.length > 0)) {
       checkConflicts();
     } else {
       setConflicts([]);
     }
-  }, [formData.startDate, formData.selectedCrews, formData.selectedEquipment]);
+  }, [formData.startDate, formData.selectedEmployees, formData.selectedEquipment]);
 
-  const handleCrewToggle = (crewId) => {
+  const handleEmployeeToggle = (employeeId) => {
     setFormData((prev) => ({
       ...prev,
-      selectedCrews: prev.selectedCrews.includes(crewId)
-        ? prev.selectedCrews.filter((id) => id !== crewId)
-        : [...prev.selectedCrews, crewId],
+      selectedEmployees: prev.selectedEmployees.includes(employeeId)
+        ? prev.selectedEmployees.filter((id) => id !== employeeId)
+        : [...prev.selectedEmployees, employeeId],
     }));
   };
 
@@ -201,7 +202,7 @@ export default function ScheduleJob() {
         startTime: formData.startTime,
         endDate: formData.endDate || formData.startDate,
         endTime: formData.endTime,
-        selectedCrews: formData.selectedCrews,
+        selectedEmployees: formData.selectedEmployees, // ✅ FIXED: Changed from selectedCrews
         selectedEquipment: formData.selectedEquipment,
         notes: formData.notes,
         priority: formData.priority,
@@ -368,28 +369,28 @@ export default function ScheduleJob() {
 
         <Divider sx={{ my: 3 }} />
 
-        {/* Crew Selection */}
+        {/* ✅ FIXED: Employee Selection (not Crew) */}
         <Typography variant="h6" sx={{ mb: 2 }}>
-          👷 Assign Crew Members
+          👥 Assign Employees
         </Typography>
-        {crews.length > 0 ? (
+        {employees.length > 0 ? (
           <FormGroup>
             <Grid container spacing={1}>
-              {crews.map((crew) => (
-                <Grid item xs={12} sm={6} md={4} key={crew.id}>
+              {employees.map((employee) => (
+                <Grid item xs={12} sm={6} md={4} key={employee.id}>
                   <FormControlLabel
                     control={
                       <Checkbox
-                        checked={formData.selectedCrews.includes(crew.id)}
-                        onChange={() => handleCrewToggle(crew.id)}
+                        checked={formData.selectedEmployees.includes(employee.id)}
+                        onChange={() => handleEmployeeToggle(employee.id)}
                       />
                     }
                     label={
                       <Box>
-                        <Typography variant="body2">{crew.name}</Typography>
-                        {crew.role && (
+                        <Typography variant="body2">{employee.name}</Typography>
+                        {employee.jobTitle && (
                           <Typography variant="caption" color="text.secondary">
-                            {crew.role}
+                            {employee.jobTitle}
                           </Typography>
                         )}
                       </Box>
@@ -401,9 +402,9 @@ export default function ScheduleJob() {
           </FormGroup>
         ) : (
           <Alert severity="info" sx={{ mb: 2 }}>
-            No crew members available.{" "}
-            <Button size="small" onClick={() => navigate("/crew-manager")}>
-              Add Crew Members
+            No employees available.{" "}
+            <Button size="small" onClick={() => navigate("/employees")}>
+              Add Employees
             </Button>
           </Alert>
         )}

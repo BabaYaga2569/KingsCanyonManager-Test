@@ -799,7 +799,7 @@ export default function ExpensesManager() {
             disabled={scanning}
             color="primary"
           >
-            {scanning ? "Scanning..." : isMobile ? "ðŸ“¸ Scan" : "ðŸ“¸ Scan Receipt"}
+            {scanning ? "Scanning..." : isMobile ? "📸 Scan" : "📸 Scan Receipt"}
             <input
               type="file"
               hidden

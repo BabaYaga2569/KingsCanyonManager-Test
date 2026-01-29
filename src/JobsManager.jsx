@@ -480,7 +480,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                âœï¸ Edit Job
+                ✏️ Edit Job
               </Button>
 
               <Button
@@ -490,7 +490,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                ðŸ“· Take Before Photo
+                📷 Take Before Photo
               </Button>
 
               <Button
@@ -501,7 +501,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                ðŸ“· Take After Photo
+                📷 Take After Photo
               </Button>
 
               <Button
@@ -511,7 +511,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                ðŸ“· View All Photos ({(job.beforePhotos || []).length + (job.afterPhotos || []).length})
+                📷 View All Photos ({(job.beforePhotos || []).length + (job.afterPhotos || []).length})
               </Button>
 
               <Button
@@ -521,7 +521,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                ðŸ’° View Expenses & Profit
+                💰 View Expenses & Profit
               </Button>
 
               <Button
@@ -657,7 +657,7 @@ export default function JobsManager() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>âœï¸ Edit Job</DialogTitle>
+        <DialogTitle>✏️ Edit Job</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
             <TextField

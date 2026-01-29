@@ -40,7 +40,7 @@ export default function CalendarView() {
   const navigate = useNavigate();
 
   const [schedules, setSchedules] = useState([]);
-  const [crews, setCrews] = useState([]);
+  const [employees, setEmployees] = useState([]); // ✅ FIXED: Changed from crews
   const [equipment, setEquipment] = useState([]);
   const [events, setEvents] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -69,10 +69,10 @@ export default function CalendarView() {
       const schedulesData = schedulesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setSchedules(schedulesData);
 
-      // Load crews
-      const crewsSnap = await getDocs(collection(db, "crews"));
-      const crewsData = crewsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setCrews(crewsData);
+      // ✅ FIXED: Load employees from users collection (not crews)
+      const employeesSnap = await getDocs(collection(db, "users"));
+      const employeesData = employeesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setEmployees(employeesData.filter((e) => e.active !== false));
 
       // Load equipment
       const equipSnap = await getDocs(collection(db, "equipment"));
@@ -160,10 +160,11 @@ export default function CalendarView() {
     }
   };
 
-  const getCrewNames = (crewIds) => {
-    if (!crewIds || crewIds.length === 0) return "No crew assigned";
-    return crewIds
-      .map((id) => crews.find((c) => c.id === id)?.name)
+  // ✅ FIXED: Get employee names (not crew names)
+  const getEmployeeNames = (employeeIds) => {
+    if (!employeeIds || employeeIds.length === 0) return "No employees assigned";
+    return employeeIds
+      .map((id) => employees.find((e) => e.id === id)?.name)
       .filter(Boolean)
       .join(", ");
   };
@@ -401,10 +402,10 @@ export default function CalendarView() {
 
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">
-                    👷 Assigned Crew
+                    👥 Assigned Employees
                   </Typography>
                   <Typography variant="body1">
-                    {getCrewNames(selectedEvent.selectedCrews)}
+                    {getEmployeeNames(selectedEvent.selectedEmployees || selectedEvent.selectedCrews)}
                   </Typography>
                 </Box>
 
