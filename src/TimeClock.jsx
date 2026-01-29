@@ -29,6 +29,7 @@ export default function TimeClock() {
   const [currentEntry, setCurrentEntry] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [todayHours, setTodayHours] = useState(0);
+  const [employeeInfo, setEmployeeInfo] = useState(null); // ✅ NEW: Store employee info
 
   useEffect(() => {
     loadData();
@@ -46,8 +47,39 @@ export default function TimeClock() {
     return () => clearInterval(interval);
   }, [clockedIn, currentEntry]);
 
+  // ✅ NEW: Load employee info from users collection
+  const loadEmployeeInfo = async () => {
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      // Find employee by email
+      const employee = users.find(u => u.email === user.email);
+      
+      if (employee) {
+        console.log("✅ Found employee:", employee.name);
+        setEmployeeInfo(employee);
+      } else {
+        console.log("⚠️ No employee record for:", user.email);
+        setEmployeeInfo({
+          name: user.displayName || user.email,
+          email: user.email,
+        });
+      }
+    } catch (error) {
+      console.error("Error loading employee info:", error);
+      setEmployeeInfo({
+        name: user.displayName || user.email,
+        email: user.email,
+      });
+    }
+  };
+
   const loadData = async () => {
     try {
+      // ✅ CHANGE 1: Load employee info first
+      await loadEmployeeInfo();
+      
       // Load jobs
       const jobsSnap = await getDocs(collection(db, "jobs"));
       const jobsData = jobsSnap.docs.map((d) => {
@@ -159,17 +191,24 @@ export default function TimeClock() {
       const job = jobs.find(j => j.id === selectedJob);
       const now = new Date().toISOString();
 
+      // ✅ CHANGE 2: Use employee name from users collection!
+      const employeeName = employeeInfo?.name || user.displayName || user.email;
+
       const entryData = {
         crewId: user.uid,
-        crewName: user.displayName || user.email,
+        crewName: employeeName, // ✅ FIXED: Real employee name!
+        crewEmail: user.email, // ✅ NEW: Store email separately
         jobId: selectedJob,
         jobName: job?.displayName || "Unknown Job",
+        jobDescription: job?.displayName || "No description", // ✅ Add description
         clockIn: now,
         clockOut: null,
         hoursWorked: null,
         status: "pending",
         createdAt: now,
       };
+
+      console.log("✅ Clocking in as:", employeeName); // DEBUG
 
       const docRef = await addDoc(collection(db, "job_time_entries"), entryData);
       
@@ -245,6 +284,11 @@ export default function TimeClock() {
     <Container sx={{ mt: 3, pb: 4, maxWidth: 'sm' }}>
       <Typography variant="h4" gutterBottom sx={{ textAlign: 'center', mb: 3 }}>
         Time Clock
+      </Typography>
+
+      {/* ✅ CHANGE 3: Show employee name */}
+      <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mb: 2 }}>
+        Welcome, {employeeInfo?.name || user.displayName || user.email}
       </Typography>
 
       {/* Today's Summary */}

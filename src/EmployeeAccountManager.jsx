@@ -26,7 +26,8 @@ import {
   Typography,
   Chip,
   Alert,
-  CircularProgress
+  CircularProgress,
+  ButtonGroup, // ✅ NEW: For filter buttons
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -46,7 +47,9 @@ import {
   setDoc, 
   updateDoc,
   deleteDoc,
-  getDoc 
+  getDoc,
+  query, // ✅ NEW: For querying orphaned data
+  where // ✅ NEW: For filtering by email
 } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword,
@@ -71,6 +74,9 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
   
   // Logo for PDF
   const [logoDataUrl, setLogoDataUrl] = useState(null);
+  
+  // ✅ NEW: Filter state
+  const [filter, setFilter] = useState('active'); // Show active by default
   
   // Form state
   const [formData, setFormData] = useState({
@@ -378,74 +384,135 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
   };
 
   const handleToggleActive = async (employee) => {
-    try {
-      const newActiveStatus = !employee.active;
-      const action = newActiveStatus ? 'enable' : 'disable';
-      
-      const confirm = await Swal.fire({
-        title: `${action.charAt(0).toUpperCase() + action.slice(1)} ${employee.name}?`,
-        text: `This will ${action} their account access.`,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: `Yes, ${action}`,
-        cancelButtonText: 'Cancel',
-      });
+    const newActiveStatus = !employee.active;
+    
+    const result = await Swal.fire({
+      title: newActiveStatus ? 'Enable Employee?' : 'Disable Employee?',
+      html: `
+        <p>${newActiveStatus ? 'Enable' : 'Disable'} <strong>${employee.name}</strong>?</p>
+        <hr />
+        <div style="text-align: left; margin: 15px 0;">
+          ${newActiveStatus ? 
+            '<p>✅ They will be able to clock in again</p><p>✅ They will appear in the time clock</p>' :
+            '<p>❌ They will NOT be able to clock in</p><p>✅ Their records will be preserved</p>'
+          }
+        </div>
+      `,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: newActiveStatus ? 'Enable' : 'Disable',
+      cancelButtonText: 'Cancel',
+    });
 
-      if (!confirm.isConfirmed) return;
+    if (result.isConfirmed) {
+      try {
+        await updateDoc(doc(db, 'users', employee.id), {
+          active: newActiveStatus,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser.uid,
+          ...(newActiveStatus ? {} : { inactivatedAt: new Date().toISOString() })
+        });
 
-      const userRef = doc(db, 'users', employee.id);
-      await updateDoc(userRef, {
-        active: newActiveStatus,
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser.uid
-      });
+        Swal.fire({
+          icon: 'success',
+          title: newActiveStatus ? 'Account Enabled!' : 'Account Disabled!',
+          text: `${employee.name}'s account has been ${newActiveStatus ? 'enabled' : 'disabled'}.`,
+          timer: 2000,
+          showConfirmButton: false,
+        });
 
-      await Swal.fire({
-        icon: 'success',
-        title: `Account ${action}d!`,
-        text: `${employee.name}'s account has been ${action}d.`,
-        timer: 2000,
-        showConfirmButton: false
-      });
-
-      loadEmployees();
-    } catch (error) {
-      console.error('Error toggling employee status:', error);
-      Swal.fire('Error', 'Failed to update employee status: ' + error.message, 'error');
+        loadEmployees();
+      } catch (error) {
+        console.error('Error toggling account status:', error);
+        Swal.fire('Error', 'Failed to update account status: ' + error.message, 'error');
+      }
     }
   };
 
   const handleDeleteEmployee = async (employee) => {
     try {
-      const confirm = await Swal.fire({
-        title: `Delete ${employee.name}?`,
+      // ✅ IMPROVEMENT D: Check orphaned data first
+      const timeEntriesSnap = await getDocs(
+        query(collection(db, 'job_time_entries'), where('crewEmail', '==', employee.email))
+      );
+      const paymentsSnap = await getDocs(
+        query(collection(db, 'crew_payments'), where('crewEmail', '==', employee.email))
+      );
+
+      const timeCount = timeEntriesSnap.size;
+      const paymentCount = paymentsSnap.size;
+
+      const result = await Swal.fire({
+        title: 'Delete Employee?',
         html: `
-          <p><strong>Warning:</strong> This will permanently delete their account and data.</p>
-          <p style="color: red">This action cannot be undone!</p>
+          <p>Delete <strong>${employee.name}</strong>?</p>
+          <hr />
+          <div style="text-align: left; margin: 15px 0; background-color: #fff3cd; padding: 10px; border-radius: 5px;">
+            <p style="margin: 5px 0;"><strong>⚠️ Warning:</strong></p>
+            <p style="margin: 5px 0;">• <strong>${timeCount}</strong> time ${timeCount === 1 ? 'entry' : 'entries'} will be orphaned</p>
+            <p style="margin: 5px 0;">• <strong>${paymentCount}</strong> payment ${paymentCount === 1 ? 'record' : 'records'} will be orphaned</p>
+            <p style="margin: 5px 0;">• This cannot be undone!</p>
+          </div>
+          <hr />
+          <div style="text-align: left; margin: 15px 0; background-color: #d1ecf1; padding: 10px; border-radius: 5px;">
+            <p style="margin: 5px 0;"><strong>💡 Better option:</strong></p>
+            <p style="margin: 5px 0;">Mark as <em>Inactive</em> instead?</p>
+            <p style="margin: 5px 0;">• Preserves all records for taxes</p>
+            <p style="margin: 5px 0;">• Prevents them from clocking in</p>
+            <p style="margin: 5px 0;">• Can be reactivated later</p>
+          </div>
         `,
         icon: 'warning',
+        showDenyButton: true,
         showCancelButton: true,
-        confirmButtonText: 'Yes, delete',
+        confirmButtonText: '🗑️ Delete Anyway',
+        denyButtonText: '🔒 Mark Inactive Instead',
         cancelButtonText: 'Cancel',
-        confirmButtonColor: '#d33',
+        confirmButtonColor: '#d32f2f',
+        denyButtonColor: '#1976d2',
+        width: '600px',
       });
 
-      if (!confirm.isConfirmed) return;
+      if (result.isConfirmed) {
+        // User chose to delete
+        await deleteDoc(doc(db, 'users', employee.id));
 
-      await deleteDoc(doc(db, 'users', employee.id));
+        Swal.fire({
+          icon: 'success',
+          title: 'Deleted!',
+          html: `
+            <p>${employee.name} has been deleted.</p>
+            <p style="color: orange;">⚠️ ${timeCount + paymentCount} records are now orphaned.</p>
+            <p style="color: blue;">💡 Use the Orphaned Data Scanner to clean them up.</p>
+          `,
+          timer: 4000,
+        });
 
-      await Swal.fire({
-        icon: 'success',
-        title: 'Employee Deleted',
-        text: `${employee.name}'s account removed.`,
-        timer: 2000,
-        showConfirmButton: false
-      });
+        loadEmployees();
+      } else if (result.isDenied) {
+        // User chose to mark inactive instead
+        await updateDoc(doc(db, 'users', employee.id), {
+          active: false,
+          inactivatedAt: new Date().toISOString(),
+          updatedBy: currentUser.uid,
+        });
 
-      loadEmployees();
+        Swal.fire({
+          icon: 'success',
+          title: 'Marked Inactive!',
+          html: `
+            <p><strong>${employee.name}</strong> can no longer clock in.</p>
+            <p>✅ All records preserved for taxes</p>
+            <p>✅ Can be reactivated anytime</p>
+          `,
+          timer: 3000,
+        });
+
+        loadEmployees();
+      }
     } catch (error) {
-      console.error('Error deleting employee:', error);
-      Swal.fire('Error', 'Failed to delete employee: ' + error.message, 'error');
+      console.error('Error:', error);
+      Swal.fire('Error', 'Failed to process request: ' + error.message, 'error');
     }
   };
 
@@ -501,6 +568,13 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
       window.open(viewingNDA.ndaSignatureUrl, '_blank');
     }
   };
+
+  // ✅ NEW: Filter employees by status
+  const filteredEmployees = employees.filter(emp => {
+    if (filter === 'active') return emp.active !== false;
+    if (filter === 'inactive') return emp.active === false;
+    return true; // 'all'
+  });
 
   const getRoleLabel = (role) => {
     switch(role) {
@@ -600,6 +674,30 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
         </Grid>
       </Grid>
 
+      {/* ✅ NEW: Filter Buttons */}
+      <Box sx={{ mb: 2 }}>
+        <ButtonGroup variant="contained" size="large">
+          <Button 
+            color={filter === 'all' ? 'primary' : 'inherit'}
+            onClick={() => setFilter('all')}
+          >
+            All ({employees.length})
+          </Button>
+          <Button 
+            color={filter === 'active' ? 'success' : 'inherit'}
+            onClick={() => setFilter('active')}
+          >
+            Active ({employees.filter(e => e.active !== false).length})
+          </Button>
+          <Button 
+            color={filter === 'inactive' ? 'warning' : 'inherit'}
+            onClick={() => setFilter('inactive')}
+          >
+            Inactive ({employees.filter(e => e.active === false).length})
+          </Button>
+        </ButtonGroup>
+      </Box>
+
       {/* Employee Table */}
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
@@ -623,16 +721,18 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {employees.length === 0 ? (
+              {filteredEmployees.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} align="center">
                     <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
-                      No employees yet. Click "Add Employee" to create the first one!
+                      {filter === 'active' && 'No active employees.'}
+                      {filter === 'inactive' && 'No inactive employees.'}
+                      {filter === 'all' && 'No employees yet. Click "Add Employee" to create the first one!'}
                     </Typography>
                   </TableCell>
                 </TableRow>
               ) : (
-                employees.map((employee) => (
+                filteredEmployees.map((employee) => (
                   <TableRow key={employee.id} hover>
                     <TableCell>{employee.name || 'N/A'}</TableCell>
                     <TableCell>

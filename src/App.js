@@ -83,7 +83,7 @@ import NDAEditor from "./NDAEditor";
 import NDASigningPage from "./NDASigningPage";
 import NDASigning from "./NDASigning"; // NEW: Employee first-login NDA
 import ExpensesManager from "./ExpensesManager";
-import CrewPayroll from "./CrewPayroll";
+import IntegratedPayroll from "./IntegratedPayroll"; // ✅ CHANGED: New integrated payroll system
 import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
 import JobExpenses from "./JobExpenses";
@@ -812,7 +812,7 @@ function AppContent() {
           } 
         />
         <Route path="/expenses-manager" element={<ExpensesManager />} />
-        <Route path="/crew-payroll" element={<CrewPayroll />} />
+        <Route path="/crew-payroll" element={<IntegratedPayroll />} /> {/* ✅ CHANGED: New integrated system */}
         <Route path="/crew-payment-history" element={<CrewPaymentHistory />} />
         <Route path="/tax-report" element={<TaxReport />} />
         <Route path="/job-expenses/:id" element={<JobExpenses />} />

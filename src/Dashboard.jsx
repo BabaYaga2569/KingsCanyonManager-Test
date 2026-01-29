@@ -17,7 +17,7 @@ import {
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import GoalTracker from "./GoalTracker";
-
+import EmployeeNameMigration from "./EmployeeNameMigration";
 
 function Tile({ title, count, onView, onNew }) {
   return (
@@ -229,7 +229,8 @@ export default function Dashboard() {
       </Grid>
 
       <Box sx={{ mt: { xs: 2, sm: 3 } }}>
-        <GoalTracker />        
+        <GoalTracker />  
+        <EmployeeNameMigration />		
       </Box>
       <Paper 
         sx={{ 
