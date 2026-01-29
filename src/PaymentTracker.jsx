@@ -273,8 +273,16 @@ export default function PaymentTracker() {
 
   // NEW: Update invoice status based on payments and payment plan
   const updateInvoiceStatus = async () => {
+    // ✅ FIX: Recalculate from Firestore instead of using stale state
+    const paymentsQuery = query(
+      collection(db, "payments"),
+      where("invoiceId", "==", id)
+    );
+    const paymentsSnap = await getDocs(paymentsQuery);
+    const freshPayments = paymentsSnap.docs.map((d) => d.data());
+    
     const totalAmount = parseFloat(invoice.total || invoice.amount || 0);
-    const totalPaid = getTotalPaid();
+    const totalPaid = freshPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
     const remainingBalance = totalAmount - totalPaid;
 
     let paymentStatus = "unpaid";
@@ -299,8 +307,10 @@ export default function PaymentTracker() {
       remainingBalance: remainingBalance,
       paymentStatus: paymentStatus,
       status: invoiceStatus,
-      lastPaymentDate: payments.length > 0 ? payments[0].paymentDate : null,
+      lastPaymentDate: freshPayments.length > 0 ? freshPayments[0].paymentDate : null,
     });
+    
+    console.log("✅ Invoice status updated:", invoiceStatus, "Total Paid:", totalPaid);
   };
 
   // NEW: Open edit dialog
