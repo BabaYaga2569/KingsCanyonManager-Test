@@ -88,6 +88,7 @@ import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
 import JobExpenses from "./JobExpenses";
 import NotesManager from "./NotesManager"; // â† ADDED: Notes Manager
+import NotificationSettings from "./NotificationSettings"; // NEW: SMS Notification Settings
 import EmployeeAccountManager from './EmployeeAccountManager';
 import { createFullJobPackage } from "./utils/createFullJobPackage";
 import generateBidPDF from "./pdf/generateBidPDF";
@@ -781,6 +782,7 @@ function AppContent() {
         {/* 🔒 CRITICAL: Maintenance routes - DO NOT REMOVE */}
         <Route path="/maintenance" element={<MaintenanceDashboard />} />
         <Route path="/maintenance/:id" element={<MaintenanceEditor />} />
+        <Route path="/notification-settings" element={<NotificationSettings />} /> {/* NEW: SMS Settings */}
         {/* ========================================= */}
         <Route path="/payment-tracker/:id" element={<PaymentTracker />} />
         <Route path="/payments-dashboard" element={<PaymentsDashboard />} />

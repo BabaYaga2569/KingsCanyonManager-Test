@@ -1,5 +1,6 @@
 const functions = require('firebase-functions');
 const vision = require('@google-cloud/vision');
+const twilio = require('twilio');
 const admin = require('firebase-admin');
 
 admin.initializeApp();
@@ -245,3 +246,301 @@ exports.scanReceipt = functions.https.onCall(async (data, context) => {
 exports.testFunction = functions.https.onCall(async (data, context) => {
   return { success: true, message: "Working v10 MULTILINE!", timestamp: new Date().toISOString() };
 });
+
+// ========================= SMS NOTIFICATION FUNCTIONS =========================
+
+/**
+ * Send SMS via Twilio
+ * Triggered by HTTPS request from frontend
+ */
+exports.sendSMS = functions.https.onRequest(async (req, res) => {
+  // Enable CORS
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    res.status(405).send({ error: 'Method not allowed' });
+    return;
+  }
+
+  try {
+    const { to, message, type, metadata } = req.body;
+
+    if (!to || !message) {
+      res.status(400).send({ error: 'Missing required fields: to, message' });
+      return;
+    }
+
+    // Get Twilio credentials from Firestore
+    const settingsSnap = await admin.firestore()
+      .collection('notification_settings')
+      .limit(1)
+      .get();
+
+    if (settingsSnap.empty) {
+      res.status(500).send({ error: 'Notification settings not configured' });
+      return;
+    }
+
+    const settings = settingsSnap.docs[0].data();
+
+    if (!settings.twilioConfigured || !settings.twilioAccountSid || !settings.twilioAuthToken) {
+      res.status(500).send({ error: 'Twilio not configured' });
+      return;
+    }
+
+    // Initialize Twilio client
+    const client = twilio(settings.twilioAccountSid, settings.twilioAuthToken);
+
+    // Send SMS
+    const smsResult = await client.messages.create({
+      body: message,
+      from: settings.twilioPhoneNumber,
+      to: to
+    });
+
+    console.log(`SMS sent successfully: ${smsResult.sid}`);
+
+    // Return success
+    res.status(200).send({
+      success: true,
+      sid: smsResult.sid,
+      type: type,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error sending SMS:', error);
+    res.status(500).send({
+      error: error.message,
+      code: error.code || 'UNKNOWN'
+    });
+  }
+});
+
+/**
+ * Daily cron job to send payment reminders
+ * Runs every day at 8 AM PST
+ */
+exports.sendPaymentReminders = functions.pubsub
+  .schedule('0 8 * * *')
+  .timeZone('America/Los_Angeles')
+  .onRun(async (context) => {
+    console.log('Running payment reminders check...');
+
+    try {
+      // Get notification settings
+      const settingsSnap = await admin.firestore()
+        .collection('notification_settings')
+        .limit(1)
+        .get();
+
+      if (settingsSnap.empty) {
+        console.log('No notification settings found');
+        return null;
+      }
+
+      const settings = settingsSnap.docs[0].data();
+
+      if (!settings.paymentReminders?.enabled || !settings.twilioConfigured) {
+        console.log('Payment reminders disabled or Twilio not configured');
+        return null;
+      }
+
+      // Calculate target date (X days from now)
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + settings.paymentReminders.daysBefore);
+      const targetDateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      // Get invoices due on target date
+      const invoicesSnap = await admin.firestore()
+        .collection('invoices')
+        .where('dueDate', '==', targetDateStr)
+        .where('status', '!=', 'paid')
+        .get();
+
+      if (invoicesSnap.empty) {
+        console.log('No invoices due on target date:', targetDateStr);
+        return null;
+      }
+
+      // Initialize Twilio
+      const client = twilio(settings.twilioAccountSid, settings.twilioAuthToken);
+
+      // Send reminders
+      let sentCount = 0;
+      for (const invoiceDoc of invoicesSnap.docs) {
+        const invoice = invoiceDoc.data();
+
+        if (!invoice.customerPhone) {
+          console.log(`No phone number for customer: ${invoice.customerName}`);
+          continue;
+        }
+
+        const message = `💰 PAYMENT REMINDER\n\n` +
+          `Hi ${invoice.customerName},\n\n` +
+          `Your payment of $${invoice.total} for ${invoice.description || 'services'} ` +
+          `is due on ${new Date(targetDateStr).toLocaleDateString()}.\n\n` +
+          `Pay via Zelle: 928-450-5733\n\n` +
+          `Thank you!\n` +
+          `Kings Canyon Landscaping`;
+
+        try {
+          await client.messages.create({
+            body: message,
+            from: settings.twilioPhoneNumber,
+            to: invoice.customerPhone
+          });
+
+          // Log to Firestore
+          await admin.firestore().collection('notifications_log').add({
+            to: invoice.customerPhone,
+            message: message,
+            type: 'payment_reminder',
+            status: 'sent',
+            sentAt: new Date().toISOString(),
+            metadata: {
+              invoiceId: invoiceDoc.id,
+              customerId: invoice.customerId,
+              amount: invoice.total
+            }
+          });
+
+          sentCount++;
+          console.log(`Sent payment reminder to ${invoice.customerName}`);
+
+        } catch (error) {
+          console.error(`Failed to send to ${invoice.customerName}:`, error);
+        }
+      }
+
+      console.log(`Payment reminders sent: ${sentCount}`);
+      return null;
+
+    } catch (error) {
+      console.error('Error in sendPaymentReminders:', error);
+      return null;
+    }
+  });
+
+/**
+ * Daily cron job to send job reminders
+ * Runs every day at 8 AM PST
+ */
+exports.sendJobReminders = functions.pubsub
+  .schedule('0 8 * * *')
+  .timeZone('America/Los_Angeles')
+  .onRun(async (context) => {
+    console.log('Running job reminders check...');
+
+    try {
+      // Get notification settings
+      const settingsSnap = await admin.firestore()
+        .collection('notification_settings')
+        .limit(1)
+        .get();
+
+      if (settingsSnap.empty) {
+        console.log('No notification settings found');
+        return null;
+      }
+
+      const settings = settingsSnap.docs[0].data();
+
+      if (!settings.jobReminders?.enabled || !settings.twilioConfigured) {
+        console.log('Job reminders disabled or Twilio not configured');
+        return null;
+      }
+
+      // Calculate target date (X days from now)
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + settings.jobReminders.daysBefore);
+      const targetDateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      // Get scheduled jobs on target date
+      const schedulesSnap = await admin.firestore()
+        .collection('schedules')
+        .where('startDate', '==', targetDateStr)
+        .where('status', '!=', 'cancelled')
+        .where('status', '!=', 'completed')
+        .get();
+
+      if (schedulesSnap.empty) {
+        console.log('No jobs scheduled for target date:', targetDateStr);
+        return null;
+      }
+
+      // Get customers to find phone numbers
+      const customersSnap = await admin.firestore().collection('customers').get();
+      const customersMap = {};
+      customersSnap.docs.forEach(doc => {
+        customersMap[doc.id] = { id: doc.id, ...doc.data() };
+      });
+
+      // Initialize Twilio
+      const client = twilio(settings.twilioAccountSid, settings.twilioAuthToken);
+
+      // Send reminders
+      let sentCount = 0;
+      for (const scheduleDoc of schedulesSnap.docs) {
+        const schedule = scheduleDoc.data();
+        const customer = customersMap[schedule.customerId];
+
+        if (!customer || !customer.phone) {
+          console.log(`No phone number for customer: ${schedule.clientName}`);
+          continue;
+        }
+
+        const jobDate = new Date(targetDateStr);
+        const message = `📅 JOB REMINDER\n\n` +
+          `Hi ${schedule.clientName},\n\n` +
+          `This is a reminder about your scheduled service:\n\n` +
+          `Date: ${jobDate.toLocaleDateString()}\n` +
+          `Time: ${schedule.startTime || '8:00 AM'}\n\n` +
+          `We look forward to serving you!\n\n` +
+          `Kings Canyon Landscaping\n` +
+          `928-450-5733`;
+
+        try {
+          await client.messages.create({
+            body: message,
+            from: settings.twilioPhoneNumber,
+            to: customer.phone
+          });
+
+          // Log to Firestore
+          await admin.firestore().collection('notifications_log').add({
+            to: customer.phone,
+            message: message,
+            type: 'job_reminder',
+            status: 'sent',
+            sentAt: new Date().toISOString(),
+            metadata: {
+              scheduleId: scheduleDoc.id,
+              customerId: schedule.customerId,
+              jobDate: targetDateStr
+            }
+          });
+
+          sentCount++;
+          console.log(`Sent job reminder to ${schedule.clientName}`);
+
+        } catch (error) {
+          console.error(`Failed to send to ${schedule.clientName}:`, error);
+        }
+      }
+
+      console.log(`Job reminders sent: ${sentCount}`);
+      return null;
+
+    } catch (error) {
+      console.error('Error in sendJobReminders:', error);
+      return null;
+    }
+  });
