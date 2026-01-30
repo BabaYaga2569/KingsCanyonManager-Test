@@ -27,6 +27,8 @@ import {
   DialogContent,
   DialogActions,
   IconButton,
+  Checkbox,
+  ListItemText,
 } from "@mui/material";
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import CloseIcon from "@mui/icons-material/Close";
@@ -38,6 +40,7 @@ import { markAsViewed } from './useNotificationCounts';
 
 export default function JobsManager() {
   const [jobs, setJobs] = useState([]);
+  const [employees, setEmployees] = useState([]); // For employee assignment
   const [sortedJobs, setSortedJobs] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
   const [loading, setLoading] = useState(true);
@@ -105,6 +108,13 @@ export default function JobsManager() {
         ...doc.data(),
       }));
       setJobs(jobList);
+
+      // Load employees (active users) for assignment
+      const usersSnap = await getDocs(collection(db, "users"));
+      const activeEmployees = usersSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((user) => user.active !== false);
+      setEmployees(activeEmployees);
     } catch (error) {
       console.error("Error fetching jobs:", error);
     } finally {
@@ -480,7 +490,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                ✏️ Edit Job
+                Edit Job
               </Button>
 
               <Button
@@ -490,7 +500,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                📷 Take Before Photo
+                Take Before Photo
               </Button>
 
               <Button
@@ -501,7 +511,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                📷 Take After Photo
+                Take After Photo
               </Button>
 
               <Button
@@ -511,7 +521,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                📷 View All Photos ({(job.beforePhotos || []).length + (job.afterPhotos || []).length})
+                View All Photos ({(job.beforePhotos || []).length + (job.afterPhotos || []).length})
               </Button>
 
               <Button
@@ -521,7 +531,7 @@ export default function JobsManager() {
                 fullWidth
                 size="small"
               >
-                💰 View Expenses & Profit
+                View Expenses & Profit
               </Button>
 
               <Button
@@ -657,7 +667,7 @@ export default function JobsManager() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>✏️ Edit Job</DialogTitle>
+        <DialogTitle>Edit Job</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
             <TextField
@@ -725,12 +735,43 @@ export default function JobsManager() {
               onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
               fullWidth
             />
+
+            <FormControl fullWidth sx={{ mt: 2 }}>
+              <InputLabel>Assigned Employees</InputLabel>
+              <Select
+                multiple
+                value={editForm.assignedEmployees || []}
+                onChange={(e) => setEditForm({ ...editForm, assignedEmployees: e.target.value })}
+                label="Assigned Employees"
+                renderValue={(selected) => (
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                    {selected.map((empId) => {
+                      const emp = employees.find((e) => e.id === empId);
+                      return (
+                        <Chip
+                          key={empId}
+                          label={emp?.name || emp?.email || empId}
+                          size="small"
+                        />
+                      );
+                    })}
+                  </Box>
+                )}
+              >
+                {employees.map((emp) => (
+                  <MenuItem key={emp.id} value={emp.id}>
+                    <Checkbox checked={(editForm.assignedEmployees || []).indexOf(emp.id) > -1} />
+                    <ListItemText primary={emp.name || emp.email} />
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={handleCloseEditDialog}>Cancel</Button>
           <Button onClick={handleSaveEdit} variant="contained" color="primary">
-            ðŸ’¾ Save Changes
+            Save Changes
           </Button>
         </DialogActions>
       </Dialog>

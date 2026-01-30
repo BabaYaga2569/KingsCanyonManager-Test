@@ -207,6 +207,7 @@ export default function ExpensesManager() {
     lineItems: [],
   });
 
+  const [selectedYear, setSelectedYear] = useState("all");
   const [filters, setFilters] = useState({
     startDate: "2020-01-01", // Show all expenses - very wide date range
     endDate: "2030-12-31",   // Show all expenses - very wide date range
@@ -214,6 +215,24 @@ export default function ExpensesManager() {
     jobId: "all",
     taxDeductible: "all",
   });
+
+  // Handle year selection
+  const handleYearChange = (year) => {
+    setSelectedYear(year);
+    if (year === "all") {
+      setFilters({
+        ...filters,
+        startDate: "2020-01-01",
+        endDate: "2030-12-31",
+      });
+    } else {
+      setFilters({
+        ...filters,
+        startDate: `${year}-01-01`,
+        endDate: `${year}-12-31`,
+      });
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -799,7 +818,7 @@ export default function ExpensesManager() {
             disabled={scanning}
             color="primary"
           >
-            {scanning ? "Scanning..." : isMobile ? "📸 Scan" : "📸 Scan Receipt"}
+            {scanning ? "Scanning..." : isMobile ? "ðŸ“¸ Scan" : "ðŸ“¸ Scan Receipt"}
             <input
               type="file"
               hidden
@@ -877,7 +896,28 @@ export default function ExpensesManager() {
           <Typography variant="h6">Filters</Typography>
         </Box>
         <Grid container spacing={2}>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              select
+              label="Year"
+              value={selectedYear}
+              onChange={(e) => handleYearChange(e.target.value)}
+              fullWidth
+              size="small"
+            >
+              <MenuItem value="all">All Years</MenuItem>
+              <MenuItem value="2020">2020</MenuItem>
+              <MenuItem value="2021">2021</MenuItem>
+              <MenuItem value="2022">2022</MenuItem>
+              <MenuItem value="2023">2023</MenuItem>
+              <MenuItem value="2024">2024</MenuItem>
+              <MenuItem value="2025">2025</MenuItem>
+              <MenuItem value="2026">2026</MenuItem>
+              <MenuItem value="2027">2027</MenuItem>
+            </TextField>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={2.5}>
             <TextField
               label="Start Date"
               type="date"
@@ -889,7 +929,7 @@ export default function ExpensesManager() {
             />
           </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2.5}>
             <TextField
               label="End Date"
               type="date"

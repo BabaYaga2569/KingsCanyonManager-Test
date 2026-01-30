@@ -62,6 +62,27 @@ export default function InvoicesDashboard() {
   const [invoices, setInvoices] = useState([]);
   const [sortedInvoices, setSortedInvoices] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
+  const [selectedYear, setSelectedYear] = useState("all");
+  const [filters, setFilters] = useState({
+    startDate: "2020-01-01",
+    endDate: "2030-12-31",
+  });
+
+  // Handle year selection
+  const handleYearChange = (year) => {
+    setSelectedYear(year);
+    if (year === "all") {
+      setFilters({
+        startDate: "2020-01-01",
+        endDate: "2030-12-31",
+      });
+    } else {
+      setFilters({
+        startDate: `${year}-01-01`,
+        endDate: `${year}-12-31`,
+      });
+    }
+  };
   const navigate = useNavigate();
   const location = useLocation(); // ADD THIS LINE
   const theme = useTheme();
@@ -768,12 +789,23 @@ export default function InvoicesDashboard() {
     }
   };
 
+  // Apply date filters
+  const filteredInvoices = sortedInvoices.filter((inv) => {
+    const invDate = getDateFromInvoice(inv);
+    if (!invDate || isNaN(invDate.getTime())) return true; // Show if no date
+    
+    const filterStart = new Date(filters.startDate);
+    const filterEnd = new Date(filters.endDate);
+    
+    return invDate >= filterStart && invDate <= filterEnd;
+  });
+
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
       {/* Header with Sort Dropdown */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Typography variant="h5" sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}>
-          Invoices ({sortedInvoices.length})
+          Invoices ({filteredInvoices.length})
         </Typography>
 
         <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
@@ -790,6 +822,25 @@ export default function InvoicesDashboard() {
           >
             {isMobile ? <SpeedIcon /> : "Quick Weed Invoice"}
           </Button>
+
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>Year</InputLabel>
+            <Select
+              value={selectedYear}
+              label="Year"
+              onChange={(e) => handleYearChange(e.target.value)}
+            >
+              <MenuItem value="all">All Years</MenuItem>
+              <MenuItem value="2020">2020</MenuItem>
+              <MenuItem value="2021">2021</MenuItem>
+              <MenuItem value="2022">2022</MenuItem>
+              <MenuItem value="2023">2023</MenuItem>
+              <MenuItem value="2024">2024</MenuItem>
+              <MenuItem value="2025">2025</MenuItem>
+              <MenuItem value="2026">2026</MenuItem>
+              <MenuItem value="2027">2027</MenuItem>
+            </Select>
+          </FormControl>
 
           <FormControl size="small" sx={{ minWidth: 200 }}>
             <InputLabel id="sort-label">
@@ -819,7 +870,7 @@ export default function InvoicesDashboard() {
 
       {/* Mobile: Card Layout */}
       <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-        {sortedInvoices.map((inv) => (
+        {filteredInvoices.map((inv) => (
           <Card key={inv.id} sx={{ mb: 2, boxShadow: 2 }}>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 2 }}>
@@ -907,7 +958,7 @@ export default function InvoicesDashboard() {
           </Card>
         ))}
 
-        {sortedInvoices.length === 0 && (
+        {filteredInvoices.length === 0 && (
           <Paper sx={{ p: 4, textAlign: "center" }}>
             <Typography variant="h6">No Invoices Yet</Typography>
             <Typography variant="body2" color="text.secondary">
@@ -931,7 +982,7 @@ export default function InvoicesDashboard() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {sortedInvoices.map((inv) => (
+            {filteredInvoices.map((inv) => (
               <TableRow key={inv.id}>
                 <TableCell>{inv.clientName}</TableCell>
                 <TableCell sx={{ maxWidth: 250 }}>
@@ -1006,7 +1057,7 @@ export default function InvoicesDashboard() {
               </TableRow>
             ))}
 
-            {sortedInvoices.length === 0 && (
+            {filteredInvoices.length === 0 && (
               <TableRow>
                 <TableCell colSpan="5" style={{ padding: 40, textAlign: 'center' }}>
                   <Typography variant="h6" color="text.secondary">

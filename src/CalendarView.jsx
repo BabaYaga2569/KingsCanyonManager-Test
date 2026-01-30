@@ -21,6 +21,12 @@ import {
   ToggleButtonGroup,
   useMediaQuery,
   useTheme,
+  Checkbox,
+  ListItemText,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import AddIcon from "@mui/icons-material/Add";
@@ -40,7 +46,10 @@ export default function CalendarView() {
   const navigate = useNavigate();
 
   const [schedules, setSchedules] = useState([]);
-  const [employees, setEmployees] = useState([]); // ✅ FIXED: Changed from crews
+  const [crews, setCrews] = useState([]);
+  const [employees, setEmployees] = useState([]); // New: for employee assignment
+  const [editingEmployees, setEditingEmployees] = useState(false);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [events, setEvents] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -69,15 +78,23 @@ export default function CalendarView() {
       const schedulesData = schedulesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setSchedules(schedulesData);
 
-      // ✅ FIXED: Load employees from users collection (not crews)
-      const employeesSnap = await getDocs(collection(db, "users"));
-      const employeesData = employeesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setEmployees(employeesData.filter((e) => e.active !== false));
+      // Load crews
+      const crewsSnap = await getDocs(collection(db, "crews"));
+      const crewsData = crewsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setCrews(crewsData);
 
       // Load equipment
       const equipSnap = await getDocs(collection(db, "equipment"));
       const equipData = equipSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setEquipment(equipData);
+
+      // Load employees (active users)
+      const usersSnap = await getDocs(collection(db, "users"));
+      const activeEmployees = usersSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((user) => user.active !== false);
+      setEmployees(activeEmployees);
+      console.log("✅ Loaded employees:", activeEmployees.length);
 
       // Convert schedules to calendar events
       const calendarEvents = schedulesData.map((schedule) => {
@@ -160,11 +177,10 @@ export default function CalendarView() {
     }
   };
 
-  // ✅ FIXED: Get employee names (not crew names)
-  const getEmployeeNames = (employeeIds) => {
-    if (!employeeIds || employeeIds.length === 0) return "No employees assigned";
-    return employeeIds
-      .map((id) => employees.find((e) => e.id === id)?.name)
+  const getCrewNames = (crewIds) => {
+    if (!crewIds || crewIds.length === 0) return "No crew assigned";
+    return crewIds
+      .map((id) => crews.find((c) => c.id === id)?.name)
       .filter(Boolean)
       .join(", ");
   };
@@ -234,7 +250,7 @@ export default function CalendarView() {
         }}
       >
         <Typography variant="h5" sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}>
-          📅 Calendar View
+          ðŸ“… Calendar View
         </Typography>
 
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
@@ -292,10 +308,10 @@ export default function CalendarView() {
 
       {/* Color Legend */}
       <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
-        <Chip label="🔴 Urgent" size="small" sx={{ bgcolor: "#f44336", color: "white" }} />
-        <Chip label="🟠 High Priority" size="small" sx={{ bgcolor: "#ff9800", color: "white" }} />
-        <Chip label="🔵 Normal" size="small" sx={{ bgcolor: "#3174ad", color: "white" }} />
-        <Chip label="🟢 Completed" size="small" sx={{ bgcolor: "#4caf50", color: "white" }} />
+        <Chip label="ðŸ”´ Urgent" size="small" sx={{ bgcolor: "#f44336", color: "white" }} />
+        <Chip label="ðŸŸ  High Priority" size="small" sx={{ bgcolor: "#ff9800", color: "white" }} />
+        <Chip label="ðŸ”µ Normal" size="small" sx={{ bgcolor: "#3174ad", color: "white" }} />
+        <Chip label="ðŸŸ¢ Completed" size="small" sx={{ bgcolor: "#4caf50", color: "white" }} />
       </Box>
 
       {/* Calendar */}
@@ -401,12 +417,112 @@ export default function CalendarView() {
                 <Divider />
 
                 <Box>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    👥 Assigned Employees
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                    👷 Assigned Employees
                   </Typography>
-                  <Typography variant="body1">
-                    {getEmployeeNames(selectedEvent.selectedEmployees || selectedEvent.selectedCrews)}
-                  </Typography>
+                  {!editingEmployees ? (
+                    <>
+                      {selectedEvent.assignedEmployees && selectedEvent.assignedEmployees.length > 0 ? (
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1 }}>
+                          {selectedEvent.assignedEmployees.map((empId) => {
+                            const emp = employees.find((e) => e.id === empId);
+                            return emp ? (
+                              <Chip
+                                key={empId}
+                                label={emp.name || emp.email}
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                              />
+                            ) : null;
+                          })}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No employees assigned
+                        </Typography>
+                      )}
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<EditIcon />}
+                        onClick={() => {
+                          setEditingEmployees(true);
+                          setSelectedEmployeeIds(selectedEvent.assignedEmployees || []);
+                        }}
+                        sx={{ mt: 1 }}
+                      >
+                        Edit Employees
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                        <InputLabel>Select Employees</InputLabel>
+                        <Select
+                          multiple
+                          value={selectedEmployeeIds}
+                          onChange={(e) => setSelectedEmployeeIds(e.target.value)}
+                          renderValue={(selected) => (
+                            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                              {selected.map((empId) => {
+                                const emp = employees.find((e) => e.id === empId);
+                                return (
+                                  <Chip
+                                    key={empId}
+                                    label={emp?.name || emp?.email || empId}
+                                    size="small"
+                                  />
+                                );
+                              })}
+                            </Box>
+                          )}
+                        >
+                          {employees.map((emp) => (
+                            <MenuItem key={emp.id} value={emp.id}>
+                              <Checkbox checked={selectedEmployeeIds.indexOf(emp.id) > -1} />
+                              <ListItemText primary={emp.name || emp.email} />
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <Box sx={{ display: "flex", gap: 1 }}>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={async () => {
+                            try {
+                              await updateDoc(doc(db, "schedules", selectedEvent.id), {
+                                assignedEmployees: selectedEmployeeIds,
+                              });
+                              setSelectedEvent({
+                                ...selectedEvent,
+                                assignedEmployees: selectedEmployeeIds,
+                              });
+                              setEditingEmployees(false);
+                              await loadData();
+                              Swal.fire("Success!", "Employees updated successfully", "success");
+                            } catch (error) {
+                              console.error("Error updating employees:", error);
+                              Swal.fire("Error", "Failed to update employees", "error");
+                            }
+                          }}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => {
+                            setEditingEmployees(false);
+                            setSelectedEmployeeIds(selectedEvent.assignedEmployees || []);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </Box>
+                    </>
+                  )}
                 </Box>
 
                 <Box>
