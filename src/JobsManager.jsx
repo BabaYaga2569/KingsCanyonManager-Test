@@ -269,17 +269,40 @@ export default function JobsManager() {
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
+      // Better mobile camera constraints
+      const constraints = {
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // Wait for video to be ready on mobile
+        await videoRef.current.play();
       }
     } catch (error) {
       console.error("Camera error:", error);
-      Swal.fire("Error", "Could not access camera.", "error");
-      handleCloseCamera();
+      
+      // Try fallback without facingMode for older devices
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+      } catch (fallbackError) {
+        console.error("Fallback camera error:", fallbackError);
+        Swal.fire("Error", "Could not access camera. Please check permissions.", "error");
+        handleCloseCamera();
+      }
     }
   };
 
@@ -599,7 +622,7 @@ export default function JobsManager() {
                   fullWidth
                   size="large"
                 >
-                  ðŸ“¸ Capture Photo
+                  Capture Photo
                 </Button>
                 
                 <Button
@@ -607,7 +630,7 @@ export default function JobsManager() {
                   onClick={() => fileInputRef.current?.click()}
                   fullWidth
                 >
-                  ðŸ“ Upload from Gallery
+                  Upload from Gallery
                 </Button>
                 <input
                   ref={fileInputRef}
