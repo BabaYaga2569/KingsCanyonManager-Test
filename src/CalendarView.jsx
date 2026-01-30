@@ -250,7 +250,7 @@ export default function CalendarView() {
         }}
       >
         <Typography variant="h5" sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}>
-          ðŸ“… Calendar View
+          Calendar View
         </Typography>
 
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
@@ -308,10 +308,10 @@ export default function CalendarView() {
 
       {/* Color Legend */}
       <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
-        <Chip label="ðŸ”´ Urgent" size="small" sx={{ bgcolor: "#f44336", color: "white" }} />
-        <Chip label="ðŸŸ  High Priority" size="small" sx={{ bgcolor: "#ff9800", color: "white" }} />
-        <Chip label="ðŸ”µ Normal" size="small" sx={{ bgcolor: "#3174ad", color: "white" }} />
-        <Chip label="ðŸŸ¢ Completed" size="small" sx={{ bgcolor: "#4caf50", color: "white" }} />
+        <Chip label="Urgent" size="small" sx={{ bgcolor: "#f44336", color: "white" }} />
+        <Chip label="High Priority" size="small" sx={{ bgcolor: "#ff9800", color: "white" }} />
+        <Chip label="Normal" size="small" sx={{ bgcolor: "#3174ad", color: "white" }} />
+        <Chip label="Completed" size="small" sx={{ bgcolor: "#4caf50", color: "white" }} />
       </Box>
 
       {/* Calendar */}

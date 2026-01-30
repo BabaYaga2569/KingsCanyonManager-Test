@@ -160,6 +160,7 @@ export default function JobsManager() {
 
   // View photos gallery
   const handleViewPhotos = (job) => {
+    setCurrentJob(job); // Store job for delete function
     const beforePhotos = job.beforePhotos || [];
     const afterPhotos = job.afterPhotos || [];
     
@@ -173,7 +174,12 @@ export default function JobsManager() {
         ${beforePhotos.length > 0 ? '<h3 style="color: #1976d2;">Before Photos:</h3>' : ''}
         ${beforePhotos.map((url, i) => `
           <div style="margin: 15px 0;">
-            <p style="font-weight: bold;">Before Photo ${i+1}</p>
+            <p style="font-weight: bold;">Before Photo ${i+1} 
+              <button 
+                onclick="window.deletePhoto('${url}', 'before')"
+                style="background: #f44336; color: white; border: none; border-radius: 4px; padding: 4px 12px; margin-left: 10px; cursor: pointer; font-size: 12px;"
+              >Delete</button>
+            </p>
             <img src="${url}" 
                  style="width: 100%; max-width: 400px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
                  onclick="window.open('${url}', '_blank')" />
@@ -183,7 +189,12 @@ export default function JobsManager() {
         ${afterPhotos.length > 0 ? '<h3 style="color: #2e7d32; margin-top: 20px;">After Photos:</h3>' : ''}
         ${afterPhotos.map((url, i) => `
           <div style="margin: 15px 0;">
-            <p style="font-weight: bold;">After Photo ${i+1}</p>
+            <p style="font-weight: bold;">After Photo ${i+1}
+              <button 
+                onclick="window.deletePhoto('${url}', 'after')"
+                style="background: #f44336; color: white; border: none; border-radius: 4px; padding: 4px 12px; margin-left: 10px; cursor: pointer; font-size: 12px;"
+              >Delete</button>
+            </p>
             <img src="${url}" 
                  style="width: 100%; max-width: 400px; border-radius: 8px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
                  onclick="window.open('${url}', '_blank')" />
@@ -191,9 +202,19 @@ export default function JobsManager() {
         `).join('')}
       </div>
       <p style="margin-top: 20px; font-size: 14px; color: #666; text-align: center;">
-        ðŸ“¸ Tap any photo to view full size
+        Tap photo to view full size | Red button to delete
       </p>
     `;
+
+    // Make delete function available to window
+    window.deletePhoto = async (photoUrl, photoType) => {
+      Swal.close();
+      await handleDeletePhoto(photoUrl, photoType);
+      setTimeout(() => {
+        const updatedJob = jobs.find(j => j.id === job.id);
+        if (updatedJob) handleViewPhotos(updatedJob);
+      }, 500);
+    };
 
     Swal.fire({
       title: `${job.clientName} - Photos`,
@@ -435,6 +456,44 @@ export default function JobsManager() {
       });
     } finally {
       setUploading(false);
+    }
+  };
+
+
+  const handleDeletePhoto = async (photoUrl, photoType) => {
+    const result = await Swal.fire({
+      title: 'Delete Photo?',
+      text: 'This cannot be undone.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      confirmButtonText: 'Delete',
+      cancelButtonText: 'Cancel'
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      const field = photoType === "before" ? "beforePhotos" : "afterPhotos";
+      const currentPhotos = currentJob[field] || [];
+      const updatedPhotos = currentPhotos.filter(url => url !== photoUrl);
+
+      await updateDoc(doc(db, "jobs", currentJob.id), {
+        [field]: updatedPhotos,
+      });
+
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === currentJob.id
+            ? { ...job, [field]: updatedPhotos }
+            : job
+        )
+      );
+
+      Swal.fire("Deleted!", "Photo has been deleted.", "success");
+    } catch (error) {
+      console.error("Delete error:", error);
+      Swal.fire("Error", "Failed to delete photo.", "error");
     }
   };
 
