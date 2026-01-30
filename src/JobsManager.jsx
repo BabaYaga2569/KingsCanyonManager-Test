@@ -67,6 +67,7 @@ export default function JobsManager() {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
 
   useEffect(() => {
     fetchJobs();
@@ -269,38 +270,74 @@ export default function JobsManager() {
 
   const startCamera = async () => {
     try {
-      // Better mobile camera constraints
+      console.log("🎥 Starting camera...");
+      
+      // Check if mediaDevices is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Camera not supported on this device");
+      }
+      
+      // Simple constraints for better mobile compatibility
       const constraints = {
         video: {
           facingMode: "environment",
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        },
-        audio: false
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
       };
       
+      console.log("📱 Requesting camera access...");
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log("✅ Camera stream obtained");
+      
       streamRef.current = stream;
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Wait for video to be ready on mobile
-        await videoRef.current.play();
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('autoplay', 'true');
+        videoRef.current.muted = true;
+        
+        // Force play on mobile
+        try {
+          await videoRef.current.play();
+          console.log("✅ Video playing");
+        } catch (playError) {
+          console.log("⚠️ Auto-play failed, trying manual play");
+          // Sometimes mobile requires user interaction
+          videoRef.current.play().catch(e => console.error("Play error:", e));
+        }
       }
     } catch (error) {
-      console.error("Camera error:", error);
+      console.error("❌ Camera error:", error.name, error.message);
       
-      // Try fallback without facingMode for older devices
+      // Try fallback with simpler constraints
       try {
+        console.log("🔄 Trying fallback camera...");
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         streamRef.current = stream;
+        
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          videoRef.current.setAttribute('playsinline', 'true');
+          videoRef.current.setAttribute('autoplay', 'true');
+          videoRef.current.muted = true;
           await videoRef.current.play();
+          console.log("✅ Fallback camera working");
         }
       } catch (fallbackError) {
-        console.error("Fallback camera error:", fallbackError);
-        Swal.fire("Error", "Could not access camera. Please check permissions.", "error");
+        console.error("❌ Fallback camera error:", fallbackError);
+        
+        let errorMessage = "Could not access camera. ";
+        if (fallbackError.name === 'NotAllowedError' || fallbackError.name === 'PermissionDeniedError') {
+          errorMessage += "Please allow camera permissions in your browser settings.";
+        } else if (fallbackError.name === 'NotFoundError') {
+          errorMessage += "No camera found on this device.";
+        } else {
+          errorMessage += "Please check your device settings.";
+        }
+        
+        Swal.fire("Camera Error", errorMessage, "error");
         handleCloseCamera();
       }
     }
@@ -374,7 +411,28 @@ export default function JobsManager() {
       handleCloseCamera();
     } catch (error) {
       console.error("Upload error:", error);
-      Swal.fire("Error", "Failed to upload photo.", "error");
+      
+      // Show detailed error ON SCREEN for mobile debugging
+      let errorDetails = `Error: ${error.message || 'Unknown error'}\n\n`;
+      
+      if (error.code) {
+        errorDetails += `Code: ${error.code}\n\n`;
+      }
+      
+      if (error.code === 'storage/unauthorized') {
+        errorDetails += "This means Firebase Storage permissions are blocking the upload.\n\nFix: Go to Firebase Console → Storage → Rules";
+      } else if (error.code === 'storage/canceled') {
+        errorDetails += "Upload was cancelled.";
+      } else if (error.name) {
+        errorDetails += `Type: ${error.name}`;
+      }
+      
+      Swal.fire({
+        title: "Upload Failed",
+        text: errorDetails,
+        icon: "error",
+        confirmButtonText: "OK"
+      });
     } finally {
       setUploading(false);
     }
@@ -602,38 +660,67 @@ export default function JobsManager() {
         <DialogContent>
           {!capturedImage ? (
             <Box sx={{ textAlign: 'center' }}>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                style={{
-                  width: '100%',
-                  maxHeight: '400px',
-                  borderRadius: '8px',
-                  backgroundColor: '#000',
-                }}
-              />
-              <canvas ref={canvasRef} style={{ display: 'none' }} />
+              {/* Show video preview for desktop, hide for mobile */}
+              <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{
+                    width: '100%',
+                    maxHeight: '400px',
+                    borderRadius: '8px',
+                    backgroundColor: '#000',
+                  }}
+                />
+                <canvas ref={canvasRef} style={{ display: 'none' }} />
+              </Box>
               
-              <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {/* Mobile: Just show camera buttons */}
+              <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {/* Desktop: Traditional capture button */}
                 <Button
                   variant="contained"
                   onClick={handleCapturePhoto}
                   fullWidth
                   size="large"
+                  sx={{ display: { xs: 'none', sm: 'flex' } }}
                 >
                   Capture Photo
                 </Button>
                 
+                {/* Mobile: Use native camera */}
                 <Button
-                  variant="outlined"
+                  variant="contained"
                   onClick={() => fileInputRef.current?.click()}
                   fullWidth
+                  size="large"
+                  sx={{ display: { xs: 'flex', sm: 'none' } }}
                 >
-                  Upload from Gallery
+                  Open Camera
                 </Button>
+                
+                {/* Gallery upload for both */}
+                <Button
+                  variant="outlined"
+                  onClick={() => galleryInputRef.current?.click()}
+                  fullWidth
+                >
+                  Choose from Gallery
+                </Button>
+                
+                {/* Hidden file inputs */}
                 <input
                   ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleFileUpload}
+                  style={{ display: 'none' }}
+                />
+                <input
+                  ref={galleryInputRef}
                   type="file"
                   accept="image/*"
                   onChange={handleFileUpload}
