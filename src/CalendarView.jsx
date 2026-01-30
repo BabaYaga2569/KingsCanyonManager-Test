@@ -55,6 +55,7 @@ export default function CalendarView() {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [calendarView, setCalendarView] = useState("month");
+  const [currentDate, setCurrentDate] = useState(new Date()); // For calendar navigation
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -343,6 +344,8 @@ export default function CalendarView() {
           selectable
           view={calendarView}
           onView={setCalendarView}
+          date={currentDate}
+          onNavigate={(newDate) => setCurrentDate(newDate)}
           eventPropGetter={eventStyleGetter}
           views={["month", "week", "day"]}
           popup

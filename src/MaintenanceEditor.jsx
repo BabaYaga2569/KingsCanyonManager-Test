@@ -27,12 +27,19 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import SaveIcon from "@mui/icons-material/Save";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import moment from "moment";
+import { 
+  createMaintenanceSchedules, 
+  deleteMaintenanceSchedules,
+  updateMaintenanceScheduleStatus 
+} from "./maintenanceScheduler";
 
 export default function MaintenanceEditor() {
   const { id } = useParams();
@@ -48,6 +55,8 @@ export default function MaintenanceEditor() {
     startDate: moment().format("YYYY-MM-DD"),
     status: "active",
     notes: "",
+    autoSchedule: true, // NEW: Enable auto-scheduling by default
+    monthsAhead: 3, // NEW: How many months ahead to schedule
   });
 
   const [customers, setCustomers] = useState([]);
@@ -187,26 +196,71 @@ export default function MaintenanceEditor() {
         updatedAt: serverTimestamp(),
       };
 
+      let contractId = id;
+      
       if (isNew) {
         contractData.createdAt = serverTimestamp();
         contractData.lastVisitDate = null;
         contractData.totalVisits = 0;
         
-        await addDoc(collection(db, "maintenance_contracts"), contractData);
+        const docRef = await addDoc(collection(db, "maintenance_contracts"), contractData);
+        contractId = docRef.id;
         
-        Swal.fire({
-          title: "Contract Created!",
-          text: "Maintenance contract created successfully",
-          icon: "success",
-        });
+        // Auto-create schedules if enabled
+        if (contract.autoSchedule && contract.status === "active") {
+          console.log("🔄 Creating maintenance schedules...");
+          const schedulesCreated = await createMaintenanceSchedules(
+            { ...contractData, id: contractId }, 
+            contract.monthsAhead || 3
+          );
+          
+          Swal.fire({
+            title: "Contract Created!",
+            html: `Maintenance contract created successfully<br><strong>${schedulesCreated} visits scheduled</strong>`,
+            icon: "success",
+          });
+        } else {
+          Swal.fire({
+            title: "Contract Created!",
+            text: "Maintenance contract created successfully",
+            icon: "success",
+          });
+        }
       } else {
+        const previousStatus = contract.status;
+        
         await updateDoc(doc(db, "maintenance_contracts", id), contractData);
         
-        Swal.fire({
-          title: "Contract Updated!",
-          text: "Changes saved successfully",
-          icon: "success",
-        });
+        // Handle schedule updates based on status changes
+        if (contract.status === "active" && contract.autoSchedule) {
+          // If activated, create/regenerate schedules
+          console.log("🔄 Creating/updating maintenance schedules...");
+          const schedulesCreated = await createMaintenanceSchedules(
+            { ...contractData, id: contractId }, 
+            contract.monthsAhead || 3
+          );
+          
+          Swal.fire({
+            title: "Contract Updated!",
+            html: `Changes saved successfully<br><strong>${schedulesCreated} new visits scheduled</strong>`,
+            icon: "success",
+          });
+        } else if (contract.status === "paused" || contract.status === "cancelled") {
+          // Update schedule status
+          await updateMaintenanceScheduleStatus(contractId, contract.status);
+          
+          Swal.fire({
+            title: "Contract Updated!",
+            text: `Contract ${contract.status} - future visits ${contract.status}`,
+            icon: "success",
+          });
+        } else {
+          Swal.fire({
+            title: "Contract Updated!",
+            text: "Changes saved successfully",
+            icon: "success",
+          });
+        }
       }
 
       navigate("/maintenance");
@@ -345,6 +399,47 @@ export default function MaintenanceEditor() {
             </Select>
           </FormControl>
 
+          {/* Auto-Scheduling Options */}
+          <Paper sx={{ p: 2, bgcolor: "#f5f5f5", border: "1px solid #e0e0e0" }}>
+            <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600 }}>
+              Auto-Scheduling Settings
+            </Typography>
+            
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={contract.autoSchedule}
+                  onChange={(e) => setContract({ ...contract, autoSchedule: e.target.checked })}
+                  color="primary"
+                />
+              }
+              label="Automatically create scheduled visits"
+            />
+            
+            {contract.autoSchedule && (
+              <FormControl fullWidth sx={{ mt: 1 }} size="small">
+                <InputLabel>Schedule Ahead</InputLabel>
+                <Select
+                  name="monthsAhead"
+                  value={contract.monthsAhead}
+                  label="Schedule Ahead"
+                  onChange={handleChange}
+                >
+                  <MenuItem value={1}>1 Month Ahead</MenuItem>
+                  <MenuItem value={2}>2 Months Ahead</MenuItem>
+                  <MenuItem value={3}>3 Months Ahead (Recommended)</MenuItem>
+                  <MenuItem value={6}>6 Months Ahead</MenuItem>
+                </Select>
+              </FormControl>
+            )}
+            
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+              {contract.autoSchedule 
+                ? `System will auto-create visits ${contract.monthsAhead} month(s) in advance and add them to your calendar`
+                : "Enable to automatically schedule visits based on frequency"}
+            </Typography>
+          </Paper>
+
           {/* Notes */}
           <TextField
             label="Internal Notes"
@@ -360,14 +455,14 @@ export default function MaintenanceEditor() {
       </Paper>
 
       {/* Info Alert */}
-      <Alert severity="info" sx={{ mb: 3 }}>
-        <strong>How it works:</strong>
+      <Alert severity="success" sx={{ mb: 3 }}>
+        <strong>✨ Auto-Scheduling Enabled!</strong>
         <ul style={{ margin: "8px 0", paddingLeft: "20px" }}>
-          <li>System automatically schedules visits based on frequency</li>
-          <li>Calendar entries are created for upcoming maintenance</li>
-          <li>Mark visits as completed in the calendar</li>
-          <li>Generate monthly invoices with one click</li>
-          <li>Pause contract during off-season (no visits scheduled)</li>
+          <li><strong>Automatic:</strong> System creates visits {contract.monthsAhead} month(s) ahead based on frequency</li>
+          <li><strong>Calendar:</strong> All visits appear in your Schedule & Calendar automatically</li>
+          <li><strong>Smart:</strong> When you complete a visit, next one is auto-scheduled</li>
+          <li><strong>Invoice:</strong> Generate monthly invoices for all completed visits</li>
+          <li><strong>Flexible:</strong> Pause anytime during off-season - visits stop scheduling</li>
         </ul>
       </Alert>
 

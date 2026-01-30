@@ -37,6 +37,13 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import PaymentIcon from "@mui/icons-material/Payment";
 import moment from "moment";
+import { 
+  createMaintenanceSchedules,
+  getExistingMaintenanceSchedules,
+  getNextVisitDate,
+  regenerateMaintenanceSchedules,
+  deleteMaintenanceSchedules
+} from "./maintenanceScheduler";
 
 export default function MaintenanceDashboard() {
   const [contracts, setContracts] = useState([]);
@@ -61,14 +68,41 @@ export default function MaintenanceDashboard() {
       const snap = await getDocs(collection(db, "maintenance_contracts"));
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       
+      // Load schedule information for each contract
+      const contractsWithSchedules = await Promise.all(
+        data.map(async (contract) => {
+          try {
+            const schedules = await getExistingMaintenanceSchedules(contract.id);
+            const nextVisit = await getNextVisitDate(contract.id);
+            
+            // Count future scheduled visits
+            const futureSchedules = schedules.filter(s => 
+              moment(s.startDate).isSameOrAfter(moment(), 'day') && 
+              s.status !== 'cancelled' &&
+              s.status !== 'completed'
+            );
+            
+            return {
+              ...contract,
+              scheduledVisitsCount: futureSchedules.length,
+              nextVisitDate: nextVisit,
+              totalSchedules: schedules.length
+            };
+          } catch (error) {
+            console.error(`Error loading schedules for ${contract.customerName}:`, error);
+            return contract;
+          }
+        })
+      );
+      
       // Sort by status (active first) then by customer name
-      data.sort((a, b) => {
+      contractsWithSchedules.sort((a, b) => {
         if (a.status === "active" && b.status !== "active") return -1;
         if (a.status !== "active" && b.status === "active") return 1;
         return (a.customerName || "").localeCompare(b.customerName || "");
       });
       
-      setContracts(data);
+      setContracts(contractsWithSchedules);
     } catch (error) {
       console.error("Error fetching maintenance contracts:", error);
       Swal.fire("Error", "Failed to load maintenance contracts", "error");
@@ -118,6 +152,44 @@ export default function MaintenanceDashboard() {
     } catch (error) {
       console.error("Error updating status:", error);
       Swal.fire("Error", "Failed to update status", "error");
+    }
+  };
+
+  const handleRegenerateSchedules = async (contract) => {
+    const result = await Swal.fire({
+      title: 'Regenerate Schedules?',
+      html: `This will create new maintenance visits for <strong>${contract.customerName}</strong> based on the contract frequency.<br><br>Existing future visits will be kept.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Regenerate',
+      confirmButtonColor: '#1976d2',
+    });
+
+    if (result.isConfirmed) {
+      try {
+        Swal.fire({
+          title: 'Creating Schedules...',
+          text: 'Please wait',
+          allowOutsideClick: false,
+          didOpen: () => {
+            Swal.showLoading();
+          }
+        });
+
+        const schedulesCreated = await createMaintenanceSchedules(contract, contract.monthsAhead || 3);
+        
+        // Refresh contracts to show new schedule counts
+        await fetchContracts();
+        
+        Swal.fire({
+          title: 'Schedules Created!',
+          html: `<strong>${schedulesCreated}</strong> new visits scheduled for ${contract.customerName}`,
+          icon: 'success',
+        });
+      } catch (error) {
+        console.error('Error regenerating schedules:', error);
+        Swal.fire('Error', 'Failed to regenerate schedules: ' + error.message, 'error');
+      }
     }
   };
 
@@ -218,31 +290,6 @@ export default function MaintenanceDashboard() {
       case "cancelled": return "error";
       default: return "default";
     }
-  };
-
-  const getNextVisitDate = (contract) => {
-    if (!contract.lastVisitDate) {
-      return contract.startDate || "Not scheduled";
-    }
-    
-    const lastVisit = moment(contract.lastVisitDate);
-    let nextVisit;
-    
-    switch (contract.frequency) {
-      case "weekly":
-        nextVisit = lastVisit.add(1, "week");
-        break;
-      case "biweekly":
-        nextVisit = lastVisit.add(2, "weeks");
-        break;
-      case "monthly":
-        nextVisit = lastVisit.add(1, "month");
-        break;
-      default:
-        return "Unknown";
-    }
-    
-    return nextVisit.format("MMM DD, YYYY");
   };
 
   const filteredContracts = contracts.filter((contract) => {
@@ -389,10 +436,15 @@ export default function MaintenanceDashboard() {
                   {contract.servicesIncluded || "Standard maintenance"}
                 </Typography>
 
-                {/* Next Visit */}
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Next Visit:</strong> {getNextVisitDate(contract)}
-                </Typography>
+                {/* Schedule Info */}
+                <Box sx={{ mb: 1, p: 1, bgcolor: "#f5f5f5", borderRadius: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Next Visit:</strong> {contract.nextVisitDate ? moment(contract.nextVisitDate).format("MMM DD, YYYY") : "Not scheduled"}
+                  </Typography>
+                  <Typography variant="caption" color="primary.main" sx={{ fontWeight: 600 }}>
+                    {contract.scheduledVisitsCount || 0} visits scheduled ahead
+                  </Typography>
+                </Box>
 
                 {/* Start Date */}
                 <Typography variant="caption" color="text.secondary">
@@ -407,6 +459,15 @@ export default function MaintenanceDashboard() {
                   onClick={() => navigate(`/maintenance/${contract.id}`)}
                 >
                   Edit
+                </Button>
+                <Button
+                  size="small"
+                  startIcon={<CalendarMonthIcon />}
+                  onClick={() => handleRegenerateSchedules(contract)}
+                  color="info"
+                  disabled={contract.status !== 'active'}
+                >
+                  Schedules
                 </Button>
                 <Button
                   size="small"

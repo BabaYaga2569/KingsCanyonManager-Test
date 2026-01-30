@@ -36,7 +36,7 @@ export default function ScheduleDashboard() {
   const navigate = useNavigate();
 
   const [schedules, setSchedules] = useState([]);
-  const [employees, setEmployees] = useState([]); // ✅ FIXED: Changed from crews
+  const [crews, setCrews] = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedSchedule, setSelectedSchedule] = useState(null);
@@ -55,10 +55,9 @@ export default function ScheduleDashboard() {
       const schedulesData = schedulesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setSchedules(schedulesData);
 
-      // ✅ FIXED: Load employees from users collection (not crews)
-      const employeesSnap = await getDocs(collection(db, "users"));
-      const employeesData = employeesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setEmployees(employeesData.filter((e) => e.active !== false));
+      const crewsSnap = await getDocs(collection(db, "crews"));
+      const crewsData = crewsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setCrews(crewsData);
 
       const equipSnap = await getDocs(collection(db, "equipment"));
       const equipData = equipSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -116,11 +115,10 @@ export default function ScheduleDashboard() {
     }
   };
 
-  // ✅ FIXED: Get employee names (not crew names)
-  const getEmployeeNames = (employeeIds) => {
-    if (!employeeIds || employeeIds.length === 0) return "No employees assigned";
-    return employeeIds
-      .map((id) => employees.find((e) => e.id === id)?.name)
+  const getCrewNames = (crewIds) => {
+    if (!crewIds || crewIds.length === 0) return "No crew assigned";
+    return crewIds
+      .map((id) => crews.find((c) => c.id === id)?.name)
       .filter(Boolean)
       .join(", ");
   };
@@ -154,12 +152,24 @@ export default function ScheduleDashboard() {
 
   const groupSchedulesByDate = () => {
     const grouped = {};
+    
+    // Filter schedules to only include those in the current month
+    const currentYear = currentMonth.getFullYear();
+    const currentMonthNum = currentMonth.getMonth();
+    
     schedules.forEach((schedule) => {
-      const date = schedule.startDate;
-      if (!grouped[date]) {
-        grouped[date] = [];
+      const scheduleDate = new Date(schedule.startDate + 'T00:00:00');
+      const scheduleYear = scheduleDate.getFullYear();
+      const scheduleMonthNum = scheduleDate.getMonth();
+      
+      // Only include schedules from the current displayed month
+      if (scheduleYear === currentYear && scheduleMonthNum === currentMonthNum) {
+        const date = schedule.startDate;
+        if (!grouped[date]) {
+          grouped[date] = [];
+        }
+        grouped[date].push(schedule);
       }
-      grouped[date].push(schedule);
     });
     return grouped;
   };
@@ -197,7 +207,7 @@ export default function ScheduleDashboard() {
     <Container sx={{ mt: 3, mb: 6 }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Typography variant="h5" sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}>
-          📅 Schedule Dashboard
+          Schedule Dashboard
         </Typography>
         <Box sx={{ display: "flex", gap: 1 }}>
           <Button
@@ -283,7 +293,7 @@ export default function ScheduleDashboard() {
                           </Box>
 
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                            ⏰ {schedule.startTime} - {schedule.endTime}
+                            â° {schedule.startTime} - {schedule.endTime}
                           </Typography>
 
                           {schedule.jobDescription && (
@@ -295,7 +305,7 @@ export default function ScheduleDashboard() {
                           <Divider sx={{ my: 1 }} />
 
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                            <strong>Employees:</strong> {getEmployeeNames(schedule.selectedEmployees || schedule.selectedCrews)}
+                            <strong>Crew:</strong> {getCrewNames(schedule.selectedCrews)}
                           </Typography>
 
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -304,7 +314,7 @@ export default function ScheduleDashboard() {
 
                           {schedule.notes && (
                             <Typography variant="body2" sx={{ mt: 2, fontStyle: "italic", color: "text.secondary" }}>
-                              📝 {schedule.notes}
+                              {schedule.notes}
                             </Typography>
                           )}
 
@@ -397,10 +407,10 @@ export default function ScheduleDashboard() {
 
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">
-                    Assigned Employees
+                    Assigned Crew
                   </Typography>
                   <Typography variant="body1">
-                    {getEmployeeNames(selectedSchedule.selectedEmployees || selectedSchedule.selectedCrews)}
+                    {getCrewNames(selectedSchedule.selectedCrews)}
                   </Typography>
                 </Box>
 
