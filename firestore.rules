@@ -2,6 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+    
     // Helper function to check if user is authenticated
     function isAuthenticated() {
       return request.auth != null;
@@ -19,6 +23,11 @@ service cloud.firestore {
       return isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'god';
+    }
+    
+    // NEW: Helper to check if accessing own data
+    function isOwnData(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
     
     // ============================================
@@ -46,115 +55,126 @@ service cloud.firestore {
     }
     
     // ============================================
-    // BIDS COLLECTION
+    // BIDS COLLECTION - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /bids/{bidId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
     
     // ============================================
-    // CONTRACTS COLLECTION
+    // CONTRACTS COLLECTION - ⚠️ CHANGED: PUBLIC READ, ADMIN WRITE
     // ============================================
     match /contracts/{contractId} {
-      allow read, write: if isAuthenticated();
+      allow read: if true;  // ✅ Public access needed for contract signing pages
+      allow write: if isGodOrAdmin();  // ✅ CREW BLOCKED from editing
     }
     
     // ============================================
-    // INVOICES COLLECTION
+    // INVOICES COLLECTION - ⚠️ CHANGED: PUBLIC READ, ADMIN WRITE
     // ============================================
     match /invoices/{invoiceId} {
-      allow read, write: if isAuthenticated();
+      allow read: if true;  // ✅ Public access needed for payment portal
+      allow write: if isGodOrAdmin();  // ✅ CREW BLOCKED from editing
     }
     
     // ============================================
-    // JOBS COLLECTION
+    // JOBS COLLECTION - ⚠️ CHANGED: CREW CAN READ (for dropdown)
     // ============================================
     match /jobs/{jobId} {
-      allow read, write: if isAuthenticated();
+      // ✅ CREW can READ job names for time clock dropdown
+      allow read: if isAuthenticated();
+      // ✅ Only ADMIN/GOD can create/edit jobs
+      allow write: if isGodOrAdmin();
     }
     
     // ============================================
-    // CUSTOMERS COLLECTION
+    // CUSTOMERS COLLECTION - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /customers/{customerId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
     
     // ============================================
-    // EXPENSES COLLECTION
+    // EXPENSES COLLECTION - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /expenses/{expenseId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
     
     // ============================================
-    // PAYMENTS COLLECTION (Invoice Payments)
+    // PAYMENTS COLLECTION (Invoice Payments) - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /payments/{paymentId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
     
     // ============================================
-    // CREW PAYMENTS COLLECTION (✅ NEW - Payroll Payments)
+    // CREW PAYMENTS COLLECTION (Payroll Payments) - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /crew_payments/{paymentId} {
-      // All authenticated users can read crew payments
-      allow read: if isAuthenticated();
+      // ✅ CHANGED: Only god/admin can read crew payments (payroll data)
+      allow read: if isGodOrAdmin();  // ✅ CREW BLOCKED from seeing payroll
       
       // Only god/admin can create, update, delete crew payments
       allow create, update, delete: if isGodOrAdmin();
     }
     
     // ============================================
-    // SCHEDULES COLLECTION (FIXED: plural to match actual collection name)
+    // SCHEDULES COLLECTION - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /schedules/{scheduleId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
     
     // ============================================
-    // SCHEDULE COLLECTION (Legacy singular - for backwards compatibility)
+    // SCHEDULE COLLECTION (Legacy singular) - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /schedule/{scheduleId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
     
     // ============================================
-    // CALENDAR COLLECTION
+    // CALENDAR COLLECTION - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /calendar/{calendarId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
     
     // ============================================
-    // TIME CLOCK COLLECTION
+    // TIME CLOCK COLLECTION - ⚠️ CHANGED: OWN DATA ONLY
     // ============================================
     match /timeClock/{timeClockId} {
-      allow read, write: if isAuthenticated();
+      // ✅ CREW can only see their own time clock data
+      allow read: if isOwnData(timeClockId) || isGodOrAdmin();
+      allow create: if isAuthenticated() && request.auth.uid == timeClockId;
+      allow update: if isOwnData(timeClockId) || isGodOrAdmin();
+      allow delete: if isGodOrAdmin();
     }
     
     // ============================================
-    // JOB TIME ENTRIES COLLECTION (NEW - CRITICAL FOR CLOCK IN/OUT)
+    // JOB TIME ENTRIES COLLECTION - ⚠️ CHANGED: OWN DATA ONLY
     // ============================================
     match /job_time_entries/{entryId} {
-      // All authenticated users can create time entries
+      // ✅ CREW can create their own time entries
       allow create: if isAuthenticated();
       
-      // All authenticated users can read time entries
-      allow read: if isAuthenticated();
+      // ✅ CREW can only read their own entries, ADMIN sees all
+      allow read: if isAuthenticated() && 
+                    (resource.data.userId == request.auth.uid || isGodOrAdmin());
       
-      // All authenticated users can update time entries
-      allow update: if isAuthenticated();
+      // ✅ CREW can update their own entries, ADMIN can update all
+      allow update: if isAuthenticated() && 
+                      (resource.data.userId == request.auth.uid || isGodOrAdmin());
       
       // Only god/admin can delete
       allow delete: if isGodOrAdmin();
     }
     
     // ============================================
-    // NOTES COLLECTION
+    // NOTES COLLECTION - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /notes/{noteId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
     
     // ============================================
@@ -168,14 +188,15 @@ service cloud.firestore {
     // CREWS COLLECTION (Plural version)
     // ============================================
     match /crews/{crewId} {
-      allow read, write: if isGodOrAdmin();
+      allow read: if true;  // ✅ Public read needed for NDA signing pages
+      allow write: if isGodOrAdmin();
     }
     
     // ============================================
-    // EQUIPMENT COLLECTION
+    // EQUIPMENT COLLECTION - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /equipment/{equipmentId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
     
     // ============================================
@@ -193,10 +214,11 @@ service cloud.firestore {
     }
     
     // ============================================
-    // NOTIFICATIONS COLLECTION
+    // NOTIFICATIONS COLLECTION - ⚠️ CHANGED: READ ALL, WRITE ADMIN
     // ============================================
     match /notifications/{notificationId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();  // Everyone can read notifications
+      allow write: if isGodOrAdmin();  // Only admin creates notifications
     }
     
     // ============================================
@@ -207,7 +229,7 @@ service cloud.firestore {
     }
     
     // ============================================
-    // SETTINGS COLLECTION (NEW - for goal tracking, app settings, etc.)
+    // SETTINGS COLLECTION (for goal tracking, app settings, etc.)
     // ============================================
     match /settings/{settingId} {
       allow read: if isAuthenticated();
@@ -215,10 +237,10 @@ service cloud.firestore {
     }
     
     // ============================================
-    // MAINTENANCE CONTRACTS COLLECTION (NEW - for recurring monthly maintenance)
+    // MAINTENANCE CONTRACTS COLLECTION - ⚠️ CHANGED: ADMIN/GOD ONLY
     // ============================================
     match /maintenance_contracts/{contractId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isGodOrAdmin();  // ✅ CREW BLOCKED
     }
   }
 }
