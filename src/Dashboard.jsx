@@ -16,8 +16,8 @@ import {
   CircularProgress,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import SettingsIcon from "@mui/icons-material/Settings";
 import GoalTracker from "./GoalTracker";
-import EmployeeNameMigration from "./EmployeeNameMigration";
 
 function Tile({ title, count, onView, onNew }) {
   return (
@@ -229,9 +229,9 @@ export default function Dashboard() {
       </Grid>
 
       <Box sx={{ mt: { xs: 2, sm: 3 } }}>
-        <GoalTracker />  
-        <EmployeeNameMigration />		
+        <GoalTracker />
       </Box>
+
       <Paper 
         sx={{ 
           p: { xs: 2, sm: 3 }, 
@@ -300,6 +300,23 @@ export default function Dashboard() {
             }}
           >
             Manage Customers
+          </Button>
+          <Button 
+            variant="outlined" 
+            onClick={() => navigate("/notification-settings")}
+            fullWidth={true}
+            startIcon={<SettingsIcon />}
+            sx={{ 
+              sm: { flexGrow: 0, flexBasis: 'auto' },
+              borderColor: 'success.main',
+              color: 'success.main',
+              '&:hover': {
+                borderColor: 'success.dark',
+                backgroundColor: 'rgba(76, 175, 80, 0.08)',
+              }
+            }}
+          >
+            SMS Notifications
           </Button>
         </Box>
       </Paper>
