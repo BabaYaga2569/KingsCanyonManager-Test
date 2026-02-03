@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db, storage } from "./firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { generateSecureToken } from './utils/tokenUtils';
 import {
   Paper,
   Table,
@@ -407,6 +408,7 @@ export default function InvoicesDashboard() {
         beforePhoto: beforePhotoURL,
         afterPhoto: afterPhotoURL,
         hasPhotos: !!(beforePhotoURL || afterPhotoURL),
+        paymentToken: generateSecureToken(),
       };
 
       const invoiceRef = await addDoc(collection(db, "invoices"), invoiceData);

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
+import { getTokenFromUrl } from './utils/tokenUtils';
 import {
   Container,
   Typography,
@@ -56,10 +57,14 @@ function ContractSigningPageContent() {
 
   useEffect(() => {
     loadContract();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contractId]);
 
   const loadContract = async () => {
     try {
+      // Get token from URL
+      const token = getTokenFromUrl();
+      
       const docRef = doc(db, "contracts", contractId);
       const snap = await getDoc(docRef);
       
@@ -70,6 +75,14 @@ function ContractSigningPageContent() {
       }
 
       const data = snap.data();
+      
+      // Verify token matches (Firestore rules will also check this)
+      if (data.signingToken && data.signingToken !== token) {
+        Swal.fire("Access Denied", "Invalid or expired link. Please request a new signing link.", "error");
+        setLoading(false);
+        return;
+      }
+      
       setContract(data);
       
       // Check if already signed by client

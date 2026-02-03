@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { addDoc, collection, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
+import { generateSecureToken } from './utils/tokenUtils';
 import {
   TextField,
   Button,
@@ -142,6 +143,7 @@ export default function CreateBid() {
         notes: notes || "",
         createdAt: new Date().toISOString(),
         hasDesignVisualization: false,
+        signingToken: generateSecureToken(),
       });
 
       await Swal.fire("✅ Bid saved", "Your bid was created.", "success");
@@ -186,6 +188,7 @@ export default function CreateBid() {
         createdAt: new Date().toISOString(),
         hasDesignVisualization: true,
         designVisualization: design,
+        signingToken: generateSecureToken(),
       });
 
       await Swal.fire("✅ Bid saved with design!", "Your bid with visualization was created.", "success");

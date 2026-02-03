@@ -337,7 +337,7 @@ export default function BidEditor() {
   };
 
   const handleSendForSignature = () => {
-    const signingLink = `${window.location.origin}/sign-bid/${id}`;
+    const signingLink = `${window.location.origin}/sign-bid/${id}?token=${bid.signingToken}`;
     
     navigator.clipboard.writeText(signingLink).then(() => {
       Swal.fire({
