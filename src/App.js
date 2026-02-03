@@ -82,6 +82,7 @@ import EquipmentManager from "./EquipmentManager";
 import NDAEditor from "./NDAEditor";
 import NDASigningPage from "./NDASigningPage";
 import NDASigning from "./NDASigning"; // NEW: Employee first-login NDA
+import MigrationPage from './MigrationPage';
 import ExpensesManager from "./ExpensesManager";
 import IntegratedPayroll from "./IntegratedPayroll"; // ✅ CHANGED: New integrated payroll system
 import CrewPaymentHistory from "./CrewPaymentHistory";
@@ -778,6 +779,7 @@ function AppContent() {
         <Route path="/customer-edit/:id" element={<CustomerEditor />} />
         <Route path="/customer/:id" element={<CustomerProfile />} />
         <Route path="/schedule-job" element={<ScheduleJob />} />
+        <Route path="/migrate-tokens" element={<MigrationPage />} />
         <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
         <Route path="/calendar-view" element={<CalendarView />} />
         {/* 🔒 CRITICAL: Maintenance routes - DO NOT REMOVE */}
