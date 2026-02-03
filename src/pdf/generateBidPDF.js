@@ -3,7 +3,7 @@ import jsPDF from "jspdf";
 const COMPANY = {
   name: "Kings Canyon Landscaping LLC",
   cityState: "Bullhead City, AZ",
-  phone: "(928) 296-0217",
+  phone: "(928) 450-5733",
   email: "kingscanyon775@gmail.com",
 };
 
@@ -46,7 +46,11 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
 
     // Logo
     if (logoDataUrl && currentPage === 1) {
-      doc.addImage(logoDataUrl, "PNG", 40, 42, 80, 80);
+      try {
+        doc.addImage(logoDataUrl, "PNG", 40, 42, 80, 80);
+      } catch (e) {
+        console.error("Error adding logo:", e);
+      }
     }
 
     // Company info
@@ -66,8 +70,13 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
     // Bid meta
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
-    doc.text(`Bid No.: ${bid.id.slice(-8).toUpperCase()}`, W - 40, 84, { align: "right" });
-    doc.text(`Date: ${new Date().toLocaleDateString()}`, W - 40, 100, { align: "right" });
+    const bidNumber = bid.id ? bid.id.slice(-8).toUpperCase() : 'DRAFT';
+    doc.text(`Bid No.: ${bidNumber}`, W - 40, 84, { align: "right" });
+    
+    const bidDate = bid.createdAt 
+      ? new Date(bid.createdAt).toLocaleDateString() 
+      : new Date().toLocaleDateString();
+    doc.text(`Date: ${bidDate}`, W - 40, 100, { align: "right" });
 
     // Divider
     doc.setDrawColor(150);
@@ -105,6 +114,7 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
   const writeLabelValue = (label, value) => {
     checkPageBreak(25);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(0);
     doc.text(`${label}:`, MARGIN, y);
     doc.setFont("helvetica", "normal");
     const textValue = value || "N/A";
@@ -120,6 +130,7 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
   y += 10;
   checkPageBreak(40);
   doc.setFont("helvetica", "bold");
+  doc.setTextColor(0);
   doc.text("Scope of Work:", MARGIN, y);
   y += 14;
   doc.setFont("helvetica", "normal");
@@ -213,7 +224,108 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
     y += termLines.length * 12 + 4;
   });
 
-  // Add footer to last page
+  // ============================================
+  // SIGNATURES SECTION - ALWAYS SHOW
+  // ============================================
+  
+  y += 30;
+  checkPageBreak(180); // Need space for signature boxes
+  
+  // Section title
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(0);
+  doc.text("Authorization & Acceptance", MARGIN, y);
+  y += 18;
+  
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  const acceptanceText = doc.splitTextToSize(
+    "By signing below, both parties agree to the terms outlined in this bid proposal. Digital signatures are valid and binding.",
+    W - 80
+  );
+  doc.text(acceptanceText, MARGIN, y);
+  y += acceptanceText.length * 12 + 20;
+  
+  // Check if we need a page break for signature boxes
+  checkPageBreak(140);
+  
+  // Define signature box dimensions
+  const sigBoxH = 80;
+  const sigBoxW = (W - 100) / 2; // Two columns with gap
+  const col1X = MARGIN;
+  const col2X = W / 2 + 10;
+  
+  // Draw signature boxes
+  doc.setDrawColor(120);
+  doc.setLineWidth(1);
+  doc.rect(col1X, y, sigBoxW, sigBoxH);
+  doc.rect(col2X, y, sigBoxW, sigBoxH);
+  
+    // CLIENT SIGNATURE (left box)
+  if (bid.clientSignature) {
+    try {
+      doc.addImage(
+        bid.clientSignature, 
+        "PNG", 
+        col1X + 6, 
+        y + 6, 
+        sigBoxW - 12, 
+        sigBoxH - 12
+      );
+    } catch (e) {
+      console.error("Error adding client signature:", e);
+    }
+  }
+  
+  // CONTRACTOR SIGNATURE (right box)
+  if (bid.contractorSignature) {
+    try {
+      doc.addImage(
+        bid.contractorSignature, 
+        "PNG", 
+        col2X + 6, 
+        y + 6, 
+        sigBoxW - 12, 
+        sigBoxH - 12
+      );
+    } catch (e) {
+      console.error("Error adding contractor signature:", e);
+    }
+  }
+  
+  // Move y down past the boxes
+  y += sigBoxH + 16;
+  
+  // Signature labels
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(0);
+  doc.text("Customer Signature", col1X, y);
+  doc.text("Contractor Signature", col2X, y);
+  y += 14;
+  
+  // Names
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Customer: ${bid.customerName || "N/A"}`, col1X, y);
+  doc.text(`Company: ${COMPANY.name}`, col2X, y);
+  y += 12;
+  
+  // Timestamps or blank lines
+  const clientSignedText = bid.clientSignedAt 
+    ? `Signed: ${new Date(bid.clientSignedAt).toLocaleDateString()}` 
+    : "Date: _______________";
+  const contractorSignedText = bid.contractorSignedAt 
+    ? `Signed: ${new Date(bid.contractorSignedAt).toLocaleDateString()}` 
+    : "Date: _______________";
+  
+  doc.text(clientSignedText, col1X, y);
+  doc.text(contractorSignedText, col2X, y);
+  
+  y += 20;
+
+  // Add footer to final page
   addFooter();
 
   return doc;

@@ -19,6 +19,7 @@ import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import moment from "moment";
 import Swal from "sweetalert2";
+import { sendClockInNotification, sendClockOutNotification } from './smsNotificationService';
 
 export default function TimeClock() {
   const { user, userRole } = useAuth();
@@ -75,6 +76,7 @@ export default function TimeClock() {
     }
   };
 
+
   const loadData = async () => {
     try {
       // ✅ CHANGE 1: Load employee info first
@@ -125,21 +127,63 @@ export default function TimeClock() {
       console.log("Loaded jobs:", allJobs); // DEBUG
       setJobs(allJobs);
 
-      // Check if currently clocked in
+      // ✅ CRITICAL FIX: Auto-close old zombie entries BEFORE checking current status
+      console.log("🔍 Checking for zombie entries...");
       const timeEntriesRef = collection(db, "job_time_entries");
-      const q = query(
+      const openEntriesQuery = query(
         timeEntriesRef,
         where("crewId", "==", user.uid),
-        where("clockOut", "==", null),
-        orderBy("clockIn", "desc")
+        where("clockOut", "==", null)
       );
-      const entriesSnap = await getDocs(q);
+      const allOpenEntries = await getDocs(openEntriesQuery);
       
-      if (!entriesSnap.empty) {
-        const entry = { id: entriesSnap.docs[0].id, ...entriesSnap.docs[0].data() };
-        setCurrentEntry(entry);
+      // Find entries older than 12 hours
+      const twelveHoursAgo = Date.now() - (12 * 60 * 60 * 1000);
+      const zombieEntries = [];
+      let currentOpenEntry = null;
+      
+      allOpenEntries.docs.forEach((docSnap) => {
+        const entry = { id: docSnap.id, ...docSnap.data() };
+        const clockInTime = new Date(entry.clockIn).getTime();
+        
+        if (clockInTime < twelveHoursAgo) {
+          // Old zombie entry - needs auto-close
+          zombieEntries.push(entry);
+          console.log(`🧹 Found zombie entry from ${entry.clockIn} - will auto-close`);
+        } else {
+          // Recent entry (within last 12 hours) - this is the current one
+          currentOpenEntry = entry;
+        }
+      });
+      
+      // Auto-close zombie entries
+      if (zombieEntries.length > 0) {
+        console.log(`🧹 Auto-closing ${zombieEntries.length} zombie entries...`);
+        for (const zombie of zombieEntries) {
+          console.log(`🧹 Auto-closing zombie entry: ${zombie.id} from ${zombie.clockIn}`);
+          await updateDoc(doc(db, "job_time_entries", zombie.id), {
+            clockOut: zombie.clockIn, // Set to same time = 0 hours worked
+            hoursWorked: 0,
+            status: "auto_closed",
+            updatedAt: new Date().toISOString(),
+            autoClosedReason: "Entry older than 12 hours without clock out"
+          });
+        }
+        console.log("✅ Zombie cleanup complete!");
+      } else {
+        console.log("✅ No zombie entries found");
+      }
+      
+      // Now check for legitimate current entry
+      if (currentOpenEntry) {
+        console.log("✅ Found current open entry:", currentOpenEntry);
+        setCurrentEntry(currentOpenEntry);
         setClockedIn(true);
-        setSelectedJob(entry.jobId);
+        setSelectedJob(currentOpenEntry.jobId);
+      } else {
+        console.log("✅ No open entries - user is clocked out");
+        setClockedIn(false);
+        setCurrentEntry(null);
       }
 
       // Load today's total hours
@@ -151,7 +195,6 @@ export default function TimeClock() {
       setLoading(false);
     }
   };
-
   const loadTodayHours = async () => {
     try {
       const todayStart = moment().startOf('day').toISOString();
@@ -215,6 +258,17 @@ export default function TimeClock() {
       setCurrentEntry({ id: docRef.id, ...entryData });
       setClockedIn(true);
 
+      // Send SMS notification
+      try {
+        await sendClockInNotification(
+          { id: user.uid, name: employeeName, email: user.email },
+          now,
+          { id: selectedJob, name: job?.displayName || "Unknown Job", clientName: job?.clientName || job?.displayName }
+        );
+      } catch (smsError) {
+        console.error('Error sending clock in notification:', smsError);
+      }
+
       Swal.fire({
         icon: "success",
         title: "Clocked In!",
@@ -249,6 +303,19 @@ export default function TimeClock() {
       setSelectedJob("");
       
       await loadTodayHours();
+
+      // Send SMS notification
+      try {
+        const employeeName = currentEntry.crewName || user.displayName || user.email;
+        await sendClockOutNotification(
+          { id: user.uid, name: employeeName, email: user.email },
+          currentEntry.clockIn,
+          now,
+          { id: currentEntry.jobId, name: currentEntry.jobName || "Unknown Job", clientName: currentEntry.jobName }
+        );
+      } catch (smsError) {
+        console.error('Error sending clock out notification:', smsError);
+      }
 
       Swal.fire({
         icon: "success",
