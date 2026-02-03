@@ -21,64 +21,86 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'god';
     }
     
-    // NEW: Helper to check if accessing own data
+    // Helper to check if accessing own data
     function isOwnData(userId) {
       return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // 🔐 NEW: Helper to check if request has valid token for a document
+    function hasValidToken(docId, tokenField) {
+      let doc = get(/databases/$(database)/documents/$(request.path.parent())/$(docId));
+      return request.query.token != null && 
+             doc.data[tokenField] != null &&
+             doc.data[tokenField] == request.query.token;
     }
     
     // ============================================
     // USERS COLLECTION (Employee Account Manager)
     // ============================================
     match /users/{userId} {
-      // CRITICAL: Anyone authenticated can READ all user documents
-      // This is needed so the helper functions (isGod, isGodOrAdmin) can work
       allow read: if isAuthenticated();
-      
-      // Only god users can CREATE new users (FIXED: safer check)
       allow create: if isGod();
-      
-      // God can UPDATE any user
       allow update: if isGod();
-      
-      // FIXED: Users can UPDATE their OWN document for NDA signing (but cannot change role)
-      // This checks: if role field is NOT in the update, OR if it's unchanged from original
       allow update: if isAuthenticated() && 
                       request.auth.uid == userId &&
                       (!('role' in request.resource.data) || request.resource.data.role == resource.data.role);
-      
-      // Only god users can DELETE users
       allow delete: if isGod();
     }
     
     // ============================================
-    // BIDS COLLECTION - ADMIN ONLY
+    // 🔐 BIDS COLLECTION - SECURE WITH TOKENS
     // ============================================
     match /bids/{bidId} {
-      allow read, write: if isGodOrAdmin();
+      // Read: authenticated users OR valid signing token
+      allow read: if isGodOrAdmin() || hasValidToken(bidId, 'signingToken');
+      
+      // Write: only admin
+      allow write: if isGodOrAdmin();
+      
+      // Update: authenticated OR token holder (but only signature fields)
+      allow update: if isGodOrAdmin() || 
+        (hasValidToken(bidId, 'signingToken') && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['customerSignature', 'customerSignedAt', 'status', 'signedBy']));
     }
     
     // ============================================
-    // CONTRACTS COLLECTION - ADMIN ONLY
+    // 🔐 CONTRACTS COLLECTION - SECURE WITH TOKENS
     // ============================================
     match /contracts/{contractId} {
-      allow read: if true;  // Public for signing pages
+      // Read: authenticated users OR valid signing token
+      allow read: if isGodOrAdmin() || hasValidToken(contractId, 'signingToken');
+      
+      // Write: only admin
       allow write: if isGodOrAdmin();
+      
+      // Update: authenticated OR token holder (but only signature fields)
+      allow update: if isGodOrAdmin() || 
+        (hasValidToken(contractId, 'signingToken') && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['customerSignature', 'customerSignedAt', 'status', 'signedBy']));
     }
     
     // ============================================
-    // INVOICES COLLECTION - ADMIN ONLY
+    // 🔐 INVOICES COLLECTION - SECURE WITH TOKENS
     // ============================================
     match /invoices/{invoiceId} {
-      allow read: if true;  // Public for payment portal
+      // Read: authenticated users OR valid payment token
+      allow read: if isGodOrAdmin() || hasValidToken(invoiceId, 'paymentToken');
+      
+      // Write: only admin
       allow write: if isGodOrAdmin();
+      
+      // Update: authenticated OR token holder (but only payment fields)
+      allow update: if isGodOrAdmin() || 
+        (hasValidToken(invoiceId, 'paymentToken') && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paidAt', 'paymentMethod', 'paymentNotes']));
     }
     
     // ============================================
     // JOBS COLLECTION - READ FOR DROPDOWN
     // ============================================
     match /jobs/{jobId} {
-      allow read: if isAuthenticated();  // CREW can READ job names for time clock dropdown
-      allow write: if isGodOrAdmin();  // Only ADMIN can create/edit jobs
+      allow read: if isAuthenticated();
+      allow write: if isGodOrAdmin();
     }
     
     // ============================================
@@ -106,7 +128,7 @@ service cloud.firestore {
     // CREW PAYMENTS COLLECTION - Payroll
     // ============================================
     match /crew_payments/{paymentId} {
-      allow read: if isGodOrAdmin();  // CREW BLOCKED from seeing payroll
+      allow read: if isGodOrAdmin();
       allow create, update, delete: if isGodOrAdmin();
     }
     
@@ -142,19 +164,14 @@ service cloud.firestore {
     }
     
     // ============================================
-    // JOB TIME ENTRIES COLLECTION - FIXED: crewId instead of userId
+    // JOB TIME ENTRIES COLLECTION
     // ============================================
     match /job_time_entries/{entryId} {
       allow create: if isAuthenticated();
-      
-      // ✅ FIXED: Changed userId to crewId to match TimeClock.jsx
       allow read: if isAuthenticated() && 
                     (resource.data.crewId == request.auth.uid || isGodOrAdmin());
-      
-      // ✅ FIXED: Changed userId to crewId to match TimeClock.jsx
       allow update: if isAuthenticated() && 
                       (resource.data.crewId == request.auth.uid || isGodOrAdmin());
-      
       allow delete: if isGodOrAdmin();
     }
     
@@ -227,11 +244,11 @@ service cloud.firestore {
     }
     
     // ============================================
-    // NOTIFICATION SETTINGS COLLECTION (SMS) - FIXED!
+    // NOTIFICATION SETTINGS COLLECTION (SMS)
     // ============================================
     match /notification_settings/{settingId} {
-      allow read: if isAuthenticated();  // ✅ Anyone logged in can read
-      allow write: if isGod();  // Only god can configure SMS settings
+      allow read: if isAuthenticated();
+      allow write: if isGod();
     }
     
     // ============================================
@@ -239,7 +256,7 @@ service cloud.firestore {
     // ============================================
     match /notifications_log/{logId} {
       allow read: if isGodOrAdmin();
-      allow create: if isAuthenticated();  // System can log SMS sends
+      allow create: if isAuthenticated();
     }
   }
 }
