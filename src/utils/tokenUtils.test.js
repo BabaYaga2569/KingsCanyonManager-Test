@@ -48,20 +48,29 @@ describe('tokenUtils', () => {
 
   describe('getTokenFromUrl', () => {
     it('should extract token from URL', () => {
-      // Mock window.location.search
+      // Mock window.location.search using Object.defineProperty
+      const originalLocation = window.location;
       delete window.location;
-      window.location = { search: '?token=abc123' };
+      window.location = { ...originalLocation, search: '?token=abc123' };
       
       const token = getTokenFromUrl();
       expect(token).toBe('abc123');
+      
+      // Restore original location
+      window.location = originalLocation;
     });
 
     it('should return null when no token in URL', () => {
+      // Mock window.location.search using Object.defineProperty
+      const originalLocation = window.location;
       delete window.location;
-      window.location = { search: '' };
+      window.location = { ...originalLocation, search: '' };
       
       const token = getTokenFromUrl();
       expect(token).toBeNull();
+      
+      // Restore original location
+      window.location = originalLocation;
     });
   });
 });
