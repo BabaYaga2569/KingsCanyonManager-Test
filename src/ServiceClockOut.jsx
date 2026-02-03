@@ -47,6 +47,7 @@ import {
 import QRCode from 'qrcode';
 import Swal from 'sweetalert2';
 import moment from 'moment';
+import { generateSecureToken } from './utils/tokenUtils';
 
 const ServiceClockOut = ({ 
   open, 
@@ -301,7 +302,8 @@ const ServiceClockOut = ({
         serviceDate: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         jobType: jobType,
-        timeEntryId: timeEntry.id
+        timeEntryId: timeEntry.id,
+        paymentToken: generateSecureToken(),
       };
 
       console.log('🔵 Creating invoice in Firestore...');

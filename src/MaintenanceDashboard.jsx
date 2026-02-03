@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { collection, getDocs, deleteDoc, doc, updateDoc, addDoc } from "firebase/firestore";
 import { db } from "./firebase";
+import { generateSecureToken } from './utils/tokenUtils';
 import {
   Box,
   Typography,
@@ -247,7 +248,8 @@ export default function MaintenanceDashboard() {
           date: new Date().toISOString(),
           createdAt: new Date().toISOString(),
           maintenanceContractId: contract.id,
-          type: 'maintenance'
+          type: 'maintenance',
+          paymentToken: generateSecureToken(),
         };
 
         await addDoc(collection(db, 'invoices'), invoiceData);

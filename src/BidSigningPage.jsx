@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
+import { getTokenFromUrl } from './utils/tokenUtils';
 import {
   Container,
   Typography,
@@ -55,10 +56,14 @@ function BidSigningPageContent() {
 
   useEffect(() => {
     loadBid();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bidId]);
 
   const loadBid = async () => {
     try {
+      // Get token from URL
+      const token = getTokenFromUrl();
+      
       const docRef = doc(db, "bids", bidId);
       const snap = await getDoc(docRef);
       
@@ -69,6 +74,14 @@ function BidSigningPageContent() {
       }
 
       const data = snap.data();
+      
+      // Verify token matches (Firestore rules will also check this)
+      if (data.signingToken && data.signingToken !== token) {
+        Swal.fire("Access Denied", "Invalid or expired link. Please request a new signing link.", "error");
+        setLoading(false);
+        return;
+      }
+      
       setBid(data);
       
       // Check if already signed by client

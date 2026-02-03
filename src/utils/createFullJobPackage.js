@@ -1,6 +1,7 @@
 import { collection, addDoc, serverTimestamp, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import Swal from "sweetalert2";
+import { generateSecureToken } from './tokenUtils';
 
 /**
  * Creates linked Contract, Invoice, and Job Folder from a Bid
@@ -82,6 +83,7 @@ export async function createFullJobPackage(bid) {
   const contractRef = await addDoc(collection(db, "contracts"), {
     ...base,
     type: "contract",
+    signingToken: generateSecureToken(),
   });
 
   // 2️⃣ Invoice
@@ -91,6 +93,7 @@ export async function createFullJobPackage(bid) {
     subtotal: bid.amount || 0,
     tax: 0,
     total: bid.amount || 0,
+    paymentToken: generateSecureToken(),
   });
 
   // 3️⃣ Job folder placeholder
