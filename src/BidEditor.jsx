@@ -12,10 +12,15 @@ import {
   Paper,
   IconButton,
   Tooltip,
+  Alert,
+  Divider,
 } from "@mui/material";
+import LinkIcon from '@mui/icons-material/Link';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import Swal from "sweetalert2";
+import SignatureCanvas from "react-signature-canvas";
 
 export default function BidEditor() {
   const { id } = useParams();
@@ -28,6 +33,14 @@ export default function BidEditor() {
   const [listening, setListening] = useState(null);
   const [speechSupported, setSpeechSupported] = useState(false);
   const recognitionRef = useRef(null);
+
+  // Signature canvases + timestamps
+  const clientSigRef = useRef(null);
+  const contractorSigRef = useRef(null);
+  const [clientSignedAt, setClientSignedAt] = useState("");
+  const [contractorSignedAt, setContractorSignedAt] = useState("");
+  const [clientSigData, setClientSigData] = useState(null);
+  const [contractorSigData, setContractorSigData] = useState(null);
 
   // Smart lumber formatting function
   const formatLumber = (text) => {
@@ -94,6 +107,7 @@ export default function BidEditor() {
     return formattedText;
   };
 
+  // ✅ HOOK 1: Initialize speech recognition
   useEffect(() => {
     // Check if Web Speech API is supported
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -112,13 +126,28 @@ export default function BidEditor() {
     };
   }, []);
 
+  // ✅ HOOK 2: Fetch bid data
   useEffect(() => {
     const fetchBid = async () => {
       try {
         const docRef = doc(db, "bids", id);
         const snap = await getDoc(docRef);
         if (snap.exists()) {
-          setBid({ id: snap.id, ...snap.data() });
+          const data = snap.data();
+          setBid({ id: snap.id, ...data });
+          // Load saved signatures if they exist
+          if (data.clientSignature) {
+            setClientSigData(data.clientSignature);
+          }
+          if (data.contractorSignature) {
+            setContractorSigData(data.contractorSignature);
+          }
+          if (data.clientSignedAt) {
+            setClientSignedAt(data.clientSignedAt);
+          }
+          if (data.contractorSignedAt) {
+            setContractorSignedAt(data.contractorSignedAt);
+          }
         } else {
           Swal.fire("Not found", "Bid not found.", "error");
           navigate("/bids");
@@ -133,6 +162,20 @@ export default function BidEditor() {
     };
     fetchBid();
   }, [id, navigate]);
+
+  // ✅ HOOK 3: Load client signature when data changes
+  useEffect(() => {
+    if (clientSigData && clientSigRef.current) {
+      clientSigRef.current.fromDataURL(clientSigData);
+    }
+  }, [clientSigData]);
+
+  // ✅ HOOK 4: Load contractor signature when data changes
+  useEffect(() => {
+    if (contractorSigData && contractorSigRef.current) {
+      contractorSigRef.current.fromDataURL(contractorSigData);
+    }
+  }, [contractorSigData]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -198,6 +241,69 @@ export default function BidEditor() {
     setListening(null);
   };
 
+  // Signature handling functions
+  const clearClientSig = () => {
+    clientSigRef.current?.clear();
+    setClientSignedAt("");
+    setClientSigData(null);
+  };
+
+  const clearContractorSig = () => {
+    contractorSigRef.current?.clear();
+    setContractorSignedAt("");
+    setContractorSigData(null);
+  };
+
+  const markClientSigned = () => {
+    const timestamp = new Date().toLocaleString();
+    const sigData = clientSigRef.current?.toDataURL();
+    setClientSignedAt(timestamp);
+    setClientSigData(sigData);
+  };
+
+  const markContractorSigned = () => {
+    const timestamp = new Date().toLocaleString();
+    const sigData = contractorSigRef.current?.toDataURL();
+    setContractorSignedAt(timestamp);
+    setContractorSigData(sigData);
+  };
+
+  // Auto-sign for Darren (one-click)
+  const autoSignForDarren = () => {
+    const timestamp = new Date().toLocaleString();
+    const darrenSig = generateDarrenAutoSignature();
+    setContractorSignedAt(timestamp);
+    setContractorSigData(darrenSig);
+    
+    // Show success message
+    Swal.fire({
+      icon: "success",
+      title: "Auto-Signed!",
+      text: "Darren's signature has been applied.",
+      timer: 1500,
+      showConfirmButton: false,
+    });
+  };
+
+  // Generate Darren's auto-signature
+  const generateDarrenAutoSignature = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 100;
+    const ctx = canvas.getContext('2d');
+    
+    // White background
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, 400, 100);
+    
+    // Signature text in cursive style
+    ctx.font = '32px "Brush Script MT", cursive';
+    ctx.fillStyle = 'black';
+    ctx.fillText('Darren Bennett', 50, 60);
+    
+    return canvas.toDataURL('image/png');
+  };
+
   const handleSave = async () => {
     if (!bid.customerName || !bid.amount) {
       Swal.fire("Missing info", "Customer name and amount are required.", "warning");
@@ -213,6 +319,10 @@ export default function BidEditor() {
         description: bid.description || "",
         materials: bid.materials || "",
         notes: bid.notes || "",
+        clientSignature: clientSigData,
+        contractorSignature: contractorSigData,
+        clientSignedAt,
+        contractorSignedAt,
         updatedAt: new Date().toISOString(),
       });
       
@@ -224,6 +334,42 @@ export default function BidEditor() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSendForSignature = () => {
+    const signingLink = `${window.location.origin}/sign-bid/${id}`;
+    
+    navigator.clipboard.writeText(signingLink).then(() => {
+      Swal.fire({
+        icon: 'success',
+        title: 'Link Copied!',
+        html: `
+          <p>Signing link copied to clipboard:</p>
+          <div style="background: #f5f5f5; padding: 10px; border-radius: 4px; word-break: break-all; margin: 10px 0;">
+            ${signingLink}
+          </div>
+          <p><strong>Next steps:</strong></p>
+          <ul style="text-align: left;">
+            <li>Send this link to your customer via email or text</li>
+            <li>They can sign on any device (phone, tablet, computer)</li>
+            <li>You'll be notified when they accept</li>
+          </ul>
+        `,
+        confirmButtonText: 'OK'
+      });
+    }).catch((err) => {
+      console.error('Failed to copy:', err);
+      Swal.fire({
+        icon: 'info',
+        title: 'Signing Link',
+        html: `
+          <p>Send this link to your customer:</p>
+          <div style="background: #f5f5f5; padding: 10px; border-radius: 4px; word-break: break-all; margin: 10px 0;">
+            ${signingLink}
+          </div>
+        `,
+      });
+    });
   };
 
   if (loading) {
@@ -333,11 +479,90 @@ export default function BidEditor() {
           {renderField('materials', 'Materials', true, 3, 'List materials needed for the job')}
           {renderField('notes', 'Notes', true, 2, 'Internal notes (not shown to customer)')}
 
+          {/* Signature Pads - Added to match Contract Editor */}
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+              Signatures
+            </Typography>
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2 }}>
+              <Paper variant="outlined" sx={{ p: 2 }}>
+                <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                  Client Signature
+                </Typography>
+                <SignatureCanvas
+                  ref={clientSigRef}
+                  canvasProps={{
+                    width: 400,
+                    height: 180,
+                    style: { border: "1px solid #ccc", borderRadius: 8, width: "100%" },
+                  }}
+                />
+                <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+                  <Button size="small" variant="outlined" onClick={markClientSigned}>
+                    Save Timestamp
+                  </Button>
+                  <Button size="small" variant="text" onClick={clearClientSig}>
+                    Clear
+                  </Button>
+                </Box>
+                <Typography variant="caption" sx={{ mt: 1, display: "block" }}>
+                  {clientSignedAt ? `Signed: ${clientSignedAt}` : "Not yet signed"}
+                </Typography>
+              </Paper>
+
+              <Paper variant="outlined" sx={{ p: 2 }}>
+                <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                  Contractor Signature (Kings Canyon Landscaping)
+                </Typography>
+                <SignatureCanvas
+                  ref={contractorSigRef}
+                  canvasProps={{
+                    width: 400,
+                    height: 180,
+                    style: { border: "1px solid #ccc", borderRadius: 8, width: "100%" },
+                  }}
+                />
+                <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
+                  <Button 
+                    size="small" 
+                    variant="contained" 
+                    color="success"
+                    onClick={autoSignForDarren}
+                    sx={{ flexGrow: 1 }}
+                  >
+                    ✍️ Auto-Sign for Darren
+                  </Button>
+                  <Button size="small" variant="outlined" onClick={markContractorSigned}>
+                    Save Manual Signature
+                  </Button>
+                  <Button size="small" variant="text" onClick={clearContractorSig}>
+                    Clear
+                  </Button>
+                </Box>
+                <Typography variant="caption" sx={{ mt: 1, display: "block" }}>
+                  {contractorSignedAt ? `Signed: ${contractorSignedAt}` : "Not yet signed"}
+                </Typography>
+              </Paper>
+            </Box>
+          </Box>
+
           {bid.createdAt && (
             <Typography variant="caption" color="text.secondary">
               Created: {new Date(bid.createdAt).toLocaleString()}
             </Typography>
           )}
+
+          {/* Signature Status */}
+          {bid.clientSignature && bid.clientSignedAt && (
+            <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                <strong>✅ Bid Accepted!</strong><br />
+                Signed by {bid.customerName} on {new Date(bid.clientSignedAt).toLocaleString()}
+              </Typography>
+            </Alert>
+          )}
+
+          <Divider sx={{ my: 2 }} />
 
           <Box sx={{ display: "flex", gap: 2, mt: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
             <Button 
@@ -358,6 +583,16 @@ export default function BidEditor() {
               fullWidth
             >
               Cancel
+            </Button>
+            <Button 
+              variant="outlined"
+              color="primary"
+              onClick={handleSendForSignature}
+              size="large"
+              startIcon={<LinkIcon />}
+              fullWidth
+            >
+              Send for Signature
             </Button>
           </Box>
         </Box>

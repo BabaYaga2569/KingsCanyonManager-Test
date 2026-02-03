@@ -93,6 +93,7 @@ import EmployeeAccountManager from './EmployeeAccountManager';
 import { createFullJobPackage } from "./utils/createFullJobPackage";
 import generateBidPDF from "./pdf/generateBidPDF";
 import ContractSigningPage from "./ContractSigningPage";
+import BidSigningPage from './BidSigningPage';
 import PaymentPortal from "./PaymentPortal";
 import BidEditor from "./BidEditor";
 
@@ -819,6 +820,7 @@ function AppContent() {
         <Route path="/job-expenses/:id" element={<JobExpenses />} />
         
         <Route path="/public/sign/:contractId" element={<ContractSigningPage />} />
+		<Route path="/sign-bid/:bidId" element={<BidSigningPage />} />
         <Route path="/public/pay/:invoiceId" element={<PaymentPortal />} />
       </Routes>
     </>
