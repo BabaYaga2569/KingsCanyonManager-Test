@@ -378,6 +378,21 @@ const ContractEditor = () => {
         y,
         W - 80
       );
+      y += 8;
+
+      docPDF.setFont("helvetica", "bold");
+      docPDF.setFontSize(11);
+      docPDF.text("Permits and Licenses", 40, y);
+      y += 14;
+      docPDF.setFont("helvetica", "normal");
+      docPDF.setFontSize(10);
+      y = writeParagraph(
+        docPDF,
+        "If permits or licenses are required for this job, the Client is responsible for obtaining and paying for all necessary permits unless otherwise agreed to in writing by Kings Canyon Landscaping LLC.",
+        40,
+        y,
+        W - 80
+      );
       y += 16;
 
       // Signatures

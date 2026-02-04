@@ -67,6 +67,8 @@ export default function IntegratedPayroll() {
     paymentDate: moment().format("YYYY-MM-DD"),
     paymentMethod: "Cash",
     notes: "",
+    paymentType: "hourly", // "hourly" or "flat"
+    flatRateAmount: "",
   });
 
   useEffect(() => {
@@ -121,6 +123,7 @@ export default function IntegratedPayroll() {
           crewName: name,
           crewId: crew?.id,
           hourlyRate: parseFloat(crew?.hourlyRate || 15),
+          paymentType: crew?.paymentType || "hourly", // NEW: Get payment type from crew
           is1099: crew?.is1099 !== false, // Default to true for contractors
           entries: [],
           totalHours: 0,
@@ -148,6 +151,8 @@ export default function IntegratedPayroll() {
       paymentDate: moment().format("YYYY-MM-DD"),
       paymentMethod: "Cash",
       notes: `Week payment - ${employee.entries.length} time entries`,
+      paymentType: employee.paymentType || "hourly", // Use employee's payment type
+      flatRateAmount: "",
     });
     setPaymentDialogOpen(true);
   };
@@ -160,8 +165,21 @@ export default function IntegratedPayroll() {
       }
 
       const totalHours = selectedEmployee.totalHours;
-      const totalPay = selectedEmployee.totalPay;
       const hourlyRate = selectedEmployee.hourlyRate;
+      
+      // Calculate payment based on payment type
+      let totalPay;
+      if (paymentForm.paymentType === "flat") {
+        const flatAmount = parseFloat(paymentForm.flatRateAmount);
+        if (!flatAmount || flatAmount <= 0) {
+          Swal.fire("Error", "Please enter a valid flat rate amount greater than $0", "error");
+          return;
+        }
+        totalPay = flatAmount;
+      } else {
+        // Hourly rate
+        totalPay = selectedEmployee.totalPay;
+      }
 
       // Get date range
       const dates = selectedTimeEntries.map(e => new Date(e.clockIn));
@@ -174,7 +192,9 @@ export default function IntegratedPayroll() {
         crewName: selectedEmployee.crewName,
         amount: totalPay,
         hoursWorked: totalHours,
-        hourlyRate: hourlyRate,
+        hourlyRate: hourlyRate, // Always store base hourly rate for reference
+        paymentType: paymentForm.paymentType, // NEW: Store payment type
+        flatRateAmount: paymentForm.paymentType === "flat" ? totalPay : null, // NEW: Store flat rate if applicable
         payPeriodStart: startDate,
         payPeriodEnd: endDate,
         paymentDate: paymentForm.paymentDate,
@@ -199,13 +219,17 @@ export default function IntegratedPayroll() {
       }
       console.log(`✅ Marked ${selectedTimeEntries.length} time entries as paid`);
 
-      // Success!
+      // Success message based on payment type
+      const paymentDetails = paymentForm.paymentType === "flat"
+        ? `Flat Rate: <strong>$${totalPay.toFixed(2)}</strong>`
+        : `${totalHours} hours × $${hourlyRate}/hr = <strong>$${totalPay.toFixed(2)}</strong>`;
+
       Swal.fire({
         icon: "success",
         title: "Payment Created!",
         html: `
           <p><strong>${selectedEmployee.crewName}</strong></p>
-          <p>${totalHours} hours × $${hourlyRate}/hr = <strong>$${totalPay.toFixed(2)}</strong></p>
+          <p>${paymentDetails}</p>
           <p>Payment recorded for ${paymentForm.paymentMethod}</p>
         `,
         timer: 3000,
@@ -486,10 +510,47 @@ export default function IntegratedPayroll() {
           <Alert severity="info" sx={{ mb: 2 }}>
             <strong>Payment Summary:</strong>
             <br />
-            {selectedEmployee?.totalHours.toFixed(1)} hours × ${selectedEmployee?.hourlyRate}/hr = ${selectedEmployee?.totalPay.toFixed(2)}
+            {paymentForm.paymentType === "hourly" ? (
+              <>
+                {selectedEmployee?.totalHours.toFixed(1)} hours × ${selectedEmployee?.hourlyRate}/hr = ${selectedEmployee?.totalPay.toFixed(2)}
+              </>
+            ) : (
+              <>
+                Flat Rate Payment
+              </>
+            )}
             <br />
             {selectedTimeEntries.length} time entries will be marked as "paid"
           </Alert>
+          
+          <TextField
+            label="Payment Type"
+            select
+            value={paymentForm.paymentType}
+            onChange={(e) => setPaymentForm({ ...paymentForm, paymentType: e.target.value })}
+            fullWidth
+            sx={{ mb: 2 }}
+            SelectProps={{ native: true }}
+          >
+            <option value="hourly">Hourly Rate</option>
+            <option value="flat">Flat Rate</option>
+          </TextField>
+          
+          {paymentForm.paymentType === "flat" && (
+            <TextField
+              label="Flat Rate Amount"
+              type="number"
+              value={paymentForm.flatRateAmount}
+              onChange={(e) => setPaymentForm({ ...paymentForm, flatRateAmount: e.target.value })}
+              fullWidth
+              sx={{ mb: 2 }}
+              InputProps={{
+                startAdornment: <Typography sx={{ mr: 1 }}>$</Typography>,
+              }}
+              placeholder="Enter flat amount (e.g., 200)"
+              helperText={`${selectedEmployee?.totalHours.toFixed(1)} hours of work completed`}
+            />
+          )}
 
           <TextField
             label="Payment Date"
@@ -528,7 +589,10 @@ export default function IntegratedPayroll() {
         <DialogActions>
           <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" color="success" onClick={handlePayEmployee}>
-            Create Payment - ${selectedEmployee?.totalPay.toFixed(2)}
+            {paymentForm.paymentType === "flat" 
+              ? `Create Payment - $${paymentForm.flatRateAmount || "0.00"}`
+              : `Create Payment - $${selectedEmployee?.totalPay.toFixed(2) || "0.00"}`
+            }
           </Button>
         </DialogActions>
       </Dialog>

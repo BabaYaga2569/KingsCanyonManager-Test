@@ -57,6 +57,24 @@ export default function CalendarView() {
   const [calendarView, setCalendarView] = useState("month");
   const [currentDate, setCurrentDate] = useState(new Date()); // For calendar navigation
   const [loading, setLoading] = useState(false);
+  
+  // Completion notes dialog
+  const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
+  const [completionNotes, setCompletionNotes] = useState("");
+  
+  // Edit dialog
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    clientName: "",
+    jobDescription: "",
+    startDate: "",
+    endDate: "",
+    startTime: "",
+    endTime: "",
+    priority: "normal",
+    status: "scheduled",
+    notes: "",
+  });
 
   useEffect(() => {
     loadData();
@@ -160,21 +178,84 @@ export default function CalendarView() {
     }
   };
 
-  const handleComplete = async (schedule) => {
+  const handleComplete = (schedule) => {
+    // Open completion notes dialog
+    setCompletionNotes("");
+    setCompletionDialogOpen(true);
+  };
+  
+  const handleSaveCompletion = async () => {
     try {
-      await updateDoc(doc(db, "schedules", schedule.id), { status: "completed" });
+      const updates = {
+        status: "completed",
+        completedAt: new Date().toISOString(),
+      };
+      
+      // Add completion notes if provided
+      if (completionNotes.trim()) {
+        // Store completion notes in dedicated field
+        updates.completionNotes = completionNotes;
+        // Also append to general notes for visibility
+        const existingNotes = selectedEvent.notes || "";
+        updates.notes = existingNotes 
+          ? `${existingNotes}\n\n[Completed ${moment().format("MM/DD/YYYY")}]\n${completionNotes}`
+          : `[Completed ${moment().format("MM/DD/YYYY")}]\n${completionNotes}`;
+      }
+      
+      await updateDoc(doc(db, "schedules", selectedEvent.id), updates);
 
       // Free up equipment
-      for (const equipId of schedule.selectedEquipment || []) {
+      for (const equipId of selectedEvent.selectedEquipment || []) {
         await updateDoc(doc(db, "equipment", equipId), { status: "available" });
       }
 
+      setCompletionDialogOpen(false);
       setDetailsOpen(false);
       loadData(); // Reload calendar
       Swal.fire("Completed!", "Job marked as completed", "success");
     } catch (error) {
       console.error("Error completing job:", error);
       Swal.fire("Error", "Failed to update status", "error");
+    }
+  };
+  
+  const handleOpenEditDialog = (schedule) => {
+    setEditForm({
+      clientName: schedule.clientName || "",
+      jobDescription: schedule.jobDescription || "",
+      startDate: schedule.startDate || "",
+      endDate: schedule.endDate || schedule.startDate || "",
+      startTime: schedule.startTime || "08:00",
+      endTime: schedule.endTime || "17:00",
+      priority: schedule.priority || "normal",
+      status: schedule.status || "scheduled",
+      notes: schedule.notes || "",
+    });
+    setEditDialogOpen(true);
+  };
+  
+  const handleSaveEdit = async () => {
+    try {
+      await updateDoc(doc(db, "schedules", selectedEvent.id), {
+        clientName: editForm.clientName,
+        jobDescription: editForm.jobDescription,
+        startDate: editForm.startDate,
+        endDate: editForm.endDate,
+        startTime: editForm.startTime,
+        endTime: editForm.endTime,
+        priority: editForm.priority,
+        status: editForm.status,
+        notes: editForm.notes,
+        updatedAt: new Date().toISOString(),
+      });
+
+      setEditDialogOpen(false);
+      setDetailsOpen(false);
+      loadData(); // Reload calendar
+      Swal.fire("Success!", "Job updated successfully", "success");
+    } catch (error) {
+      console.error("Error updating job:", error);
+      Swal.fire("Error", "Failed to update job", "error");
     }
   };
 
@@ -542,12 +623,33 @@ export default function CalendarView() {
                     <Typography variant="subtitle2" color="text.secondary">
                       📝 Notes
                     </Typography>
-                    <Typography variant="body1">{selectedEvent.notes}</Typography>
+                    <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
+                      {selectedEvent.notes}
+                    </Typography>
+                  </Box>
+                )}
+                
+                {selectedEvent.completionNotes && (
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      ✅ Completion Notes
+                    </Typography>
+                    <Typography variant="body1" sx={{ whiteSpace: "pre-wrap" }}>
+                      {selectedEvent.completionNotes}
+                    </Typography>
                   </Box>
                 )}
               </Box>
             </DialogContent>
             <DialogActions sx={{ p: 2, gap: 1, flexWrap: "wrap" }}>
+              <Button
+                variant="outlined"
+                startIcon={<EditIcon />}
+                onClick={() => handleOpenEditDialog(selectedEvent)}
+                fullWidth={isMobile}
+              >
+                Edit Job
+              </Button>
               {selectedEvent.contractId && (
                 <Button
                   variant="outlined"
@@ -587,6 +689,148 @@ export default function CalendarView() {
             </DialogActions>
           </>
         )}
+      </Dialog>
+      
+      {/* Completion Notes Dialog */}
+      <Dialog
+        open={completionDialogOpen}
+        onClose={() => setCompletionDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Complete Job</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Add notes about what was completed, any issues encountered, or additional work done.
+          </Typography>
+          <TextField
+            label="Completion Notes"
+            multiline
+            rows={4}
+            fullWidth
+            value={completionNotes}
+            onChange={(e) => setCompletionNotes(e.target.value)}
+            placeholder="Example: Completed weed spraying. Applied pre-emergent herbicide to all areas. Some areas needed extra attention due to heavy weed growth."
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCompletionDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleSaveCompletion} variant="contained" color="success">
+            Mark Complete
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Edit Job Dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogTitle>Edit Job</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+            <TextField
+              label="Client Name"
+              fullWidth
+              value={editForm.clientName}
+              onChange={(e) => setEditForm({ ...editForm, clientName: e.target.value })}
+            />
+            
+            <TextField
+              label="Job Description"
+              fullWidth
+              multiline
+              rows={3}
+              value={editForm.jobDescription}
+              onChange={(e) => setEditForm({ ...editForm, jobDescription: e.target.value })}
+            />
+            
+            <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+              <TextField
+                label="Start Date"
+                type="date"
+                value={editForm.startDate}
+                onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                sx={{ flex: 1, minWidth: "200px" }}
+              />
+              
+              <TextField
+                label="End Date"
+                type="date"
+                value={editForm.endDate}
+                onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                sx={{ flex: 1, minWidth: "200px" }}
+              />
+            </Box>
+            
+            <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+              <TextField
+                label="Start Time"
+                type="time"
+                value={editForm.startTime}
+                onChange={(e) => setEditForm({ ...editForm, startTime: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                sx={{ flex: 1, minWidth: "150px" }}
+              />
+              
+              <TextField
+                label="End Time"
+                type="time"
+                value={editForm.endTime}
+                onChange={(e) => setEditForm({ ...editForm, endTime: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                sx={{ flex: 1, minWidth: "150px" }}
+              />
+            </Box>
+            
+            <FormControl fullWidth>
+              <InputLabel>Priority</InputLabel>
+              <Select
+                value={editForm.priority}
+                onChange={(e) => setEditForm({ ...editForm, priority: e.target.value })}
+                label="Priority"
+              >
+                <MenuItem value="low">Low</MenuItem>
+                <MenuItem value="normal">Normal</MenuItem>
+                <MenuItem value="high">High</MenuItem>
+                <MenuItem value="urgent">Urgent</MenuItem>
+              </Select>
+            </FormControl>
+            
+            <FormControl fullWidth>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={editForm.status}
+                onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                label="Status"
+              >
+                <MenuItem value="scheduled">Scheduled</MenuItem>
+                <MenuItem value="in-progress">In Progress</MenuItem>
+                <MenuItem value="completed">Completed</MenuItem>
+              </Select>
+            </FormControl>
+            
+            <TextField
+              label="Notes"
+              fullWidth
+              multiline
+              rows={3}
+              value={editForm.notes}
+              onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleSaveEdit} variant="contained" color="primary">
+            Save Changes
+          </Button>
+        </DialogActions>
       </Dialog>
     </Container>
   );
