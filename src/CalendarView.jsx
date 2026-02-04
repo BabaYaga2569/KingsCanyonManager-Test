@@ -193,12 +193,13 @@ export default function CalendarView() {
       
       // Add completion notes if provided
       if (completionNotes.trim()) {
-        const existingNotes = selectedEvent.notes || "";
+        // Store completion notes in dedicated field
         updates.completionNotes = completionNotes;
-        // Append to existing notes
+        // Also append to general notes for visibility
+        const existingNotes = selectedEvent.notes || "";
         updates.notes = existingNotes 
-          ? `${existingNotes}\n\n[Completion Notes - ${moment().format("MM/DD/YYYY")}]\n${completionNotes}`
-          : `[Completion Notes - ${moment().format("MM/DD/YYYY")}]\n${completionNotes}`;
+          ? `${existingNotes}\n\n[Completed ${moment().format("MM/DD/YYYY")}]\n${completionNotes}`
+          : `[Completed ${moment().format("MM/DD/YYYY")}]\n${completionNotes}`;
       }
       
       await updateDoc(doc(db, "schedules", selectedEvent.id), updates);

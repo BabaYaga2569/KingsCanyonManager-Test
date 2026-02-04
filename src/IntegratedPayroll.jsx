@@ -172,7 +172,7 @@ export default function IntegratedPayroll() {
       if (paymentForm.paymentType === "flat") {
         const flatAmount = parseFloat(paymentForm.flatRateAmount);
         if (!flatAmount || flatAmount <= 0) {
-          Swal.fire("Error", "Please enter a valid flat rate amount", "error");
+          Swal.fire("Error", "Please enter a valid flat rate amount greater than $0", "error");
           return;
         }
         totalPay = flatAmount;
@@ -192,9 +192,9 @@ export default function IntegratedPayroll() {
         crewName: selectedEmployee.crewName,
         amount: totalPay,
         hoursWorked: totalHours,
-        hourlyRate: paymentForm.paymentType === "hourly" ? hourlyRate : null,
+        hourlyRate: hourlyRate, // Always store base hourly rate for reference
         paymentType: paymentForm.paymentType, // NEW: Store payment type
-        flatRateAmount: paymentForm.paymentType === "flat" ? totalPay : null, // NEW: Store flat rate
+        flatRateAmount: paymentForm.paymentType === "flat" ? totalPay : null, // NEW: Store flat rate if applicable
         payPeriodStart: startDate,
         payPeriodEnd: endDate,
         paymentDate: paymentForm.paymentDate,
