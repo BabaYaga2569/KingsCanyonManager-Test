@@ -58,8 +58,10 @@ import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import moment from "moment";
 import generateInvoicePDF from "./pdf/generateInvoicePDF";
 import { markAsViewed } from './useNotificationCounts';
+import { useAuth } from './AuthProvider';
 
 export default function InvoicesDashboard() {
+  const { user } = useAuth();
   const [invoices, setInvoices] = useState([]);
   const [sortedInvoices, setSortedInvoices] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
@@ -429,6 +431,23 @@ export default function InvoicesDashboard() {
       }
 
       // Create calendar entry to show work was done
+      // Auto-assign currently logged-in user to the crew
+      const selectedCrews = [];
+      if (user) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            selectedCrews.push({
+              id: user.uid,
+              name: userData.name || user.email,
+            });
+          }
+        } catch (error) {
+          console.error("Error fetching user data for crew assignment:", error);
+        }
+      }
+
       await addDoc(collection(db, "schedules"), {
         clientName: customer.name,
         jobDescription: description,
@@ -438,7 +457,7 @@ export default function InvoicesDashboard() {
         endTime: weedInvoice.endTime,
         priority: "normal",
         status: "completed",
-        selectedCrews: [],
+        selectedCrews: selectedCrews,
         selectedEquipment: [],
         notes: "Quick weed spraying job - auto-created from invoice",
         createdAt: serverTimestamp(),
