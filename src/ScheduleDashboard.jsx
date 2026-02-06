@@ -37,6 +37,7 @@ export default function ScheduleDashboard() {
 
   const [schedules, setSchedules] = useState([]);
   const [crews, setCrews] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedSchedule, setSelectedSchedule] = useState(null);
@@ -58,6 +59,12 @@ export default function ScheduleDashboard() {
       const crewsSnap = await getDocs(collection(db, "crews"));
       const crewsData = crewsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setCrews(crewsData);
+      // Load employees
+      const employeesSnap = await getDocs(collection(db, "users"));
+      const employeesData = employeesSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((user) => user.active !== false);
+      setEmployees(employeesData);
 
       const equipSnap = await getDocs(collection(db, "equipment"));
       const equipData = equipSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -115,13 +122,31 @@ export default function ScheduleDashboard() {
     }
   };
 
-  const getCrewNames = (crewIds) => {
-    if (!crewIds || crewIds.length === 0) return "No crew assigned";
-    return crewIds
-      .map((id) => crews.find((c) => c.id === id)?.name)
-      .filter(Boolean)
-      .join(", ");
-  };
+  const getEmployeeNames = (schedule) => {
+  // Safety check: if schedule is undefined or null
+  if (!schedule) return "No employees assigned";
+    
+  // DEBUG: Log the schedule to see what fields exist
+  console.log("🔍 Schedule:", schedule.clientName, {
+    assignedEmployees: schedule.assignedEmployees,
+    selectedEmployees: schedule.selectedEmployees,
+    selectedCrews: schedule.selectedCrews
+  });
+  
+  // Support all legacy field names for backward compatibility
+  const employeeIds = schedule.assignedEmployees || schedule.selectedEmployees || schedule.selectedCrews || [];
+      
+  if (!employeeIds || employeeIds.length === 0) return "No employees assigned";
+  
+  // Look up in employees collection (not crews)
+  return employeeIds
+    .map((id) => {
+      const emp = employees.find((e) => e.id === id);
+      return emp?.name || emp?.email;
+    })
+    .filter(Boolean)
+    .join(", ") || "No employees assigned";
+};
 
   const getEquipmentNames = (equipIds) => {
     if (!equipIds || equipIds.length === 0) return "No equipment";
@@ -293,7 +318,7 @@ export default function ScheduleDashboard() {
                           </Box>
 
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                            â° {schedule.startTime} - {schedule.endTime}
+                            Time: {schedule.startTime} - {schedule.endTime}
                           </Typography>
 
                           {schedule.jobDescription && (
@@ -305,7 +330,7 @@ export default function ScheduleDashboard() {
                           <Divider sx={{ my: 1 }} />
 
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                            <strong>Crew:</strong> {getCrewNames(schedule.selectedCrews)}
+                            <strong>Crew:</strong> {getEmployeeNames(schedule)}
                           </Typography>
 
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -410,7 +435,7 @@ export default function ScheduleDashboard() {
                     Assigned Crew
                   </Typography>
                   <Typography variant="body1">
-                    {getCrewNames(selectedSchedule.selectedCrews)}
+                    {getEmployeeNames(selectedSchedule)}
                   </Typography>
                 </Box>
 

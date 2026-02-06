@@ -35,14 +35,16 @@ import CloseIcon from "@mui/icons-material/Close";
 import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import EditIcon from "@mui/icons-material/Edit";
 import SortIcon from "@mui/icons-material/Sort";
+import FilterListIcon from "@mui/icons-material/FilterList";
 import Swal from "sweetalert2";
 import { markAsViewed } from './useNotificationCounts';
 
 export default function JobsManager() {
   const [jobs, setJobs] = useState([]);
-  const [employees, setEmployees] = useState([]); // For employee assignment
+  const [employees, setEmployees] = useState([]);
   const [sortedJobs, setSortedJobs] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
+  const [jobTypeFilter, setJobTypeFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [currentJob, setCurrentJob] = useState(null);
@@ -60,6 +62,7 @@ export default function JobsManager() {
     startDate: "",
     completionDate: "",
     notes: "",
+    assignedEmployees: [],
   });
   
   const navigate = useNavigate();
@@ -72,34 +75,50 @@ export default function JobsManager() {
   useEffect(() => {
     fetchJobs();
   }, []);
+  
   useEffect(() => {
     markAsViewed('jobs');
-  }, []);  
+  }, []);
 
-  // Sort jobs whenever jobs or sortOrder changes
   useEffect(() => {
-    const sorted = [...jobs].sort((a, b) => {
+    let filtered = [...jobs];
+    
+    if (jobTypeFilter !== "all") {
+      filtered = filtered.filter(job => job.jobType === jobTypeFilter);
+    }
+    
+    const sorted = filtered.sort((a, b) => {
       switch (sortOrder) {
         case "newest":
-          return new Date(b.createdAt || b.startDate || 0) - new Date(a.createdAt || a.startDate || 0);
+          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || a.startDate || 0);
+          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || b.startDate || 0);
+          return dateB - dateA;
         case "oldest":
-          return new Date(a.createdAt || a.startDate || 0) - new Date(b.createdAt || b.startDate || 0);
+          const dateA2 = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || a.startDate || 0);
+          const dateB2 = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || b.startDate || 0);
+          return dateA2 - dateB2;
         case "name-asc":
           return (a.clientName || "").localeCompare(b.clientName || "");
         case "name-desc":
           return (b.clientName || "").localeCompare(a.clientName || "");
         case "status-active":
-          return (a.status === "Active" ? -1 : 1) - (b.status === "Active" ? -1 : 1);
+          if (a.status === "Active" && b.status !== "Active") return -1;
+          if (a.status !== "Active" && b.status === "Active") return 1;
+          return 0;
         case "status-completed":
-          return (a.status === "Completed" ? -1 : 1) - (b.status === "Completed" ? -1 : 1);
+          if (a.status === "Completed" && b.status !== "Completed") return -1;
+          if (a.status !== "Completed" && b.status === "Completed") return 1;
+          return 0;
         case "status-pending":
-          return (a.status === "Pending" ? -1 : 1) - (b.status === "Pending" ? -1 : 1);
+          if (a.status === "Pending" && b.status !== "Pending") return -1;
+          if (a.status !== "Pending" && b.status === "Pending") return 1;
+          return 0;
         default:
           return 0;
       }
     });
     setSortedJobs(sorted);
-  }, [jobs, sortOrder]);
+  }, [jobs, sortOrder, jobTypeFilter]);
 
   const fetchJobs = async () => {
     try {
@@ -110,7 +129,6 @@ export default function JobsManager() {
       }));
       setJobs(jobList);
 
-      // Load employees (active users) for assignment
       const usersSnap = await getDocs(collection(db, "users"));
       const activeEmployees = usersSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -136,6 +154,31 @@ export default function JobsManager() {
     }
   };
 
+  // ✅ NEW: Handle job type change with auto-save
+  const handleJobTypeChange = async (jobId, newJobType) => {
+    try {
+      await updateDoc(doc(db, "jobs", jobId), { jobType: newJobType });
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === jobId ? { ...job, jobType: newJobType } : job
+        )
+      );
+      
+      // Show success toast
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Job type updated!',
+        showConfirmButton: false,
+        timer: 2000
+      });
+    } catch (error) {
+      console.error("Error updating job type:", error);
+      Swal.fire("Error", "Failed to update job type.", "error");
+    }
+  };
+
   const handleDeleteJob = async (jobId, clientName) => {
     const confirm = await Swal.fire({
       title: `Delete ${clientName}'s job?`,
@@ -158,9 +201,8 @@ export default function JobsManager() {
     }
   };
 
-  // View photos gallery
   const handleViewPhotos = (job) => {
-    setCurrentJob(job); // Store job for delete function
+    setCurrentJob(job);
     const beforePhotos = job.beforePhotos || [];
     const afterPhotos = job.afterPhotos || [];
     
@@ -206,7 +248,6 @@ export default function JobsManager() {
       </p>
     `;
 
-    // Make delete function available to window
     window.deletePhoto = async (photoUrl, photoType) => {
       Swal.close();
       await handleDeletePhoto(photoUrl, photoType);
@@ -235,6 +276,7 @@ export default function JobsManager() {
       startDate: job.startDate || "",
       completionDate: job.completionDate || "",
       notes: job.notes || "",
+      assignedEmployees: job.assignedEmployees || [],
     });
     setEditDialogOpen(true);
   };
@@ -250,6 +292,7 @@ export default function JobsManager() {
       startDate: "",
       completionDate: "",
       notes: "",
+      assignedEmployees: [],
     });
   };
 
@@ -293,12 +336,10 @@ export default function JobsManager() {
     try {
       console.log("🎥 Starting camera...");
       
-      // Check if mediaDevices is supported
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Camera not supported on this device");
       }
       
-      // Simple constraints for better mobile compatibility
       const constraints = {
         video: {
           facingMode: "environment",
@@ -319,20 +360,17 @@ export default function JobsManager() {
         videoRef.current.setAttribute('autoplay', 'true');
         videoRef.current.muted = true;
         
-        // Force play on mobile
         try {
           await videoRef.current.play();
           console.log("✅ Video playing");
         } catch (playError) {
           console.log("⚠️ Auto-play failed, trying manual play");
-          // Sometimes mobile requires user interaction
           videoRef.current.play().catch(e => console.error("Play error:", e));
         }
       }
     } catch (error) {
       console.error("❌ Camera error:", error.name, error.message);
       
-      // Try fallback with simpler constraints
       try {
         console.log("🔄 Trying fallback camera...");
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -411,8 +449,7 @@ export default function JobsManager() {
       await uploadBytes(storageRef, blob);
       const url = await getDownloadURL(storageRef);
 
-      const field =
-        photoType === "before" ? "beforePhotos" : "afterPhotos";
+      const field = photoType === "before" ? "beforePhotos" : "afterPhotos";
       const currentPhotos = currentJob[field] || [];
       const updatedPhotos = [...currentPhotos, url];
 
@@ -433,7 +470,6 @@ export default function JobsManager() {
     } catch (error) {
       console.error("Upload error:", error);
       
-      // Show detailed error ON SCREEN for mobile debugging
       let errorDetails = `Error: ${error.message || 'Unknown error'}\n\n`;
       
       if (error.code) {
@@ -458,7 +494,6 @@ export default function JobsManager() {
       setUploading(false);
     }
   };
-
 
   const handleDeletePhoto = async (photoUrl, photoType) => {
     const result = await Swal.fire({
@@ -520,32 +555,51 @@ export default function JobsManager() {
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
-      {/* Header with Sort Dropdown */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Typography variant="h6" sx={{ fontSize: { xs: '1.5rem', sm: '2rem' } }}>
           Jobs ({sortedJobs.length})
         </Typography>
 
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel id="sort-label">
-            <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
-            Sort By
-          </InputLabel>
-          <Select
-            labelId="sort-label"
-            value={sortOrder}
-            label="Sort By"
-            onChange={(e) => setSortOrder(e.target.value)}
-          >
-            <MenuItem value="newest">Newest First</MenuItem>
-            <MenuItem value="oldest">Oldest First</MenuItem>
-            <MenuItem value="name-asc">Name (A-Z)</MenuItem>
-            <MenuItem value="name-desc">Name (Z-A)</MenuItem>
-            <MenuItem value="status-active">Active First</MenuItem>
-            <MenuItem value="status-completed">Completed First</MenuItem>
-            <MenuItem value="status-pending">Pending First</MenuItem>
-          </Select>
-        </FormControl>
+        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel id="filter-label">
+              <FilterListIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+              Filter by Type
+            </InputLabel>
+            <Select
+              labelId="filter-label"
+              value={jobTypeFilter}
+              label="Filter by Type"
+              onChange={(e) => setJobTypeFilter(e.target.value)}
+            >
+              <MenuItem value="all">All Jobs</MenuItem>
+              <MenuItem value="Quick Weed Service">Quick Weed Service</MenuItem>
+              <MenuItem value="Maintenance">Maintenance</MenuItem>
+              <MenuItem value="General Service">General Service</MenuItem>
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="sort-label">
+              <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
+              Sort By
+            </InputLabel>
+            <Select
+              labelId="sort-label"
+              value={sortOrder}
+              label="Sort By"
+              onChange={(e) => setSortOrder(e.target.value)}
+            >
+              <MenuItem value="newest">Newest First</MenuItem>
+              <MenuItem value="oldest">Oldest First</MenuItem>
+              <MenuItem value="name-asc">Name (A-Z)</MenuItem>
+              <MenuItem value="name-desc">Name (Z-A)</MenuItem>
+              <MenuItem value="status-active">Active First</MenuItem>
+              <MenuItem value="status-completed">Completed First</MenuItem>
+              <MenuItem value="status-pending">Pending First</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
       </Box>
 
       <Box
@@ -572,6 +626,21 @@ export default function JobsManager() {
                   size="small"
                 />
               </Box>
+
+              {/* ✅ NEW: Job Type Dropdown */}
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel size="small">Job Type</InputLabel>
+                <Select
+                  size="small"
+                  value={job.jobType || "General Service"}
+                  label="Job Type"
+                  onChange={(e) => handleJobTypeChange(job.id, e.target.value)}
+                >
+                  <MenuItem value="Quick Weed Service">Quick Weed Service</MenuItem>
+                  <MenuItem value="Maintenance">Maintenance</MenuItem>
+                  <MenuItem value="General Service">General Service</MenuItem>
+                </Select>
+              </FormControl>
 
               <FormControl fullWidth sx={{ mb: 2 }}>
                 <InputLabel size="small">Change Status</InputLabel>
@@ -603,7 +672,34 @@ export default function JobsManager() {
                 />
               )}
 
-              <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+                {(job.serviceDate || job.startDate) && (() => {
+                  const rawDate = job.serviceDate || job.startDate;
+                  let displayDate = "Invalid Date";
+                  
+                  try {
+                    if (rawDate?.toDate) {
+                      displayDate = rawDate.toDate().toLocaleDateString();
+                    } 
+                    else if (typeof rawDate === 'string') {
+                      displayDate = new Date(rawDate).toLocaleDateString();
+                    }
+                    else if (rawDate instanceof Date) {
+                      displayDate = rawDate.toLocaleDateString();
+                    }
+                  } catch (error) {
+                    console.error("Date parsing error:", error);
+                  }
+                  
+                  return displayDate !== "Invalid Date" ? (
+                    <Chip 
+                      label={`📅 ${displayDate}`}
+                      size="small"
+                      variant="outlined"
+                    />
+                  ) : null;
+                })()}
+                
                 <Chip 
                   icon={<PhotoLibraryIcon />}
                   label={`Before: ${(job.beforePhotos || []).length}`}
@@ -690,10 +786,13 @@ export default function JobsManager() {
         {sortedJobs.length === 0 && (
           <Box sx={{ gridColumn: '1 / -1', textAlign: 'center', py: 8 }}>
             <Typography variant="h6" color="text.secondary">
-              No Jobs Yet
+              No Jobs Found
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Jobs will appear here after you create them
+              {jobTypeFilter !== "all" 
+                ? `No ${jobTypeFilter} jobs found. Try changing the filter.`
+                : "Jobs will appear here after you create them"
+              }
             </Typography>
           </Box>
         )}
@@ -719,7 +818,6 @@ export default function JobsManager() {
         <DialogContent>
           {!capturedImage ? (
             <Box sx={{ textAlign: 'center' }}>
-              {/* Show video preview for desktop, hide for mobile */}
               <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
                 <video
                   ref={videoRef}
@@ -736,9 +834,7 @@ export default function JobsManager() {
                 <canvas ref={canvasRef} style={{ display: 'none' }} />
               </Box>
               
-              {/* Mobile: Just show camera buttons */}
               <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {/* Desktop: Traditional capture button */}
                 <Button
                   variant="contained"
                   onClick={handleCapturePhoto}
@@ -749,7 +845,6 @@ export default function JobsManager() {
                   Capture Photo
                 </Button>
                 
-                {/* Mobile: Use native camera */}
                 <Button
                   variant="contained"
                   onClick={() => fileInputRef.current?.click()}
@@ -760,7 +855,6 @@ export default function JobsManager() {
                   Open Camera
                 </Button>
                 
-                {/* Gallery upload for both */}
                 <Button
                   variant="outlined"
                   onClick={() => galleryInputRef.current?.click()}
@@ -769,7 +863,6 @@ export default function JobsManager() {
                   Choose from Gallery
                 </Button>
                 
-                {/* Hidden file inputs */}
                 <input
                   ref={fileInputRef}
                   type="file"

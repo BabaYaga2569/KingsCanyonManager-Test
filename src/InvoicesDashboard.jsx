@@ -430,9 +430,10 @@ export default function InvoicesDashboard() {
         });
       }
 
-      // Create calendar entry to show work was done
+            // Create calendar entry to show work was done
       // Auto-assign currently logged-in user to the crew
-      const selectedCrews = [];
+      console.log("🔵 DEBUG: user =", user);
+      const selectedCrews = [];      
       if (user) {
         try {
           const userDoc = await getDoc(doc(db, "users", user.uid));
@@ -457,11 +458,54 @@ export default function InvoicesDashboard() {
         endTime: weedInvoice.endTime,
         priority: "normal",
         status: "completed",
-        selectedCrews: selectedCrews,
+        assignedEmployees: selectedCrews.map(c => c.id),
         selectedEquipment: [],
         notes: "Quick weed spraying job - auto-created from invoice",
         createdAt: serverTimestamp(),
       });
+      
+            // ✅ FIXED: Create Job record with better notes and jobType
+      const jobNotes = description 
+        ? `Quick weed spraying job - auto-created from invoice\n\nServices Provided:\n${description}`
+        : "Quick weed spraying job - auto-created from invoice";
+
+      await addDoc(collection(db, "jobs"), {
+        customerId: customer.id,
+        clientName: customer.name,
+        jobDescription: description,
+        description: description,
+        status: "Completed",
+        priority: "normal",
+        serviceDate: weedInvoice.serviceDate,
+        startDate: weedInvoice.serviceDate,
+        completionDate: weedInvoice.serviceDate,
+        startTime: weedInvoice.startTime,
+        endTime: weedInvoice.endTime,
+        assignedEmployees: selectedCrews.map(c => c.id),
+        notes: jobNotes, // ✅ FIXED: Better notes with service details
+        amount: total,
+        jobType: "Quick Weed Service", // ✅ NEW: Tag for filtering
+		invoiceSource: "quick-weed-invoice",
+        beforePhotos: beforePhotoURL ? [beforePhotoURL] : [],
+        afterPhotos: afterPhotoURL ? [afterPhotoURL] : [],
+        createdAt: serverTimestamp(),
+        completedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "schedules"), {
+        clientName: customer.name,
+        jobDescription: description,
+        startDate: weedInvoice.serviceDate,
+        endDate: weedInvoice.serviceDate,
+        startTime: weedInvoice.startTime,
+        endTime: weedInvoice.endTime,
+        priority: "normal",
+        status: "completed",
+        assignedEmployees: selectedCrews.map(c => c.id),
+        selectedEquipment: [],
+        notes: "Quick weed spraying job - auto-created from invoice",
+        createdAt: serverTimestamp(),
+      });       
 
       // Success!
       const photoMessage = beforePhotoURL && afterPhotoURL 

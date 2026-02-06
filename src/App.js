@@ -82,11 +82,11 @@ import EquipmentManager from "./EquipmentManager";
 import NDAEditor from "./NDAEditor";
 import NDASigningPage from "./NDASigningPage";
 import NDASigning from "./NDASigning"; // NEW: Employee first-login NDA
-import MigrationPage from './MigrationPage';
 import ExpensesManager from "./ExpensesManager";
 import IntegratedPayroll from "./IntegratedPayroll"; // ✅ CHANGED: New integrated payroll system
 import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
+import MigrationPage from './MigrationPage';
 import JobExpenses from "./JobExpenses";
 import NotesManager from "./NotesManager"; // â† ADDED: Notes Manager
 import NotificationSettings from "./NotificationSettings"; // NEW: SMS Notification Settings
@@ -773,6 +773,7 @@ function AppContent() {
         <Route path="/contract/:id" element={<ContractEditor />} />
         <Route path="/invoices" element={<InvoicesDashboard />} />
         <Route path="/invoice/:id" element={<InvoiceEditor />} />
+		<Route path="/migration" element={<MigrationPage />} />
         <Route path="/jobs" element={<JobsManager />} />
         <Route path="/notes" element={<NotesManager />} /> {/* â† ADDED: Notes route */}
         <Route path="/customers" element={<CustomersDashboard />} />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
-import { doc, getDoc, collection, getDocs, addDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, addDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import {
   Container,
@@ -202,12 +202,12 @@ export default function ScheduleJob() {
         startTime: formData.startTime,
         endDate: formData.endDate || formData.startDate,
         endTime: formData.endTime,
-        selectedEmployees: formData.selectedEmployees, // ✅ FIXED: Changed from selectedCrews
+        assignedEmployees: formData.selectedEmployees, // ← CORRECT
         selectedEquipment: formData.selectedEquipment,
         notes: formData.notes,
         priority: formData.priority,
         status: "scheduled",
-        createdAt: new Date().toISOString(),
+        createdAt: serverTimestamp(),
       };
 
       const scheduleRef = await addDoc(collection(db, "schedules"), scheduleData);
