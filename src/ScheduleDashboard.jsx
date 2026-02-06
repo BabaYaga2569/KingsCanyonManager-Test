@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { collection, getDocs, deleteDoc, doc, updateDoc, addDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { useNavigate } from "react-router-dom";
 import {
@@ -46,6 +46,7 @@ export default function ScheduleDashboard() {
   useEffect(() => {
     loadData();
   }, []);
+  
   useEffect(() => {
     markAsViewed('schedule');
   }, []);
@@ -59,11 +60,12 @@ export default function ScheduleDashboard() {
       const crewsSnap = await getDocs(collection(db, "crews"));
       const crewsData = crewsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setCrews(crewsData);
+      
       // Load employees
       const employeesSnap = await getDocs(collection(db, "users"));
       const employeesData = employeesSnap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((user) => user.active !== false);
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((user) => user.active !== false);
       setEmployees(employeesData);
 
       const equipSnap = await getDocs(collection(db, "equipment"));
@@ -104,6 +106,9 @@ export default function ScheduleDashboard() {
 
   const handleComplete = async (schedule) => {
     try {
+      console.log("🔵 Completing schedule:", schedule); // DEBUG
+      
+      // Mark schedule as completed
       await updateDoc(doc(db, "schedules", schedule.id), { status: "completed" });
       
       // Free up equipment
@@ -111,42 +116,79 @@ export default function ScheduleDashboard() {
         await updateDoc(doc(db, "equipment", equipId), { status: "available" });
       }
 
+      // ✅ FIXED: Create job for ALL maintenance schedules (even legacy ones)
+      if (schedule.type === 'maintenance' || schedule.maintenanceContractId) {
+        console.log("🟢 Creating maintenance job..."); // DEBUG
+        
+        const jobData = {
+          customerId: schedule.customerId || '',
+          clientName: schedule.clientName,
+          jobDescription: schedule.servicesIncluded || schedule.notes || 'Routine maintenance',
+          description: schedule.servicesIncluded || schedule.notes || 'Routine maintenance',
+          status: 'Completed',
+          priority: 'normal',
+          serviceDate: schedule.startDate,
+          startDate: schedule.startDate,
+          completionDate: new Date().toISOString().split('T')[0],
+          startTime: schedule.startTime || '08:00',
+          endTime: schedule.endTime || '17:00',
+          assignedEmployees: schedule.assignedEmployees || [],
+          notes: schedule.notes || `Maintenance visit completed on ${new Date().toLocaleDateString()}`,
+          amount: schedule.monthlyRate || 0,
+          jobType: 'Maintenance', // ✅ Auto-tagged!
+          maintenanceContractId: schedule.maintenanceContractId || '',
+          createdAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        };
+        
+        await addDoc(collection(db, 'jobs'), jobData);
+        console.log("✅ Maintenance job created!"); // DEBUG
+      } else {
+        console.log("⚠️ Not a maintenance schedule, no job created"); // DEBUG
+      }
+
       setSchedules(schedules.map((s) => 
         s.id === schedule.id ? { ...s, status: "completed" } : s
       ));
       
-      Swal.fire("Completed!", "Job marked as completed", "success");
+      Swal.fire({
+        title: "Visit Completed!",
+        html: (schedule.type === 'maintenance' || schedule.maintenanceContractId)
+          ? "Schedule marked as completed<br>✅ Job record created"
+          : "Schedule marked as completed",
+        icon: "success"
+      });
     } catch (error) {
-      console.error("Error completing job:", error);
-      Swal.fire("Error", "Failed to update status", "error");
+      console.error("❌ Error completing job:", error);
+      Swal.fire("Error", "Failed to complete: " + error.message, "error");
     }
   };
 
   const getEmployeeNames = (schedule) => {
-  // Safety check: if schedule is undefined or null
-  if (!schedule) return "No employees assigned";
-    
-  // DEBUG: Log the schedule to see what fields exist
-  console.log("🔍 Schedule:", schedule.clientName, {
-    assignedEmployees: schedule.assignedEmployees,
-    selectedEmployees: schedule.selectedEmployees,
-    selectedCrews: schedule.selectedCrews
-  });
-  
-  // Support all legacy field names for backward compatibility
-  const employeeIds = schedule.assignedEmployees || schedule.selectedEmployees || schedule.selectedCrews || [];
+    // Safety check: if schedule is undefined or null
+    if (!schedule) return "No employees assigned";
       
-  if (!employeeIds || employeeIds.length === 0) return "No employees assigned";
-  
-  // Look up in employees collection (not crews)
-  return employeeIds
-    .map((id) => {
-      const emp = employees.find((e) => e.id === id);
-      return emp?.name || emp?.email;
-    })
-    .filter(Boolean)
-    .join(", ") || "No employees assigned";
-};
+    // DEBUG: Log the schedule to see what fields exist
+    console.log("🔍 Schedule:", schedule.clientName, {
+      assignedEmployees: schedule.assignedEmployees,
+      selectedEmployees: schedule.selectedEmployees,
+      selectedCrews: schedule.selectedCrews
+    });
+    
+    // Support all legacy field names for backward compatibility
+    const employeeIds = schedule.assignedEmployees || schedule.selectedEmployees || schedule.selectedCrews || [];
+        
+    if (!employeeIds || employeeIds.length === 0) return "No employees assigned";
+    
+    // Look up in employees collection (not crews)
+    return employeeIds
+      .map((id) => {
+        const emp = employees.find((e) => e.id === id);
+        return emp?.name || emp?.email;
+      })
+      .filter(Boolean)
+      .join(", ") || "No employees assigned";
+  };
 
   const getEquipmentNames = (equipIds) => {
     if (!equipIds || equipIds.length === 0) return "No equipment";
