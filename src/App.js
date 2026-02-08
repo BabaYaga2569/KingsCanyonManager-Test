@@ -59,6 +59,8 @@ import ContractsDashboard from "./ContractsDashboard";
 import CreateBid from "./CreateBid";
 import ContractEditor from "./ContractEditor";
 import Dashboard from "./Dashboard";
+import EnhancedDashboard from './EnhancedDashboard';
+import CalendarView from './CalendarView';
 import InvoicesDashboard from "./InvoicesDashboard";
 import InvoiceEditor from "./InvoiceEditor";
 import JobsManager from "./JobsManager";
@@ -67,7 +69,6 @@ import CustomerProfile from "./CustomerProfile";
 import CustomerEditor from "./CustomerEditor";
 import ScheduleJob from "./ScheduleJob";
 import ScheduleDashboard from "./ScheduleDashboard";
-import CalendarView from "./CalendarView";
 // ========================================
 // 🔒 CRITICAL: MAINTENANCE COMPONENTS - DO NOT REMOVE
 // If these are missing, the Maintenance tab won't work!
@@ -87,8 +88,9 @@ import IntegratedPayroll from "./IntegratedPayroll"; // ✅ CHANGED: New integra
 import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
 import MigrationPage from './MigrationPage';
+import MigrationDashboard from './MigrationDashboard';
 import JobExpenses from "./JobExpenses";
-import NotesManager from "./NotesManager"; // â† ADDED: Notes Manager
+import NotesManager from "./NotesManager"; // ← ADDED: Notes Manager
 import NotificationSettings from "./NotificationSettings"; // NEW: SMS Notification Settings
 import EmployeeAccountManager from './EmployeeAccountManager';
 import { createFullJobPackage } from "./utils/createFullJobPackage";
@@ -403,7 +405,7 @@ function BidsList() {
                 <td style={{ padding: 10 }}>{bid.description}</td>
                 <td style={{ padding: 10 }}>{bid.materials}</td>
                 <td style={{ padding: 10 }}>
-                  {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : 'â€”'}
+                  {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : '—'}
                 </td>
                 <td style={{ padding: 10 }}>
                   <Button
@@ -482,7 +484,7 @@ function HomeRedirect() {
     return null;
   }
 
-  return <Dashboard />;
+  return <EnhancedDashboard />;
 }
 
 // ------------------------- APP CHROME -------------------------
@@ -574,7 +576,7 @@ function AppContent() {
       { label: "Notes", path: "/notes", notificationKey: "notes" },
       { label: "Customers", path: "/customers", notificationKey: "customers" },
       { label: "Schedule", path: "/schedule-dashboard", notificationKey: "schedules" },
-      { label: "Calendar", path: "/calendar-view", notificationKey: null },
+      { label: "Calendar", path: "/calendar", notificationKey: null }, // ✅ FIXED: Changed to /calendar
       // 🔒 CRITICAL: Maintenance menu item - DO NOT REMOVE
       { label: "Maintenance", path: "/maintenance", notificationKey: null },
       { label: "Payments", path: "/payments-dashboard", notificationKey: "payments" },
@@ -772,17 +774,21 @@ function AppContent() {
         <Route path="/contracts" element={<ContractsDashboard />} />
         <Route path="/contract/:id" element={<ContractEditor />} />
         <Route path="/invoices" element={<InvoicesDashboard />} />
-        <Route path="/invoice/:id" element={<InvoiceEditor />} />
-		<Route path="/migration" element={<MigrationPage />} />
+        <Route path="/invoice/:id" element={<InvoiceEditor />} />		
         <Route path="/jobs" element={<JobsManager />} />
-        <Route path="/notes" element={<NotesManager />} /> {/* â† ADDED: Notes route */}
+        <Route path="/notes" element={<NotesManager />} /> {/* ← ADDED: Notes route */}
         <Route path="/customers" element={<CustomersDashboard />} />
+		<Route path="/migration" element={<MigrationDashboard />} />
         <Route path="/customer-edit/:id" element={<CustomerEditor />} />
         <Route path="/customer/:id" element={<CustomerProfile />} />
         <Route path="/schedule-job" element={<ScheduleJob />} />
         <Route path="/migrate-tokens" element={<MigrationPage />} />
         <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
+        
+        {/* ✅ FIXED: Calendar routes - both /calendar and /calendar-view now work */}
+        <Route path="/calendar" element={<CalendarView />} />
         <Route path="/calendar-view" element={<CalendarView />} />
+        
         {/* 🔒 CRITICAL: Maintenance routes - DO NOT REMOVE */}
         <Route path="/maintenance" element={<MaintenanceDashboard />} />
         <Route path="/maintenance/:id" element={<MaintenanceEditor />} />
