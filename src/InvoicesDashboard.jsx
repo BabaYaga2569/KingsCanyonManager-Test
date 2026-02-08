@@ -1224,7 +1224,7 @@ export default function InvoicesDashboard() {
                     onChange={(e) => handleWeedInvoiceChange("frontYard", e.target.checked)}
                   />
                 }
-                label="Front Yard Weed Spraying - $50"
+                label="Front Yard Weed Spraying - $65"
               />
               <FormControlLabel
                 control={
@@ -1233,7 +1233,7 @@ export default function InvoicesDashboard() {
                     onChange={(e) => handleWeedInvoiceChange("backYard", e.target.checked)}
                   />
                 }
-                label="Back Yard Weed Spraying - $50"
+                label="Back Yard Weed Spraying - $65"
               />
               <FormControlLabel
                 control={

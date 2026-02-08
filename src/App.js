@@ -586,6 +586,7 @@ function AppContent() {
       { label: "Tax Report", path: "/tax-report", notificationKey: null },
       { label: "Equipment", path: "/equipment-manager", notificationKey: null },
 	  { label: "Employees", path: "/employees", notificationKey: null },
+      { label: "SMS Notifications", path: "/notification-settings", notificationKey: null },
       { label: "My Profile", path: "/profile", notificationKey: null },
     ];
   }
