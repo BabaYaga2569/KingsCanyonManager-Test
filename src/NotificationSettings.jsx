@@ -92,7 +92,7 @@ export default function NotificationSettings() {
 
   const loadEmployees = async () => {
     try {
-      const snap = await getDocs(collection(db, 'employees'));
+      const snap = await getDocs(collection(db, 'users'));
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setEmployees(data);
     } catch (error) {
@@ -164,19 +164,60 @@ export default function NotificationSettings() {
   };
 
   const handleTestNotification = async () => {
-    const result = await Swal.fire({
-      title: 'Send Test SMS',
-      input: 'text',
-      inputLabel: 'Enter phone number to test',
-      inputPlaceholder: '+1 928-450-5733',
-      showCancelButton: true,
-      confirmButtonText: 'Send Test',
-      inputValidator: (value) => {
-        if (!value) {
-          return 'Please enter a phone number';
+    // Gather all unique phone numbers from settings
+    const allNumbers = [
+      ...(settings.clockAlerts?.phoneNumbers || []),
+      ...(settings.paymentReminders?.phoneNumbers || []),
+      ...(settings.jobReminders?.phoneNumbers || []),
+    ];
+    const uniqueNumbers = [...new Set(allNumbers)];
+
+    // Build dropdown options
+    const inputOptions = {};
+    uniqueNumbers.forEach(num => { inputOptions[num] = num; });
+    inputOptions["custom"] = "-- Enter a different number --";
+
+    let result;
+    if (uniqueNumbers.length > 0) {
+      result = await Swal.fire({
+        title: "Send Test SMS",
+        input: "select",
+        inputOptions,
+        inputLabel: "Select phone number to test",
+        showCancelButton: true,
+        confirmButtonText: "Send Test",
+        inputValidator: (value) => {
+          if (!value) return "Please select a phone number";
         }
+      });
+
+      // If they picked custom, prompt for manual entry
+      if (result.isConfirmed && result.value === "custom") {
+        result = await Swal.fire({
+          title: "Send Test SMS",
+          input: "text",
+          inputLabel: "Enter phone number",
+          inputPlaceholder: "+19285551234",
+          showCancelButton: true,
+          confirmButtonText: "Send Test",
+          inputValidator: (value) => {
+            if (!value) return "Please enter a phone number";
+          }
+        });
       }
-    });
+    } else {
+      result = await Swal.fire({
+        title: "Send Test SMS",
+        input: "text",
+        inputLabel: "Enter phone number to test",
+        inputPlaceholder: "+19285551234",
+        showCancelButton: true,
+        confirmButtonText: "Send Test",
+        inputValidator: (value) => {
+          if (!value) return "Please enter a phone number";
+        }
+      });
+    }
 
     if (result.isConfirmed) {
       Swal.fire({
@@ -277,7 +318,12 @@ export default function NotificationSettings() {
       {/* Clock In/Out Alerts */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6">Employee Clock Alerts</Typography>
+          <Box>
+            <Typography variant="h6">👔 Admin Clock Alerts</Typography>
+            <Typography variant="caption" color="text.secondary">
+              YOU get notified when crew clocks in/out
+            </Typography>
+          </Box>
           <FormControlLabel
             control={
               <Switch
@@ -293,8 +339,11 @@ export default function NotificationSettings() {
           />
         </Box>
 
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Get instant text notifications when employees clock in and out
+        <Alert severity="success" sx={{ mb: 2 }}>
+          <Typography variant="body2">
+            <strong>📱 You Get Notified:</strong> When employees clock in/out, YOU receive instant text messages.
+            Perfect for tracking who is working in real-time!
+          </Typography>
         </Alert>
 
         {settings.clockAlerts.enabled && (
@@ -337,7 +386,7 @@ export default function NotificationSettings() {
             )}
 
             <Typography variant="subtitle2" gutterBottom>
-              Send Alerts To:
+              Admin Phone Numbers (YOU get notified):
             </Typography>
             <Box sx={{ mb: 2 }}>
               {settings.clockAlerts.phoneNumbers.map((phone, index) => (
@@ -605,10 +654,10 @@ export default function NotificationSettings() {
                     }
                     secondary={
                       <>
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography variant="body2" color="text.secondary" component="span" display="block">
                           {notif.message}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="caption" color="text.secondary" component="span" display="block">
                           {new Date(notif.sentAt).toLocaleString()}
                         </Typography>
                       </>

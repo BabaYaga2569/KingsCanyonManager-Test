@@ -28,6 +28,11 @@ import {
   Select,
   MenuItem,
   TextField,
+  Paper,
+  Fade,
+  Zoom,
+  Tooltip,
+  Badge,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import AddIcon from "@mui/icons-material/Add";
@@ -38,6 +43,11 @@ import ViewWeekIcon from "@mui/icons-material/ViewWeek";
 import CalendarViewMonthIcon from "@mui/icons-material/CalendarViewMonth";
 import ViewDayIcon from "@mui/icons-material/ViewDay";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import ListIcon from "@mui/icons-material/List";
+import PhoneIcon from "@mui/icons-material/Phone";
+import NavigationIcon from "@mui/icons-material/Navigation";
+import CloseIcon from "@mui/icons-material/Close";
+import TodayIcon from "@mui/icons-material/Today";
 
 const localizer = momentLocalizer(moment);
 
@@ -48,7 +58,7 @@ export default function CalendarView() {
 
   const [schedules, setSchedules] = useState([]);
   const [crews, setCrews] = useState([]);
-  const [employees, setEmployees] = useState([]); // New: for employee assignment
+  const [employees, setEmployees] = useState([]);
   const [editingEmployees, setEditingEmployees] = useState(false);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
   const [equipment, setEquipment] = useState([]);
@@ -56,14 +66,12 @@ export default function CalendarView() {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [calendarView, setCalendarView] = useState("month");
-  const [currentDate, setCurrentDate] = useState(new Date()); // For calendar navigation
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [loading, setLoading] = useState(false);
   
-  // Completion notes dialog
   const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
   const [completionNotes, setCompletionNotes] = useState("");
   
-  // Edit dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     clientName: "",
@@ -79,9 +87,15 @@ export default function CalendarView() {
 
   useEffect(() => {
     loadData();
+    
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(() => {
+      loadData();
+    }, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
-  // FIXED: Reload data when window regains focus (user comes back from editing)
   useEffect(() => {
     const handleFocus = () => {
       loadData();
@@ -90,33 +104,45 @@ export default function CalendarView() {
     return () => window.removeEventListener("focus", handleFocus);
   }, []);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      
+      if (e.key === 't' || e.key === 'T') {
+        setCurrentDate(new Date());
+      } else if (e.key === 'ArrowLeft') {
+        handleNavigate('PREV');
+      } else if (e.key === 'ArrowRight') {
+        handleNavigate('NEXT');
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [calendarView, currentDate]);
+
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load schedules
       const schedulesSnap = await getDocs(collection(db, "schedules"));
       const schedulesData = schedulesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setSchedules(schedulesData);
 
-      // Load crews
       const crewsSnap = await getDocs(collection(db, "crews"));
       const crewsData = crewsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setCrews(crewsData);
 
-      // Load equipment
       const equipSnap = await getDocs(collection(db, "equipment"));
       const equipData = equipSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setEquipment(equipData);
 
-      // Load employees (active users)
       const usersSnap = await getDocs(collection(db, "users"));
       const activeEmployees = usersSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .filter((user) => user.active !== false);
       setEmployees(activeEmployees);
-      console.log("✅ Loaded employees:", activeEmployees.length);
 
-      // Convert schedules to calendar events
       const calendarEvents = schedulesData.map((schedule) => {
         const startDateTime = new Date(`${schedule.startDate}T${schedule.startTime || "08:00"}`);
         const endDateTime = schedule.endDate
@@ -150,6 +176,30 @@ export default function CalendarView() {
     navigate(`/schedule-job?date=${dateStr}`);
   };
 
+  const handleNavigate = (action) => {
+    const newDate = new Date(currentDate);
+    
+    if (action === 'PREV') {
+      if (calendarView === 'month') {
+        newDate.setMonth(newDate.getMonth() - 1);
+      } else if (calendarView === 'week') {
+        newDate.setDate(newDate.getDate() - 7);
+      } else {
+        newDate.setDate(newDate.getDate() - 1);
+      }
+    } else if (action === 'NEXT') {
+      if (calendarView === 'month') {
+        newDate.setMonth(newDate.getMonth() + 1);
+      } else if (calendarView === 'week') {
+        newDate.setDate(newDate.getDate() + 7);
+      } else {
+        newDate.setDate(newDate.getDate() + 1);
+      }
+    }
+    
+    setCurrentDate(newDate);
+  };
+
   const handleDelete = async (schedule) => {
     const result = await Swal.fire({
       title: "Delete Schedule?",
@@ -164,14 +214,20 @@ export default function CalendarView() {
       try {
         await deleteDoc(doc(db, "schedules", schedule.id));
 
-        // Free up equipment
         for (const equipId of schedule.selectedEquipment || []) {
           await updateDoc(doc(db, "equipment", equipId), { status: "available" });
         }
 
         setDetailsOpen(false);
-        loadData(); // Reload calendar
-        Swal.fire("Deleted!", "Schedule removed", "success");
+        loadData();
+        
+        Swal.fire({
+          icon: "success",
+          title: "Deleted!",
+          text: "Schedule removed",
+          timer: 2000,
+          showConfirmButton: false,
+        });
       } catch (error) {
         console.error("Error deleting schedule:", error);
         Swal.fire("Error", "Failed to delete schedule", "error");
@@ -180,7 +236,6 @@ export default function CalendarView() {
   };
 
   const handleComplete = (schedule) => {
-    // Open completion notes dialog
     setCompletionNotes("");
     setCompletionDialogOpen(true);
   };
@@ -192,11 +247,8 @@ export default function CalendarView() {
         completedAt: new Date().toISOString(),
       };
       
-      // Add completion notes if provided
       if (completionNotes.trim()) {
-        // Store completion notes in dedicated field
         updates.completionNotes = completionNotes;
-        // Also append to general notes for visibility
         const existingNotes = selectedEvent.notes || "";
         updates.notes = existingNotes 
           ? `${existingNotes}\n\n[Completed ${moment().format("MM/DD/YYYY")}]\n${completionNotes}`
@@ -205,15 +257,21 @@ export default function CalendarView() {
       
       await updateDoc(doc(db, "schedules", selectedEvent.id), updates);
 
-      // Free up equipment
       for (const equipId of selectedEvent.selectedEquipment || []) {
         await updateDoc(doc(db, "equipment", equipId), { status: "available" });
       }
 
       setCompletionDialogOpen(false);
       setDetailsOpen(false);
-      loadData(); // Reload calendar
-      Swal.fire("Completed!", "Job marked as completed", "success");
+      loadData();
+      
+      Swal.fire({
+        icon: "success",
+        title: "Completed!",
+        text: "Job marked as completed",
+        timer: 2000,
+        showConfirmButton: false,
+      });
     } catch (error) {
       console.error("Error completing job:", error);
       Swal.fire("Error", "Failed to update status", "error");
@@ -252,8 +310,15 @@ export default function CalendarView() {
 
       setEditDialogOpen(false);
       setDetailsOpen(false);
-      loadData(); // Reload calendar
-      Swal.fire("Success!", "Job updated successfully", "success");
+      loadData();
+      
+      Swal.fire({
+        icon: "success",
+        title: "Success!",
+        text: "Job updated successfully",
+        timer: 2000,
+        showConfirmButton: false,
+      });
     } catch (error) {
       console.error("Error updating job:", error);
       Swal.fire("Error", "Failed to update job", "error");
@@ -278,161 +343,265 @@ export default function CalendarView() {
 
   const getPriorityColor = (priority) => {
     switch (priority) {
-      case "urgent": return "error";
-      case "high": return "warning";
-      case "normal": return "info";
-      case "low": return "default";
-      default: return "default";
+      case "urgent": return "#f44336";
+      case "high": return "#ff9800";
+      case "normal": return "#2196f3";
+      case "low": return "#9e9e9e";
+      default: return "#9e9e9e";
     }
   };
 
   const getStatusColor = (status) => {
     switch (status) {
-      case "completed": return "success";
-      case "in-progress": return "warning";
-      case "scheduled": return "info";
-      default: return "default";
+      case "completed": return "#4caf50";
+      case "in-progress": return "#ff9800";
+      case "scheduled": return "#2196f3";
+      default: return "#9e9e9e";
     }
   };
 
-  // Custom event styling
   const eventStyleGetter = (event) => {
     const schedule = event.resource;
-    let backgroundColor = "#3174ad"; // default blue
+    let backgroundColor = getPriorityColor(schedule.priority || "normal");
 
     if (schedule.status === "completed") {
-      backgroundColor = "#4caf50"; // green
-    } else if (schedule.priority === "urgent") {
-      backgroundColor = "#f44336"; // red
-    } else if (schedule.priority === "high") {
-      backgroundColor = "#ff9800"; // orange
+      backgroundColor = "#4caf50";
     }
 
     return {
       style: {
         backgroundColor,
-        borderRadius: "5px",
-        opacity: 0.8,
+        borderRadius: "8px",
+        opacity: schedule.status === "completed" ? 0.7 : 0.95,
         color: "white",
-        border: "0px",
+        border: "none",
         display: "block",
+        fontSize: "0.9rem",
+        fontWeight: 600,
+        padding: "4px 8px",
+        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+        transition: "all 0.2s",
       },
     };
   };
 
+  const totalJobs = schedules.length;
+  const completedJobs = schedules.filter(s => s.status === "completed").length;
+  const urgentJobs = schedules.filter(s => s.priority === "urgent" && s.status !== "completed").length;
+
   return (
-    <Container maxWidth="xl" sx={{ mt: 3, mb: 6 }}>
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
+    <Box sx={{ minHeight: '100vh', backgroundColor: '#f5f7fa' }}>
+      {/* PURPLE GRADIENT HEADER */}
+      <Paper 
+        elevation={3} 
+        sx={{ 
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+          color: 'white', 
+          p: 3,
           mb: 3,
-          flexWrap: "wrap",
-          gap: 2,
+          borderRadius: 0,
         }}
       >
-        <Typography variant="h5" sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}>
-          Calendar View
-        </Typography>
+        <Container maxWidth="xl">
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+            <Box>
+              <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+                📅 Calendar View
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <Chip 
+                  label={`${totalJobs} Total Jobs`} 
+                  size="small" 
+                  sx={{ backgroundColor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 600 }} 
+                />
+                <Chip 
+                  label={`${completedJobs} Completed`} 
+                  size="small" 
+                  sx={{ backgroundColor: 'rgba(76,175,80,0.3)', color: 'white', fontWeight: 600 }} 
+                />
+                {urgentJobs > 0 && (
+                  <Badge badgeContent={urgentJobs} color="error">
+                    <Chip 
+                      label="Urgent Jobs" 
+                      size="small" 
+                      sx={{ backgroundColor: 'rgba(244,67,54,0.3)', color: 'white', fontWeight: 600 }} 
+                    />
+                  </Badge>
+                )}
+              </Box>
+            </Box>
 
-        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-          {/* ADDED: Refresh button */}
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={loadData}
-            disabled={loading}
-            startIcon={<RefreshIcon />}
-          >
-            {loading ? "..." : "Refresh"}
-          </Button>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Tooltip title="Refresh (or press T for Today)">
+                <IconButton
+                  onClick={loadData}
+                  disabled={loading}
+                  sx={{ 
+                    color: 'white', 
+                    backgroundColor: 'rgba(255,255,255,0.1)',
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' }
+                  }}
+                >
+                  <RefreshIcon />
+                </IconButton>
+              </Tooltip>
 
-          {!isMobile && (
-            <ToggleButtonGroup
-              value={calendarView}
-              exclusive
-              onChange={(e, newView) => newView && setCalendarView(newView)}
-              size="small"
-            >
-              <ToggleButton value="month">
-                <CalendarViewMonthIcon sx={{ mr: 0.5 }} />
-                Month
-              </ToggleButton>
-              <ToggleButton value="week">
-                <ViewWeekIcon sx={{ mr: 0.5 }} />
-                Week
-              </ToggleButton>
-              <ToggleButton value="day">
-                <ViewDayIcon sx={{ mr: 0.5 }} />
-                Day
-              </ToggleButton>
-            </ToggleButtonGroup>
-          )}
+              <Tooltip title="Go to Today">
+                <IconButton
+                  onClick={() => setCurrentDate(new Date())}
+                  sx={{ 
+                    color: 'white', 
+                    backgroundColor: 'rgba(255,255,255,0.1)',
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.2)' }
+                  }}
+                >
+                  <TodayIcon />
+                </IconButton>
+              </Tooltip>
 
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => navigate("/schedule-dashboard")}
-          >
-            List View
-          </Button>
+              {!isMobile && (
+                <ToggleButtonGroup
+                  value={calendarView}
+                  exclusive
+                  onChange={(e, newView) => newView && setCalendarView(newView)}
+                  size="small"
+                  sx={{
+                    backgroundColor: 'rgba(255,255,255,0.2)',
+                    '& .MuiToggleButton-root': {
+                      color: 'rgba(255,255,255,0.7)',
+                      border: 'none',
+                      '&.Mui-selected': {
+                        backgroundColor: 'white',
+                        color: '#667eea',
+                        fontWeight: 700,
+                      }
+                    }
+                  }}
+                >
+                  <ToggleButton value="month">
+                    <CalendarViewMonthIcon sx={{ mr: 0.5 }} fontSize="small" />
+                    Month
+                  </ToggleButton>
+                  <ToggleButton value="week">
+                    <ViewWeekIcon sx={{ mr: 0.5 }} fontSize="small" />
+                    Week
+                  </ToggleButton>
+                  <ToggleButton value="day">
+                    <ViewDayIcon sx={{ mr: 0.5 }} fontSize="small" />
+                    Day
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              )}
 
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => navigate("/schedule-job")}
-            size="small"
-          >
-            {isMobile ? "Add" : "Add Job"}
-          </Button>
-        </Box>
-      </Box>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<ListIcon />}
+                onClick={() => navigate("/schedule-dashboard")}
+                sx={{
+                  color: 'white',
+                  borderColor: 'rgba(255,255,255,0.5)',
+                  '&:hover': { borderColor: 'white', backgroundColor: 'rgba(255,255,255,0.1)' }
+                }}
+              >
+                List View
+              </Button>
 
-      {/* Color Legend */}
-      <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
-        <Chip label="Urgent" size="small" sx={{ bgcolor: "#f44336", color: "white" }} />
-        <Chip label="High Priority" size="small" sx={{ bgcolor: "#ff9800", color: "white" }} />
-        <Chip label="Normal" size="small" sx={{ bgcolor: "#3174ad", color: "white" }} />
-        <Chip label="Completed" size="small" sx={{ bgcolor: "#4caf50", color: "white" }} />
-      </Box>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => navigate("/schedule-job")}
+                sx={{ 
+                  backgroundColor: 'white', 
+                  color: '#667eea', 
+                  fontWeight: 600,
+                  '&:hover': { backgroundColor: '#f5f5f5' }
+                }}
+              >
+                {isMobile ? "Add" : "Add Job"}
+              </Button>
+            </Box>
+          </Box>
 
-      {/* Calendar */}
-      <Box
-        sx={{
-          bgcolor: "white",
-          p: { xs: 1, sm: 2 },
-          borderRadius: 2,
-          boxShadow: 2,
-          "& .rbc-calendar": {
-            minHeight: isMobile ? "400px" : "600px",
-          },
-          "& .rbc-event": {
-            fontSize: isMobile ? "0.7rem" : "0.875rem",
-          },
-          "& .rbc-toolbar button": {
-            fontSize: isMobile ? "0.8rem" : "1rem",
-          },
-        }}
-      >
-        <Calendar
-          localizer={localizer}
-          events={events}
-          startAccessor="start"
-          endAccessor="end"
-          style={{ height: isMobile ? 400 : 600 }}
-          onSelectEvent={handleSelectEvent}
-          onSelectSlot={handleSelectSlot}
-          selectable
-          view={calendarView}
-          onView={setCalendarView}
-          date={currentDate}
-          onNavigate={(newDate) => setCurrentDate(newDate)}
-          eventPropGetter={eventStyleGetter}
-          views={["month", "week", "day"]}
-          popup
-        />
-      </Box>
+          {/* Color Legend */}
+          <Box sx={{ display: 'flex', gap: 2, mt: 2, flexWrap: 'wrap' }}>
+            <Chip 
+              label="🔴 Urgent" 
+              size="small" 
+              sx={{ backgroundColor: 'rgba(244,67,54,0.2)', color: 'white', fontWeight: 600 }} 
+            />
+            <Chip 
+              label="🟠 High Priority" 
+              size="small" 
+              sx={{ backgroundColor: 'rgba(255,152,0,0.2)', color: 'white', fontWeight: 600 }} 
+            />
+            <Chip 
+              label="🔵 Normal" 
+              size="small" 
+              sx={{ backgroundColor: 'rgba(33,150,243,0.2)', color: 'white', fontWeight: 600 }} 
+            />
+            <Chip 
+              label="✅ Completed" 
+              size="small" 
+              sx={{ backgroundColor: 'rgba(76,175,80,0.2)', color: 'white', fontWeight: 600 }} 
+            />
+          </Box>
+        </Container>
+      </Paper>
+
+      <Container maxWidth="xl" sx={{ mb: 6 }}>
+        {/* Calendar */}
+        <Paper
+          elevation={3}
+          sx={{
+            p: { xs: 1, sm: 2 },
+            borderRadius: 2,
+            "& .rbc-calendar": {
+              minHeight: isMobile ? "400px" : "700px",
+            },
+            "& .rbc-event": {
+              fontSize: isMobile ? "0.75rem" : "0.9rem",
+            },
+            "& .rbc-toolbar button": {
+              fontSize: isMobile ? "0.8rem" : "1rem",
+            },
+            "& .rbc-today": {
+              backgroundColor: "#e3f2fd !important",
+            },
+            "& .rbc-header": {
+              padding: "12px 4px",
+              fontWeight: 700,
+              backgroundColor: "#f5f5f5",
+              borderBottom: "2px solid #e0e0e0",
+            },
+            "& .rbc-event:hover": {
+              transform: "scale(1.02)",
+              boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+              cursor: "pointer",
+            },
+          }}
+        >
+          <Calendar
+            localizer={localizer}
+            events={events}
+            startAccessor="start"
+            endAccessor="end"
+            style={{ height: isMobile ? 500 : 700 }}
+            onSelectEvent={handleSelectEvent}
+            onSelectSlot={handleSelectSlot}
+            onDoubleClickEvent={(event) => handleSelectEvent(event)}
+            selectable
+            view={calendarView}
+            onView={setCalendarView}
+            date={currentDate}
+            onNavigate={(newDate) => setCurrentDate(newDate)}
+            eventPropGetter={eventStyleGetter}
+            views={["month", "week", "day"]}
+            popup
+            tooltipAccessor={(event) => `${event.title} - ${event.resource.jobDescription || 'No description'}`}
+          />
+        </Paper>
+      </Container>
 
       {/* Event Details Dialog */}
       <Dialog
@@ -441,36 +610,50 @@ export default function CalendarView() {
         maxWidth="sm"
         fullWidth
         fullScreen={isMobile}
+        TransitionComponent={Zoom}
+        PaperProps={{
+          sx: { borderRadius: 2 }
+        }}
       >
         {selectedEvent && (
           <>
-            <DialogTitle>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Typography variant="h6">Job Details</Typography>
-                <Box>
+            <DialogTitle sx={{ backgroundColor: '#667eea', color: 'white' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>Job Details</Typography>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                   <Chip
                     label={selectedEvent.status || "scheduled"}
-                    color={getStatusColor(selectedEvent.status)}
+                    sx={{
+                      backgroundColor: getStatusColor(selectedEvent.status),
+                      color: 'white',
+                      fontWeight: 700,
+                    }}
                     size="small"
                   />
                   {selectedEvent.priority && selectedEvent.priority !== "normal" && (
                     <Chip
                       label={selectedEvent.priority}
-                      color={getPriorityColor(selectedEvent.priority)}
+                      sx={{
+                        backgroundColor: getPriorityColor(selectedEvent.priority),
+                        color: 'white',
+                        fontWeight: 700,
+                      }}
                       size="small"
-                      sx={{ ml: 1 }}
                     />
                   )}
+                  <IconButton onClick={() => setDetailsOpen(false)} sx={{ color: 'white' }} size="small">
+                    <CloseIcon />
+                  </IconButton>
                 </Box>
               </Box>
             </DialogTitle>
-            <DialogContent>
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+            <DialogContent sx={{ mt: 2 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">
                     Client
                   </Typography>
-                  <Typography variant="h6">{selectedEvent.clientName}</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 700 }}>{selectedEvent.clientName}</Typography>
                 </Box>
 
                 {selectedEvent.jobDescription && (
@@ -497,6 +680,39 @@ export default function CalendarView() {
                       Ends: {moment(selectedEvent.endDate).format("MMM DD, YYYY")}
                     </Typography>
                   )}
+                </Box>
+
+                <Divider />
+
+                {/* Quick Actions */}
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                    Quick Actions
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    {selectedEvent.customerPhone && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<PhoneIcon />}
+                        onClick={() => window.open(`tel:${selectedEvent.customerPhone}`)}
+                        sx={{ borderColor: '#667eea', color: '#667eea' }}
+                      >
+                        Call
+                      </Button>
+                    )}
+                    {selectedEvent.customerAddress && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<NavigationIcon />}
+                        onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedEvent.customerAddress)}`)}
+                        sx={{ borderColor: '#667eea', color: '#667eea' }}
+                      >
+                        Navigate
+                      </Button>
+                    )}
+                  </Box>
                 </Box>
 
                 <Divider />
@@ -535,7 +751,7 @@ export default function CalendarView() {
                           setEditingEmployees(true);
                           setSelectedEmployeeIds(selectedEvent.assignedEmployees || []);
                         }}
-                        sx={{ mt: 1 }}
+                        sx={{ mt: 1, borderColor: '#667eea', color: '#667eea' }}
                       >
                         Edit Employees
                       </Button>
@@ -575,6 +791,7 @@ export default function CalendarView() {
                         <Button
                           size="small"
                           variant="contained"
+                          sx={{ backgroundColor: '#667eea' }}
                           onClick={async () => {
                             try {
                               await updateDoc(doc(db, "schedules", selectedEvent.id), {
@@ -586,7 +803,13 @@ export default function CalendarView() {
                               });
                               setEditingEmployees(false);
                               await loadData();
-                              Swal.fire("Success!", "Employees updated successfully", "success");
+                              Swal.fire({
+                                icon: "success",
+                                title: "Success!",
+                                text: "Employees updated",
+                                timer: 2000,
+                                showConfirmButton: false,
+                              });
                             } catch (error) {
                               console.error("Error updating employees:", error);
                               Swal.fire("Error", "Failed to update employees", "error");
@@ -648,6 +871,7 @@ export default function CalendarView() {
                 startIcon={<EditIcon />}
                 onClick={() => handleOpenEditDialog(selectedEvent)}
                 fullWidth={isMobile}
+                sx={{ borderColor: '#667eea', color: '#667eea' }}
               >
                 Edit Job
               </Button>
@@ -660,13 +884,14 @@ export default function CalendarView() {
                     navigate(`/contract/${selectedEvent.contractId}`);
                   }}
                   fullWidth={isMobile}
+                  sx={{ borderColor: '#667eea', color: '#667eea' }}
                 >
                   View Contract
                 </Button>
               )}
               {selectedEvent.status !== "completed" && (
                 <Button
-                  variant="outlined"
+                  variant="contained"
                   color="success"
                   startIcon={<CheckCircleIcon />}
                   onClick={() => handleComplete(selectedEvent)}
@@ -684,9 +909,6 @@ export default function CalendarView() {
               >
                 Delete
               </Button>
-              <Button onClick={() => setDetailsOpen(false)} fullWidth={isMobile}>
-                Close
-              </Button>
             </DialogActions>
           </>
         )}
@@ -698,9 +920,12 @@ export default function CalendarView() {
         onClose={() => setCompletionDialogOpen(false)}
         maxWidth="sm"
         fullWidth
+        TransitionComponent={Fade}
       >
-        <DialogTitle>Complete Job</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={{ backgroundColor: '#4caf50', color: 'white', fontWeight: 700 }}>
+          Complete Job
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Add notes about what was completed, any issues encountered, or additional work done.
           </Typography>
@@ -714,7 +939,7 @@ export default function CalendarView() {
             placeholder="Example: Completed weed spraying. Applied pre-emergent herbicide to all areas. Some areas needed extra attention due to heavy weed growth."
           />
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setCompletionDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleSaveCompletion} variant="contained" color="success">
             Mark Complete
@@ -729,10 +954,13 @@ export default function CalendarView() {
         maxWidth="md"
         fullWidth
         fullScreen={isMobile}
+        TransitionComponent={Zoom}
       >
-        <DialogTitle>Edit Job</DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+        <DialogTitle sx={{ backgroundColor: '#667eea', color: 'white', fontWeight: 700 }}>
+          Edit Job
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <TextField
               label="Client Name"
               fullWidth
@@ -828,11 +1056,11 @@ export default function CalendarView() {
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleSaveEdit} variant="contained" color="primary">
+          <Button onClick={handleSaveEdit} variant="contained" sx={{ backgroundColor: '#667eea' }}>
             Save Changes
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Box>
   );
 }
