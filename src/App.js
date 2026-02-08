@@ -87,6 +87,7 @@ import IntegratedPayroll from "./IntegratedPayroll"; // ✅ CHANGED: New integra
 import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
 import MigrationPage from './MigrationPage';
+import MigrationDashboard from './MigrationDashboard';  // ← ADD THIS LINE
 import JobExpenses from "./JobExpenses";
 import NotesManager from "./NotesManager"; // â† ADDED: Notes Manager
 import NotificationSettings from "./NotificationSettings"; // NEW: SMS Notification Settings
@@ -774,7 +775,11 @@ function AppContent() {
         <Route path="/contract/:id" element={<ContractEditor />} />
         <Route path="/invoices" element={<InvoicesDashboard />} />
         <Route path="/invoice/:id" element={<InvoiceEditor />} />
-		<Route path="/migration" element={<MigrationPage />} />
+		{/* OLD migration page - disabled */}
+        {/* <Route path="/migration" element={<MigrationPage />} /> */}
+
+        {/* NEW migration dashboard */}
+        <Route path="/migration" element={<MigrationDashboard />} />
         <Route path="/jobs" element={<JobsManager />} />
         <Route path="/notes" element={<NotesManager />} /> {/* â† ADDED: Notes route */}
         <Route path="/customers" element={<CustomersDashboard />} />
