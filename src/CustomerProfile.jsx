@@ -70,7 +70,21 @@ export default function CustomerProfile() {
     fetchCustomerAndDocs();
   }, [id, navigate]);
 
-  const handleSave = async () => {
+    const handleSave = async () => {
+    // Validation - Phase 2A: address is now required
+    if (!customer.name || !customer.phone || !customer.address) {
+      const missing = [];
+      if (!customer.name) missing.push("Name");
+      if (!customer.phone) missing.push("Phone");
+      if (!customer.address) missing.push("Address");
+      Swal.fire(
+        "Missing Info",
+        `The following fields are required: ${missing.join(", ")}`,
+        "warning"
+      );
+      return;
+    }
+
     try {
       await updateDoc(doc(db, "customers", id), {
         name: customer.name,
@@ -146,13 +160,15 @@ export default function CustomerProfile() {
               onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
               fullWidth
             />
-            <TextField
+                        <TextField
               label="Address"
               multiline
               rows={2}
               value={customer.address || ""}
               onChange={(e) => setCustomer({ ...customer, address: e.target.value })}
               fullWidth
+              required
+              helperText="Required – needed for scheduling and GPS navigation"
             />
             <TextField
               label="Notes"
