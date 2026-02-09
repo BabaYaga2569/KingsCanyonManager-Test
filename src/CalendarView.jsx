@@ -171,10 +171,11 @@ export default function CalendarView() {
     setDetailsOpen(true);
   };
 
-  const handleSelectSlot = ({ start }) => {
-    const dateStr = moment(start).format("YYYY-MM-DD");
-    navigate(`/schedule-job?date=${dateStr}`);
-  };
+    // Phase 2B: Removed - schedules created through workflow only
+  // const handleSelectSlot = ({ start }) => {
+  //   const dateStr = moment(start).format("YYYY-MM-DD");
+  //   navigate(`/schedule-job?date=${dateStr}`);
+  // };
 
   const handleNavigate = (action) => {
     const newDate = new Date(currentDate);
@@ -506,20 +507,7 @@ export default function CalendarView() {
               >
                 List View
               </Button>
-
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => navigate("/schedule-job")}
-                sx={{ 
-                  backgroundColor: 'white', 
-                  color: '#667eea', 
-                  fontWeight: 600,
-                  '&:hover': { backgroundColor: '#f5f5f5' }
-                }}
-              >
-                {isMobile ? "Add" : "Add Job"}
-              </Button>
+              
             </Box>
           </Box>
 
@@ -587,8 +575,7 @@ export default function CalendarView() {
             startAccessor="start"
             endAccessor="end"
             style={{ height: isMobile ? 500 : 700 }}
-            onSelectEvent={handleSelectEvent}
-            onSelectSlot={handleSelectSlot}
+            onSelectEvent={handleSelectEvent}            
             onDoubleClickEvent={(event) => handleSelectEvent(event)}
             selectable
             view={calendarView}

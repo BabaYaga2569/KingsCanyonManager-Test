@@ -229,9 +229,10 @@ export default function ContractsDashboard() {
     setSendDialogOpen(true);
   };
 
-  const handleScheduleJob = (contract) => {
-    navigate("/schedule-job", { state: { contract } });
-  };
+    // Phase 2B: Removed - schedules created through workflow only
+  // const handleScheduleJob = (contract) => {
+  //   navigate("/schedule-job", { state: { contract } });
+  // };
 
   const handleSendForSignature = async () => {
     if (signingMode === "remote" && !customerEmail) {
@@ -457,16 +458,7 @@ export default function ContractsDashboard() {
                   onClick={() => handleViewEdit(contract.id)}
                 >
                   View / Edit
-                </Button>
-                <Button
-                  variant="contained"
-                  color="success"
-                  fullWidth
-                  startIcon={<CalendarTodayIcon />}
-                  onClick={() => handleScheduleJob(contract)}
-                >
-                  Schedule Job
-                </Button>
+                </Button>                
                 <Button
                   variant="outlined"
                   color="error"
@@ -685,17 +677,7 @@ export default function ContractsDashboard() {
                     sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
                   >
                     View / Edit
-                  </Button>
-                  <Button
-                    variant="contained"
-                    color="success"
-                    size="small"
-                    startIcon={<CalendarTodayIcon />}
-                    onClick={() => handleScheduleJob(contract)}
-                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
-                  >
-                    Schedule
-                  </Button>
+                  </Button>                  
 
                   <Button
                     variant="outlined"

@@ -347,20 +347,7 @@ export default function Calendar() {
                       <Typography variant="body2" color="text.secondary">
                         {dayAppointments.length} appointment{dayAppointments.length !== 1 ? 's' : ''} scheduled
                       </Typography>
-                    </Box>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<AddIcon />}
-                      onClick={() => navigate("/schedule-job")}
-                      sx={{
-                        borderColor: '#667eea',
-                        color: '#667eea',
-                        '&:hover': { borderColor: '#5568d3', backgroundColor: 'rgba(102,126,234,0.1)' }
-                      }}
-                    >
-                      Add
-                    </Button>
+                    </Box>                    
                   </Box>
 
                   <Divider sx={{ mb: 2 }} />
@@ -442,18 +429,7 @@ export default function Calendar() {
           <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
             No appointments scheduled for this day
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => navigate("/schedule-job")}
-            sx={{ 
-              backgroundColor: '#667eea', 
-              fontWeight: 600,
-              '&:hover': { backgroundColor: '#5568d3' } 
-            }}
-          >
-            Schedule a Job
-          </Button>
+          
         </Paper>
       );
     }
@@ -580,18 +556,7 @@ export default function Calendar() {
             <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
               No appointments found
             </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => navigate("/schedule-job")}
-              sx={{ 
-                backgroundColor: '#667eea', 
-                fontWeight: 600,
-                '&:hover': { backgroundColor: '#5568d3' } 
-              }}
-            >
-              Schedule First Job
-            </Button>
+            
           </Box>
         ) : (
           Object.keys(groupedByDate).map((date) => {
@@ -810,19 +775,7 @@ export default function Calendar() {
               </>
             )}
 
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => navigate("/schedule-job")}
-              sx={{ 
-                backgroundColor: 'white', 
-                color: '#667eea', 
-                fontWeight: 600, 
-                '&:hover': { backgroundColor: '#f5f5f5' } 
-              }}
-            >
-              Add Job
-            </Button>
+            
 
             <IconButton 
               onClick={fetchAppointments}

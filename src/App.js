@@ -574,8 +574,7 @@ function AppContent() {
       { label: "Invoices", path: "/invoices", notificationKey: "invoices" },
       { label: "Jobs", path: "/jobs", notificationKey: "jobs" },
       { label: "Notes", path: "/notes", notificationKey: "notes" },
-      { label: "Customers", path: "/customers", notificationKey: "customers" },
-      { label: "Schedule", path: "/schedule-dashboard", notificationKey: "schedules" },
+      { label: "Customers", path: "/customers", notificationKey: "customers" },      
       { label: "Calendar", path: "/calendar", notificationKey: null }, // ✅ FIXED: Changed to /calendar
       // 🔒 CRITICAL: Maintenance menu item - DO NOT REMOVE
       { label: "Maintenance", path: "/maintenance", notificationKey: null },
@@ -782,7 +781,8 @@ function AppContent() {
 		<Route path="/migration" element={<MigrationDashboard />} />
         <Route path="/customer-edit/:id" element={<CustomerEditor />} />
         <Route path="/customer/:id" element={<CustomerProfile />} />
-        <Route path="/schedule-job" element={<ScheduleJob />} />
+        {/* Phase 2B: Removed standalone schedule-job - schedules created through workflow only */}
+        {/* <Route path="/schedule-job" element={<ScheduleJob />} /> */}
         <Route path="/migrate-tokens" element={<MigrationPage />} />
         <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
         
