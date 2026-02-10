@@ -240,7 +240,11 @@ export default function ContractsDashboard() {
     }
 
     try {
-      const signatureLink = `${window.location.origin}/public/sign/${selectedContract.id}`;
+            // Include signing token if the contract has one
+      const token = selectedContract.signingToken || "";
+      const signatureLink = token 
+        ? `${window.location.origin}/public/sign/${selectedContract.id}?token=${token}`
+        : `${window.location.origin}/public/sign/${selectedContract.id}`;
       
       if (signingMode === "remote") {
         await updateDoc(doc(db, "contracts", selectedContract.id), {

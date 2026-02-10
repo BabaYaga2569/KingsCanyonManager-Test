@@ -76,8 +76,9 @@ function ContractSigningPageContent() {
 
       const data = snap.data();
       
-      // Verify token matches (Firestore rules will also check this)
-      if (data.signingToken && data.signingToken !== token) {
+            // Verify token matches if contract has one
+      // Skip check if contract has no token (legacy contracts)
+      if (data.signingToken && token && data.signingToken !== token) {
         Swal.fire("Access Denied", "Invalid or expired link. Please request a new signing link.", "error");
         setLoading(false);
         return;

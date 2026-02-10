@@ -7,14 +7,14 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-    // Helper function to check if user has god or admin role (FIXED: handles null)
+    // Helper function to check if user has god or admin role
     function isGodOrAdmin() {
       return isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['god', 'admin'];
     }
     
-    // Helper function to check if user is god (owner) (FIXED: handles null)
+    // Helper function to check if user is god (owner)
     function isGod() {
       return isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
@@ -24,14 +24,6 @@ service cloud.firestore {
     // Helper to check if accessing own data
     function isOwnData(userId) {
       return isAuthenticated() && request.auth.uid == userId;
-    }
-    
-    // 🔐 NEW: Helper to check if request has valid token for a document
-    function hasValidToken(docId, tokenField) {
-      let doc = get(/databases/$(database)/documents/$(request.path.parent())/$(docId));
-      return request.query.token != null && 
-             doc.data[tokenField] != null &&
-             doc.data[tokenField] == request.query.token;
     }
     
     // ============================================
@@ -48,79 +40,80 @@ service cloud.firestore {
     }
     
     // ============================================
-    // 🔐 BIDS COLLECTION - SECURE WITH TOKENS
+    // 🔐 BIDS COLLECTION - PUBLIC READ FOR SIGNING
     // ============================================
     match /bids/{bidId} {
-      // Read: authenticated users OR valid signing token
-      allow read: if isGodOrAdmin() || hasValidToken(bidId, 'signingToken');
-      
-      // Write: only admin
-      allow write: if isGodOrAdmin();
-      
-      // Update: authenticated OR token holder (but only signature fields)
+      allow read: if true;
+      allow create, delete: if isGodOrAdmin();
       allow update: if isGodOrAdmin() || 
-        (hasValidToken(bidId, 'signingToken') && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['customerSignature', 'customerSignedAt', 'status', 'signedBy']));
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'clientSignature', 'clientSignedAt', 
+          'customerSignature', 'customerSignedAt',
+          'contractorSignature', 'contractorSignedAt',
+          'status', 'lastUpdated'
+        ]);
     }
     
     // ============================================
-    // 🔐 CONTRACTS COLLECTION - SECURE WITH TOKENS
+    // 🔐 CONTRACTS COLLECTION - PUBLIC READ FOR SIGNING
     // ============================================
     match /contracts/{contractId} {
-      // Read: authenticated users OR valid signing token
-      allow read: if isGodOrAdmin() || hasValidToken(contractId, 'signingToken');
-      
-      // Write: only admin
-      allow write: if isGodOrAdmin();
-      
-      // Update: authenticated OR token holder (but only signature fields)
+      allow read: if true;
+      allow create: if true;
+      allow delete: if isGodOrAdmin();
       allow update: if isGodOrAdmin() || 
-        (hasValidToken(contractId, 'signingToken') && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['customerSignature', 'customerSignedAt', 'status', 'signedBy']));
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'clientSignature', 'clientSignedAt',
+          'customerSignature', 'customerSignedAt',
+          'contractorSignature', 'contractorSignedAt', 
+          'status', 'signedBy', 'lastUpdated'
+        ]);
     }
     
     // ============================================
-    // 🔐 INVOICES COLLECTION - SECURE WITH TOKENS
+    // 🔐 INVOICES COLLECTION - PUBLIC READ FOR PAYMENT
     // ============================================
     match /invoices/{invoiceId} {
-      // Read: authenticated users OR valid payment token
-      allow read: if isGodOrAdmin() || hasValidToken(invoiceId, 'paymentToken');
-      
-      // Write: only admin
-      allow write: if isGodOrAdmin();
-      
-      // Update: authenticated OR token holder (but only payment fields)
+      allow read: if true;
+      allow create: if true;
+      allow delete: if isGodOrAdmin();
       allow update: if isGodOrAdmin() || 
-        (hasValidToken(invoiceId, 'paymentToken') && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paidAt', 'paymentMethod', 'paymentNotes']));
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'paidAt', 'paymentMethod', 'paymentNotes', 'lastUpdated'
+        ]);
     }
     
     // ============================================
-    // JOBS COLLECTION - READ FOR DROPDOWN
+    // JOBS COLLECTION
     // ============================================
     match /jobs/{jobId} {
       allow read: if isAuthenticated();
-      allow write: if isGodOrAdmin();
+      allow create: if true;
+      allow update, delete: if isGodOrAdmin();
     }
     
     // ============================================
-    // CUSTOMERS COLLECTION - ADMIN ONLY
+    // CUSTOMERS COLLECTION
     // ============================================
     match /customers/{customerId} {
-      allow read, write: if isGodOrAdmin();
+      allow read: if isGodOrAdmin();
+      allow create: if true;
+      allow update, delete: if isGodOrAdmin();
+    }
+    
+    // ============================================
+    // PAYMENTS COLLECTION
+    // ============================================
+    match /payments/{paymentId} {
+      allow read: if isGodOrAdmin();
+      allow create: if true;
+      allow update, delete: if isGodOrAdmin();
     }
     
     // ============================================
     // EXPENSES COLLECTION - ADMIN ONLY
     // ============================================
     match /expenses/{expenseId} {
-      allow read, write: if isGodOrAdmin();
-    }
-    
-    // ============================================
-    // PAYMENTS COLLECTION - ADMIN ONLY
-    // ============================================
-    match /payments/{paymentId} {
       allow read, write: if isGodOrAdmin();
     }
     
@@ -193,7 +186,7 @@ service cloud.firestore {
     // CREWS COLLECTION
     // ============================================
     match /crews/{crewId} {
-      allow read: if true;  // Public for NDA signing
+      allow read: if true;
       allow write: if isGodOrAdmin();
     }
     

@@ -126,12 +126,20 @@ export const AuthProvider = ({ children }) => {
     );
   }
 
-  // Show login screen if not authenticated
-  if (!user) {
+  // ✅ Allow public routes WITHOUT authentication
+  // Clients access these pages via email/SMS links - no login required
+  const isPublicRoute = 
+    window.location.pathname.startsWith('/sign-bid/') ||
+    window.location.pathname.startsWith('/public/sign/') ||
+    window.location.pathname.startsWith('/public/pay/') ||
+    window.location.pathname.startsWith('/public/nda/');
+
+  // Show login screen if not authenticated AND not on a public route
+  if (!user && !isPublicRoute) {
     return <Login onLoginSuccess={(user) => setUser(user)} />;
   }
 
-  // User is authenticated, show app
+  // User is authenticated OR on a public route - show app
   return (
     <AuthContext.Provider value={value}>
       {children}
