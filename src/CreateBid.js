@@ -82,9 +82,20 @@ export default function CreateBid() {
     }
   };
 
-  const handleContinueToSave = () => {
-    if (!customerName || !amount) {
-      Swal.fire("Missing info", "Customer Name and Amount are required.", "warning");
+    const handleContinueToSave = () => {
+    // Phase 2C Fix 2: Require phone + address for new customers
+    const missing = [];
+    if (!customerName) missing.push("Customer Name");
+    if (!amount) missing.push("Amount");
+
+    // If NOT an existing customer, require phone + address
+    if (!selectedCustomer) {
+      if (!customerPhone) missing.push("Phone");
+      if (!customerAddress) missing.push("Address");
+    }
+
+    if (missing.length > 0) {
+      Swal.fire("Missing Info", `Required: ${missing.join(", ")}`, "warning");
       return;
     }
     setShowDesignDialog(true);
@@ -290,21 +301,25 @@ export default function CreateBid() {
             sx={{ mb: 2 }}
           />
 
-          <TextField
-            label="Customer Phone"
+                    <TextField
+            label="Customer Phone *"
             fullWidth
             margin="normal"
             value={customerPhone}
             onChange={(e) => setCustomerPhone(e.target.value)}
+            required={!selectedCustomer}
+            helperText={!selectedCustomer ? "Required for new customers" : ""}
             sx={{ mb: 2 }}
           />
 
-          <TextField
-            label="Customer Address"
+                    <TextField
+            label="Customer Address *"
             fullWidth
             margin="normal"
             value={customerAddress}
             onChange={(e) => setCustomerAddress(e.target.value)}
+            required={!selectedCustomer}
+            helperText={!selectedCustomer ? "Required for new customers" : ""}
             sx={{ mb: 3 }}
           />
 

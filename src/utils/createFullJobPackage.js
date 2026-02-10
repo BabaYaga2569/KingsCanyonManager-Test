@@ -65,12 +65,29 @@ export async function createFullJobPackage(bid) {
     // Continue with creation if check fails
   }
   
-  // 📦 CREATE NEW JOB PACKAGE
-  // create one shared jobId so all docs tie together
+    // 📦 CREATE NEW JOB PACKAGE
+  // Phase 2C Fix 1: customerId now included on EVERY record
   const jobId = crypto.randomUUID();
+  const customerId = bid.customerId || null;
+
+  if (!customerId) {
+    console.error("WARNING: Bid has no customerId!", bid);
+    await Swal.fire(
+      "Missing Customer Link",
+      "This bid is not linked to a customer. Cannot create job package without a customer.",
+      "error"
+    );
+    return null;
+  }
+
   const base = {
     jobId,
+    customerId,
+    bidId: bid.id || null,
     clientName: customerName,
+    customerEmail: bid.customerEmail || "",
+    customerPhone: bid.customerPhone || "",
+    customerAddress: bid.customerAddress || "",
     amount: bid.amount || 0,
     description: bid.description || "",
     materials: bid.materials || "",
