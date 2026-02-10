@@ -35,13 +35,11 @@ export default function CustomerProfile() {
   useEffect(() => {
     const fetchCustomerAndDocs = async () => {
       try {
-        // Fetch customer
         const customerDoc = await getDoc(doc(db, "customers", id));
         if (customerDoc.exists()) {
           const customerData = { id: customerDoc.id, ...customerDoc.data() };
           setCustomer(customerData);
 
-          // Fetch linked documents
           const [bids, contracts, invoices, jobs] = await Promise.all([
             getDocs(query(collection(db, "bids"), where("customerId", "==", id))),
             getDocs(query(collection(db, "contracts"), where("customerId", "==", id))),
@@ -70,8 +68,7 @@ export default function CustomerProfile() {
     fetchCustomerAndDocs();
   }, [id, navigate]);
 
-    const handleSave = async () => {
-    // Validation - Phase 2A: address is now required
+  const handleSave = async () => {
     if (!customer.name || !customer.phone || !customer.address) {
       const missing = [];
       if (!customer.name) missing.push("Name");
@@ -117,13 +114,21 @@ export default function CustomerProfile() {
 
   return (
     <Container sx={{ mt: 4, mb: 6 }}>
-      <Button
-        startIcon={<ArrowBackIcon />}
-        onClick={() => navigate("/customers")}
-        sx={{ mb: 2 }}
-      >
-        Back to Customers
-      </Button>
+      {/* Phase 2C Fix 4: Back button + Create Bid shortcut */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+        <Button
+          startIcon={<ArrowBackIcon />}
+          onClick={() => navigate("/customers")}
+        >
+          Back to Customers
+        </Button>
+        <Button
+          variant="contained"
+          onClick={() => navigate("/create-bid", { state: { customerId: id, customerName: customer?.name } })}
+        >
+          Create Bid for {customer?.name?.split(" ")[0] || "Customer"}
+        </Button>
+      </Box>
 
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
@@ -160,7 +165,7 @@ export default function CustomerProfile() {
               onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
               fullWidth
             />
-                        <TextField
+            <TextField
               label="Address"
               multiline
               rows={2}
@@ -217,6 +222,7 @@ export default function CustomerProfile() {
         </Typography>
         <Divider sx={{ mb: 2 }} />
 
+        {/* Bids */}
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: "bold", mb: 1 }}>
             Bids ({linkedDocs.bids.length})
@@ -230,8 +236,20 @@ export default function CustomerProfile() {
               {linkedDocs.bids.map((bid) => (
                 <ListItem key={bid.id} button onClick={() => navigate(`/bids`)}>
                   <ListItemText
-                    primary={`$${bid.amount} - ${bid.description || "No description"}`}
-                    secondary={bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : "N/A"}
+                    primary={`$${bid.amount || 0} - ${bid.description || "No description"}`}
+                    secondary={
+                      <Box component="span">
+                        <Chip
+                          label={bid.status || "Draft"}
+                          size="small"
+                          color={bid.status === "Accepted" ? "success" : bid.status === "Sent" ? "info" : "default"}
+                          sx={{ mr: 1 }}
+                        />
+                        {bid.createdAt
+                          ? new Date(bid.createdAt.seconds ? bid.createdAt.seconds * 1000 : bid.createdAt).toLocaleDateString()
+                          : "N/A"}
+                      </Box>
+                    }
                   />
                 </ListItem>
               ))}
@@ -239,6 +257,7 @@ export default function CustomerProfile() {
           )}
         </Box>
 
+        {/* Contracts */}
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: "bold", mb: 1 }}>
             Contracts ({linkedDocs.contracts.length})
@@ -276,6 +295,7 @@ export default function CustomerProfile() {
           )}
         </Box>
 
+        {/* Invoices */}
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: "bold", mb: 1 }}>
             Invoices ({linkedDocs.invoices.length})
@@ -316,6 +336,7 @@ export default function CustomerProfile() {
           )}
         </Box>
 
+        {/* Jobs */}
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: "bold", mb: 1 }}>
             Jobs ({linkedDocs.jobs.length})
