@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
+import { createFullJobPackage } from "./utils/createFullJobPackage";
 import { getTokenFromUrl } from './utils/tokenUtils';
 import {
   Container,
@@ -131,6 +132,15 @@ function BidSigningPageContent() {
       });
 
       console.log("Bid accepted by client:", bidId);
+	        // Phase 2C Fix 3: Auto-create contract + invoice + job package
+      try {
+        const bidData = { ...bid, id: bidId };
+         await createFullJobPackage(bidData, true);
+        console.log("Job package auto-created for bid:", bidId);
+      } catch (pkgError) {
+        console.error("Auto-create package failed (will need manual creation):", pkgError);
+        // Don't block the signing success - package can be created manually from Bids list
+      }
 
       Swal.fire({
         icon: "success",
