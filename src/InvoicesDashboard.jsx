@@ -229,14 +229,14 @@ export default function InvoicesDashboard() {
     setSortedInvoices(sorted);
   }, [invoices, sortOrder]);
 
-  const handleStatusChange = async (id, newStatus) => {
+    const handleStatusChange = async (id, newStatus) => {
     try {
       const ref = doc(db, "invoices", id);
       const invoiceSnap = await getDoc(ref);
       const invoiceData = invoiceSnap.data();
       const oldStatus = invoiceData.status;
       
-      // âœ… AUTO-HANDLE: When changing to "Paid"
+      // ✅ AUTO-HANDLE: When changing to "Paid"
       if (newStatus === "Paid" && oldStatus !== "Paid") {
         const total = parseFloat(invoiceData.total || invoiceData.amount || 0);
         
@@ -247,36 +247,53 @@ export default function InvoicesDashboard() {
         );
         const paymentsSnap = await getDocs(paymentsQuery);
         
-        // Create payment record if none exists
         if (paymentsSnap.empty) {
+          // Auto-create payment record
           await addDoc(collection(db, "payments"), {
             invoiceId: id,
             clientName: invoiceData.clientName,
+            customerId: invoiceData.customerId || null,
             amount: total,
             paymentMethod: "other",
-            paymentDate: moment().format("YYYY-MM-DD"),
-            reference: "Auto-generated from invoice status change",
-            notes: "Automatically created when invoice marked as Paid",
+            paymentDate: new Date().toISOString().split("T")[0],
+            reference: "Auto-generated from status change",
+            notes: "Created when invoice marked as Paid from dashboard",
             receiptGenerated: false,
             createdAt: new Date().toISOString(),
           });
-          console.log("âœ… Auto-created payment record for tax reporting");
         }
-        
-        // Auto-complete related job
+
+        // ✅ Auto-complete the related job if it exists
         if (invoiceData.jobId) {
           try {
             const jobRef = doc(db, "jobs", invoiceData.jobId);
             const jobSnap = await getDoc(jobRef);
+            
             if (jobSnap.exists()) {
               await updateDoc(jobRef, {
                 status: "Completed",
                 completedDate: new Date().toISOString(),
               });
-              console.log("âœ… Auto-completed related job");
             }
           } catch (jobError) {
             console.warn("Could not auto-complete job:", jobError);
+          }
+        }
+
+        // ✅ Phase 2C Fix 5: Update customer lifetime value
+        if (invoiceData.customerId) {
+          try {
+            const customerRef = doc(db, "customers", invoiceData.customerId);
+            const customerSnap = await getDoc(customerRef);
+            if (customerSnap.exists()) {
+              const currentValue = parseFloat(customerSnap.data().lifetimeValue || 0);
+              await updateDoc(customerRef, {
+                lifetimeValue: currentValue + total,
+              });
+              console.log("✅ Updated customer lifetime value:", currentValue + total);
+            }
+          } catch (custError) {
+            console.warn("Could not update customer lifetime value:", custError);
           }
         }
         
