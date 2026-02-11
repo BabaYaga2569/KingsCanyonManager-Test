@@ -478,6 +478,7 @@ export default function InvoicesDashboard() {
 
       await addDoc(collection(db, "schedules"), {
         clientName: customer.name,
+		customerId: customer.id,  // ← ADD THIS LINE
         jobDescription: description,
         startDate: weedInvoice.serviceDate,
         endDate: weedInvoice.serviceDate,
