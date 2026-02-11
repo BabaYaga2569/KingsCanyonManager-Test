@@ -88,6 +88,22 @@ const EnhancedDashboard = () => {
     setSearchParams({ year: newYear }); // Update URL
   };
 
+  // Universal date parser helper function to handle all date formats
+  const parseDate = (doc, fieldNames = ['date', 'createdAt', 'paymentDate', 'invoiceDate', 'startDate', 'contractDate']) => {
+    const data = doc.data ? doc.data() : doc;
+    // Try multiple field names
+    for (const field of fieldNames) {
+      const val = data[field];
+      if (!val) continue;
+      // Firestore Timestamp
+      if (val.toDate) return val.toDate();
+      // String or Date
+      const parsed = new Date(val);
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+    return null;
+  };
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
@@ -111,67 +127,62 @@ const EnhancedDashboard = () => {
       
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      endOfMonth.setHours(23, 59, 59, 999);
 
       // Date range for selected year
       const startOfYear = new Date(selectedYear, 0, 1);
       const endOfYear = new Date(selectedYear, 11, 31, 23, 59, 59);
 
-      // Fetch TODAY'S payments (always current day, regardless of selected year)
-      const todayPaymentsQuery = query(
-        collection(db, 'payments'),
-        where('date', '>=', today)
-      );
-      const todayPaymentsSnapshot = await getDocs(todayPaymentsQuery);
-      const todayRevenue = todayPaymentsSnapshot.docs.reduce((sum, doc) => 
+      // Fetch ALL payments and filter client-side (to handle string dates)
+      const allPaymentsSnapshot = await getDocs(collection(db, 'payments'));
+      
+      // Filter TODAY'S payments
+      const todayRevenue = allPaymentsSnapshot.docs
+        .filter(doc => {
+          const paymentDate = parseDate(doc);
+          return paymentDate && paymentDate >= today && paymentDate < new Date(today.getTime() + 24 * 60 * 60 * 1000);
+        })
+        .reduce((sum, doc) => sum + (parseFloat(doc.data().amount) || 0), 0);
+
+      // Filter THIS WEEK'S payments
+      const weekRevenue = allPaymentsSnapshot.docs
+        .filter(doc => {
+          const paymentDate = parseDate(doc);
+          return paymentDate && paymentDate >= startOfWeek;
+        })
+        .reduce((sum, doc) => sum + (parseFloat(doc.data().amount) || 0), 0);
+
+      // Filter THIS MONTH'S payments
+      const monthRevenue = allPaymentsSnapshot.docs
+        .filter(doc => {
+          const paymentDate = parseDate(doc);
+          return paymentDate && paymentDate >= startOfMonth && paymentDate <= endOfMonth;
+        })
+        .reduce((sum, doc) => sum + (parseFloat(doc.data().amount) || 0), 0);
+
+      // Filter SELECTED YEAR'S payments
+      const yearRevenue = allPaymentsSnapshot.docs
+        .filter(doc => {
+          const paymentDate = parseDate(doc);
+          return paymentDate && paymentDate >= startOfYear && paymentDate <= endOfYear;
+        })
+        .reduce((sum, doc) => sum + (parseFloat(doc.data().amount) || 0), 0);
+
+      // Fetch ALL invoices and filter client-side (case-insensitive status check)
+      const allInvoicesSnapshot = await getDocs(collection(db, 'invoices'));
+      const pendingInvoicesDocs = allInvoicesSnapshot.docs.filter(doc => {
+        const status = doc.data().status;
+        return status && (status.toLowerCase() === 'pending' || status.toLowerCase() === 'sent');
+      });
+      
+      const pendingInvoices = pendingInvoicesDocs.reduce((sum, doc) => 
         sum + (parseFloat(doc.data().amount) || 0), 0
       );
+      const pendingCount = pendingInvoicesDocs.length;
 
-      // Fetch THIS WEEK'S payments (always current week)
-      const weekPaymentsQuery = query(
-        collection(db, 'payments'),
-        where('date', '>=', startOfWeek)
-      );
-      const weekPaymentsSnapshot = await getDocs(weekPaymentsQuery);
-      const weekRevenue = weekPaymentsSnapshot.docs.reduce((sum, doc) => 
-        sum + (parseFloat(doc.data().amount) || 0), 0
-      );
-
-      // Fetch THIS MONTH'S payments (always current month)
-      const monthPaymentsQuery = query(
-        collection(db, 'payments'),
-        where('date', '>=', startOfMonth),
-        where('date', '<=', endOfMonth)
-      );
-      const monthPaymentsSnapshot = await getDocs(monthPaymentsQuery);
-      const monthRevenue = monthPaymentsSnapshot.docs.reduce((sum, doc) => 
-        sum + (parseFloat(doc.data().amount) || 0), 0
-      );
-
-      // Fetch SELECTED YEAR'S payments
-      const yearPaymentsQuery = query(
-        collection(db, 'payments'),
-        where('date', '>=', startOfYear),
-        where('date', '<=', endOfYear)
-      );
-      const yearPaymentsSnapshot = await getDocs(yearPaymentsQuery);
-      const yearRevenue = yearPaymentsSnapshot.docs.reduce((sum, doc) => 
-        sum + (parseFloat(doc.data().amount) || 0), 0
-      );
-
-      // Fetch pending invoices (always current, not year-specific)
-      const pendingInvoicesQuery = query(
-        collection(db, 'invoices'),
-        where('status', '==', 'Pending')
-      );
-      const pendingInvoicesSnapshot = await getDocs(pendingInvoicesQuery);
-      const pendingInvoices = pendingInvoicesSnapshot.docs.reduce((sum, doc) => 
-        sum + (parseFloat(doc.data().amount) || 0), 0
-      );
-      const pendingCount = pendingInvoicesSnapshot.docs.length;
-
-      // Calculate overdue
-      const overdueInvoices = pendingInvoicesSnapshot.docs.filter(doc => {
-        const invoiceDate = doc.data().date?.toDate();
+      // Calculate overdue invoices
+      const overdueInvoices = pendingInvoicesDocs.filter(doc => {
+        const invoiceDate = parseDate(doc);
         if (!invoiceDate) return false;
         const daysOld = Math.floor((today - invoiceDate) / (1000 * 60 * 60 * 24));
         return daysOld > 30;
@@ -181,22 +192,22 @@ const EnhancedDashboard = () => {
       );
       const overdueCount = overdueInvoices.length;
 
-      // Fetch today's schedule (always current day)
-      const scheduleQuery = query(
-        collection(db, 'jobs'),
-        where('date', '>=', today),
-        where('date', '<=', new Date(today.getTime() + 24 * 60 * 60 * 1000)),
-        orderBy('date', 'asc'),
-        limit(5)
-      );
-      const scheduleSnapshot = await getDocs(scheduleQuery);
-      const todaySchedule = scheduleSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        date: doc.data().date?.toDate()
-      }));
+      // Fetch today's schedule from 'schedules' collection (not 'jobs')
+      const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
+      const todaySchedule = schedulesSnapshot.docs
+        .filter(doc => {
+          const scheduleDate = parseDate(doc);
+          return scheduleDate && scheduleDate >= today && scheduleDate < new Date(today.getTime() + 24 * 60 * 60 * 1000);
+        })
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          date: parseDate(doc)
+        }))
+        .sort((a, b) => a.date - b.date)
+        .slice(0, 5);
 
-      // Fetch maintenance alerts (always current)
+      // Fetch maintenance alerts (with flexible date parsing)
       const maintenanceQuery = query(
         collection(db, 'maintenanceContracts'),
         where('status', '==', 'Active')
@@ -208,7 +219,21 @@ const EnhancedDashboard = () => {
       let currentCount = 0;
 
       maintenanceSnapshot.docs.forEach(doc => {
-        const nextVisit = doc.data().nextVisit?.toDate();
+        const data = doc.data();
+        let nextVisit = null;
+        
+        // Try parsing nextVisit field
+        if (data.nextVisit) {
+          if (data.nextVisit.toDate) {
+            nextVisit = data.nextVisit.toDate();
+          } else {
+            const parsed = new Date(data.nextVisit);
+            if (!isNaN(parsed.getTime())) {
+              nextVisit = parsed;
+            }
+          }
+        }
+        
         if (nextVisit) {
           const daysUntil = Math.floor((nextVisit - today) / (1000 * 60 * 60 * 24));
           if (daysUntil < 0) {
@@ -221,10 +246,10 @@ const EnhancedDashboard = () => {
         }
       });
 
-      // Fetch pipeline data for SELECTED YEAR
+      // Fetch pipeline data for SELECTED YEAR with flexible date parsing
       const bidsSnapshot = await getDocs(collection(db, 'bids'));
       const bidsForYear = bidsSnapshot.docs.filter(doc => {
-        const bidDate = doc.data().date?.toDate();
+        const bidDate = parseDate(doc);
         return bidDate && bidDate.getFullYear() === selectedYear;
       });
       const bidsTotal = bidsForYear.length;
@@ -232,36 +257,62 @@ const EnhancedDashboard = () => {
 
       const contractsSnapshot = await getDocs(collection(db, 'contracts'));
       const contractsForYear = contractsSnapshot.docs.filter(doc => {
-        const contractDate = doc.data().date?.toDate();
+        const contractDate = parseDate(doc);
         return contractDate && contractDate.getFullYear() === selectedYear;
       });
       const contractsTotal = contractsForYear.length;
-      const contractsPending = contractsForYear.filter(doc => 
-        doc.data().status === 'Pending' || doc.data().status === 'Sent - Not Signed Yet'
-      ).length;
-      const contractsSigned = contractsForYear.filter(doc => 
-        doc.data().signed === true || doc.data().status === 'Signed'
-      ).length;
+      
+      // Check for various status values and signature fields
+      const contractsPending = contractsForYear.filter(doc => {
+        const status = doc.data().status;
+        return status && (
+          status === 'Pending' || 
+          status === 'Sent - Not Signed Yet' || 
+          status === 'Sent - Awaiting Client Signature'
+        );
+      }).length;
+      
+      const contractsSigned = contractsForYear.filter(doc => {
+        const data = doc.data();
+        return (
+          data.signed === true || 
+          data.status === 'Signed' ||
+          (data.clientSignature && data.contractorSignature)
+        );
+      }).length;
 
       const jobsSnapshot = await getDocs(collection(db, 'jobs'));
       const jobsForYear = jobsSnapshot.docs.filter(doc => {
-        const jobDate = doc.data().date?.toDate();
+        const jobDate = parseDate(doc);
         return jobDate && jobDate.getFullYear() === selectedYear;
       });
-      const jobsScheduled = jobsForYear.filter(doc => 
-        doc.data().status === 'Scheduled' || doc.data().status === 'Active'
-      ).length;
-      const jobsActive = jobsForYear.filter(doc => 
-        doc.data().status === 'Pending' || doc.data().status === 'Active'
-      ).length;
+      
+      // Check for lowercase status values
+      const jobsScheduled = jobsForYear.filter(doc => {
+        const status = doc.data().status;
+        return status && (
+          status.toLowerCase() === 'scheduled' || 
+          status.toLowerCase() === 'active'
+        );
+      }).length;
+      
+      const jobsActive = jobsForYear.filter(doc => {
+        const status = doc.data().status;
+        return status && (
+          status.toLowerCase() === 'pending' || 
+          status.toLowerCase() === 'active' ||
+          status.toLowerCase() === 'in-progress'
+        );
+      }).length;
 
       // Month's completed jobs (current month only)
       const monthJobsCompleted = jobsSnapshot.docs.filter(doc => {
-        const jobDate = doc.data().date?.toDate();
+        const jobDate = parseDate(doc);
+        const status = doc.data().status;
         return jobDate && 
                jobDate >= startOfMonth && 
                jobDate <= endOfMonth &&
-               doc.data().status === 'Completed';
+               status && status.toLowerCase() === 'completed';
       }).length;
 
       setDashboardData({
