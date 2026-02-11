@@ -134,6 +134,10 @@ const EnhancedDashboard = () => {
       const endOfYear = new Date(selectedYear, 11, 31, 23, 59, 59);
 
       // Fetch ALL payments and filter client-side (to handle string dates)
+      // Note: This approach is necessary because dates may be stored as strings or Timestamps.
+      // For better performance with large datasets, consider:
+      // - Adding a time window constraint (e.g., last 2 years)
+      // - Implementing pagination for historical data
       const allPaymentsSnapshot = await getDocs(collection(db, 'payments'));
       
       // Filter TODAY'S payments
@@ -169,6 +173,7 @@ const EnhancedDashboard = () => {
         .reduce((sum, doc) => sum + (parseFloat(doc.data().amount) || 0), 0);
 
       // Fetch ALL invoices and filter client-side (case-insensitive status check)
+      // Note: For large datasets, consider adding date range constraints to improve performance
       const allInvoicesSnapshot = await getDocs(collection(db, 'invoices'));
       const pendingInvoicesDocs = allInvoicesSnapshot.docs.filter(doc => {
         const status = doc.data().status;
@@ -193,6 +198,8 @@ const EnhancedDashboard = () => {
       const overdueCount = overdueInvoices.length;
 
       // Fetch today's schedule from 'schedules' collection (not 'jobs')
+      // Note: Fetching all schedules for today's date. For optimization, could add
+      // date range constraints if Firestore supports querying on string dates consistently
       const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
       const todaySchedule = schedulesSnapshot.docs
         .filter(doc => {
