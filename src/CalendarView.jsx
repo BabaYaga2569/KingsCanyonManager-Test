@@ -48,6 +48,10 @@ import PhoneIcon from "@mui/icons-material/Phone";
 import NavigationIcon from "@mui/icons-material/Navigation";
 import CloseIcon from "@mui/icons-material/Close";
 import TodayIcon from "@mui/icons-material/Today";
+import CancelIcon from "@mui/icons-material/Cancel";
+import DescriptionIcon from "@mui/icons-material/Description";
+import GrassIcon from "@mui/icons-material/Grass";
+import { cascadeCancelJob, buildCancelSummary } from "./utils/cascadeCancel";
 
 const localizer = momentLocalizer(moment);
 
@@ -279,6 +283,39 @@ export default function CalendarView() {
     }
   };
   
+  const handleCancelJob = async (schedule) => {
+    const result = await Swal.fire({
+      title: "Cancel Job?",
+      html: `Cancel all records for <strong>${schedule.clientName}</strong>?<br><br>This will cancel:<br>• Schedule<br>• Contract<br>• Invoice<br>• Bid<br>• Job folder<br><br>Records will be preserved for audit purposes.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Cancel Job",
+      confirmButtonColor: "#f44336",
+      cancelButtonText: "No, Keep It",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const cancelResult = await cascadeCancelJob("schedules", schedule.id);
+        
+        const summaryHtml = buildCancelSummary(cancelResult);
+        
+        await Swal.fire({
+          icon: cancelResult.success ? "success" : "warning",
+          title: cancelResult.success ? "Job Cancelled" : "Partial Cancellation",
+          html: summaryHtml,
+          confirmButtonText: "OK",
+        });
+        
+        setDetailsOpen(false);
+        loadData();
+      } catch (error) {
+        console.error("Error cancelling job:", error);
+        Swal.fire("Error", "Failed to cancel job. Check console for details.", "error");
+      }
+    }
+  };
+  
   const handleOpenEditDialog = (schedule) => {
     setEditForm({
       clientName: schedule.clientName || "",
@@ -357,6 +394,7 @@ export default function CalendarView() {
       case "completed": return "#4caf50";
       case "in-progress": return "#ff9800";
       case "scheduled": return "#2196f3";
+      case "cancelled": return "#f44336";
       default: return "#9e9e9e";
     }
   };
@@ -367,13 +405,15 @@ export default function CalendarView() {
 
     if (schedule.status === "completed") {
       backgroundColor = "#4caf50";
+    } else if (schedule.status === "cancelled") {
+      backgroundColor = "#f44336";
     }
 
     return {
       style: {
         backgroundColor,
         borderRadius: "8px",
-        opacity: schedule.status === "completed" ? 0.7 : 0.95,
+        opacity: schedule.status === "completed" || schedule.status === "cancelled" ? 0.7 : 0.95,
         color: "white",
         border: "none",
         display: "block",
@@ -382,12 +422,14 @@ export default function CalendarView() {
         padding: "4px 8px",
         boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
         transition: "all 0.2s",
+        textDecoration: schedule.status === "cancelled" ? "line-through" : "none",
       },
     };
   };
 
   const totalJobs = schedules.length;
   const completedJobs = schedules.filter(s => s.status === "completed").length;
+  const cancelledJobs = schedules.filter(s => s.status === "cancelled").length;
   const urgentJobs = schedules.filter(s => s.priority === "urgent" && s.status !== "completed").length;
 
   return (
@@ -420,6 +462,13 @@ export default function CalendarView() {
                   size="small" 
                   sx={{ backgroundColor: 'rgba(76,175,80,0.3)', color: 'white', fontWeight: 600 }} 
                 />
+                {cancelledJobs > 0 && (
+                  <Chip 
+                    label={`${cancelledJobs} Cancelled`} 
+                    size="small" 
+                    sx={{ backgroundColor: 'rgba(244,67,54,0.3)', color: 'white', fontWeight: 600 }} 
+                  />
+                )}
                 {urgentJobs > 0 && (
                   <Badge badgeContent={urgentJobs} color="error">
                     <Chip 
@@ -508,6 +557,36 @@ export default function CalendarView() {
                 List View
               </Button>
               
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<DescriptionIcon />}
+                onClick={() => navigate("/create-bid")}
+                sx={{
+                  backgroundColor: 'white',
+                  color: '#764ba2',
+                  fontWeight: 600,
+                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.9)' }
+                }}
+              >
+                New Job (Bid)
+              </Button>
+              
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<GrassIcon />}
+                onClick={() => navigate("/invoices")}
+                sx={{
+                  backgroundColor: '#4caf50',
+                  color: 'white',
+                  fontWeight: 600,
+                  '&:hover': { backgroundColor: '#45a049' }
+                }}
+              >
+                Quick Weed Job
+              </Button>
+              
             </Box>
           </Box>
 
@@ -532,6 +611,11 @@ export default function CalendarView() {
               label="✅ Completed" 
               size="small" 
               sx={{ backgroundColor: 'rgba(76,175,80,0.2)', color: 'white', fontWeight: 600 }} 
+            />
+            <Chip 
+              label="❌ Cancelled" 
+              size="small" 
+              sx={{ backgroundColor: 'rgba(244,67,54,0.2)', color: 'white', fontWeight: 600 }} 
             />
           </Box>
         </Container>
@@ -876,7 +960,21 @@ export default function CalendarView() {
                   View Contract
                 </Button>
               )}
-              {selectedEvent.status !== "completed" && (
+              {selectedEvent.invoiceId && (
+                <Button
+                  variant="outlined"
+                  startIcon={<DescriptionIcon />}
+                  onClick={() => {
+                    setDetailsOpen(false);
+                    navigate(`/invoice/${selectedEvent.invoiceId}`);
+                  }}
+                  fullWidth={isMobile}
+                  sx={{ borderColor: '#667eea', color: '#667eea' }}
+                >
+                  View Invoice
+                </Button>
+              )}
+              {selectedEvent.status !== "completed" && selectedEvent.status !== "cancelled" && (
                 <Button
                   variant="contained"
                   color="success"
@@ -885,6 +983,17 @@ export default function CalendarView() {
                   fullWidth={isMobile}
                 >
                   Mark Complete
+                </Button>
+              )}
+              {selectedEvent.status !== "completed" && selectedEvent.status !== "cancelled" && (
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<CancelIcon />}
+                  onClick={() => handleCancelJob(selectedEvent)}
+                  fullWidth={isMobile}
+                >
+                  Cancel Job
                 </Button>
               )}
               <Button
@@ -1028,6 +1137,7 @@ export default function CalendarView() {
                 <MenuItem value="scheduled">Scheduled</MenuItem>
                 <MenuItem value="in-progress">In Progress</MenuItem>
                 <MenuItem value="completed">Completed</MenuItem>
+                <MenuItem value="cancelled">Cancelled</MenuItem>
               </Select>
             </FormControl>
             
