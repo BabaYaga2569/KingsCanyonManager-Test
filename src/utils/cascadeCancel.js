@@ -12,7 +12,7 @@ export function buildCancelConfirmationMessage(entityName, startType = "job") {
                       startType === "contract" ? "Contract" : 
                       startType === "schedule" ? "Schedule/Job" : "Job";
   
-  return `Cancel all records for <strong>${entityName}</strong>?<br><br>This will cancel:<br>• ${entityLabel}<br>• Contract<br>• Invoice<br>• Bid<br>• Job folder<br>• Any schedules<br><br>Records will be preserved for audit purposes.`;
+  return `Cancel all records for <strong>${entityName}</strong>?<br><br>This will cancel:<br>• ${entityLabel}<br>• Contract<br>• Invoice<br>• Bid<br>• Job folder<br>• Any schedules<br><br><em>(Only existing records will be cancelled)</em><br>Records will be preserved for audit purposes.`;
 }
 
 /**
@@ -196,7 +196,7 @@ export async function cascadeCancelJob(startCollection, startDocId) {
     }
 
     // Step 4: Cancel all found documents
-    const cancelledAt = new Date().toISOString();
+    const cancelledAtISOString = new Date().toISOString();
 
     for (const [collectionName, docIds] of Object.entries(collectionsToCancel)) {
       for (const docId of docIds) {
@@ -224,7 +224,7 @@ export async function cascadeCancelJob(startCollection, startDocId) {
             // Cancel the document
             await updateDoc(docRef, {
               status: "cancelled",
-              cancelledAt: cancelledAt,
+              cancelledAt: cancelledAtISOString,
             });
             
             result.cancelled[collectionName].push(docId);
