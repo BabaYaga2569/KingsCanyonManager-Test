@@ -38,6 +38,7 @@ import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
 import LogoutIcon from "@mui/icons-material/Logout";
 import SortIcon from "@mui/icons-material/Sort";
+import CancelIcon from "@mui/icons-material/Cancel";
 import Swal from "sweetalert2";
 import { db } from "./firebase";
 import {
@@ -54,6 +55,9 @@ import { AuthProvider, useAuth } from "./AuthProvider";
 
 // Import notification counts hook
 import { useNotificationCounts, markAsViewed } from "./useNotificationCounts";
+
+// Import cascade cancel utility
+import { cascadeCancelJob, buildCancelSummary, buildCancelConfirmationMessage } from "./utils/cascadeCancel";
 
 import ContractsDashboard from "./ContractsDashboard";
 import CreateBid from "./CreateBid";
@@ -192,6 +196,44 @@ function BidsList() {
       await deleteDoc(doc(db, "bids", bid.id));
       setBids(bids.filter((b) => b.id !== bid.id));
       Swal.fire("Deleted!", "Bid has been removed.", "success");
+    }
+  };
+
+  const handleCancelBid = async (bid) => {
+    const result = await Swal.fire({
+      title: "Cancel Bid?",
+      html: buildCancelConfirmationMessage(bid.customerName, "bid"),
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Cancel Bid",
+      confirmButtonColor: "#f44336",
+      cancelButtonText: "No, Keep It",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const cancelResult = await cascadeCancelJob("bids", bid.id);
+        
+        const summaryHtml = buildCancelSummary(cancelResult);
+        
+        await Swal.fire({
+          icon: cancelResult.success ? "success" : "warning",
+          title: cancelResult.success ? "Bid Cancelled" : "Partial Cancellation",
+          html: summaryHtml,
+          confirmButtonText: "OK",
+        });
+        
+        // Reload bids
+        const querySnapshot = await getDocs(collection(db, "bids"));
+        const bidsData = querySnapshot.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }));
+        setBids(bidsData);
+      } catch (error) {
+        console.error("Error cancelling bid:", error);
+        Swal.fire("Error", "Failed to cancel bid. Check console for details.", "error");
+      }
     }
   };
 
@@ -346,6 +388,16 @@ function BidsList() {
               </Button>
               <Button
                 variant="outlined"
+                color="warning"
+                size="small"
+                onClick={() => handleCancelBid(bid)}
+                fullWidth
+                startIcon={<CancelIcon />}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="outlined"
                 color="error"
                 size="small"
                 onClick={() => handleDelete(bid)}
@@ -434,6 +486,16 @@ function BidsList() {
                     sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
                   >
                     Create Contract
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="warning"
+                    size="small"
+                    onClick={() => handleCancelBid(bid)}
+                    startIcon={<CancelIcon />}
+                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                  >
+                    Cancel
                   </Button>
                   <Button
                     variant="outlined"
