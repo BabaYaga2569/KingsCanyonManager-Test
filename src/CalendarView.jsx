@@ -206,6 +206,9 @@ export default function CalendarView() {
   };
 
   const handleDelete = async (schedule) => {
+    // Close the details dialog FIRST so SweetAlert is visible
+    setDetailsOpen(false);
+    
     const result = await Swal.fire({
       title: "Delete Schedule?",
       text: `Remove ${schedule.clientName}'s scheduled job?`,
@@ -223,7 +226,6 @@ export default function CalendarView() {
           await updateDoc(doc(db, "equipment", equipId), { status: "available" });
         }
 
-        setDetailsOpen(false);
         loadData();
         
         Swal.fire({
@@ -284,6 +286,9 @@ export default function CalendarView() {
   };
   
   const handleCancelJob = async (schedule) => {
+    // Close the details dialog FIRST so SweetAlert is visible
+    setDetailsOpen(false);
+    
     const result = await Swal.fire({
       title: "Cancel Job?",
       html: buildCancelConfirmationMessage(schedule.clientName, "schedule"),
@@ -307,7 +312,6 @@ export default function CalendarView() {
           confirmButtonText: "OK",
         });
         
-        setDetailsOpen(false);
         loadData();
       } catch (error) {
         console.error("Error cancelling job:", error);
