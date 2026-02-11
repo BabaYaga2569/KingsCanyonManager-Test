@@ -149,6 +149,16 @@ export default function InvoicesDashboard() {
   useEffect(() => {
     markAsViewed('invoices');
   }, []);
+  
+  // Auto-open weed dialog if quickWeed=true query parameter is present
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('quickWeed') === 'true') {
+      setWeedDialogOpen(true);
+      // Clean up the query parameter to prevent dialog from reopening on refresh/back
+      navigate('/invoices', { replace: true });
+    }
+  }, [location.search, navigate]);
 
   // Helper function to convert Firebase Timestamp to JavaScript Date
   const getDateFromInvoice = (invoice) => {

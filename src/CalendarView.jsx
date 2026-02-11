@@ -580,7 +580,7 @@ export default function CalendarView() {
                 variant="contained"
                 size="small"
                 startIcon={<GrassIcon />}
-                onClick={() => navigate("/invoices")}
+                onClick={() => navigate("/invoices?quickWeed=true")}
                 sx={{
                   backgroundColor: '#4caf50',
                   color: 'white',
