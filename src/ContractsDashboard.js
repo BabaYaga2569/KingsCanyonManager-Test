@@ -515,6 +515,10 @@ export default function ContractsDashboard() {
     return !!contract.scheduleId || !!contract.scheduledDate;
   };
 
+  const canCancelContract = (contract) => {
+    return contract.status !== "cancelled" && contract.status !== "completed";
+  };
+
   const getAvailableYears = () => {
     const years = new Set();
     contracts.forEach((contract) => {
@@ -912,17 +916,13 @@ export default function ContractsDashboard() {
                 {isScheduled(contract) && (
                   <Chip icon={<CheckCircleIcon />} label={`Scheduled: ${contract.scheduledDate}`} color="success" variant="outlined" sx={{ width: "100%" }} />
                 )}
-                {contract.status !== "cancelled" && contract.status !== "completed" && (
+                {canCancelContract(contract) && (
                   <Button 
                     variant="outlined" 
                     color="warning" 
                     fullWidth 
                     startIcon={<CancelIcon />} 
                     onClick={() => handleCancelContract(contract)}
-                    sx={{ 
-                      opacity: contract.status === "cancelled" ? 0.5 : 1,
-                      textDecoration: contract.status === "cancelled" ? "line-through" : "none"
-                    }}
                   >
                     Cancel Contract
                   </Button>
@@ -1009,7 +1009,7 @@ export default function ContractsDashboard() {
                   {isScheduled(contract) && (
                     <Chip icon={<CheckCircleIcon />} label={contract.scheduledDate} color="success" variant="outlined" size="small" sx={{ mr: 1 }} />
                   )}
-                  {contract.status !== "cancelled" && contract.status !== "completed" && (
+                  {canCancelContract(contract) && (
                     <Button 
                       variant="outlined" 
                       color="warning" 
