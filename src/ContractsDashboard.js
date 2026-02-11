@@ -56,8 +56,10 @@ import TouchAppIcon from "@mui/icons-material/TouchApp";
 import EmailIcon from "@mui/icons-material/Email";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
 import generateContractPDF from "./pdf/generateContractPDF";
 import logo from "./logo.svg";
+import { cascadeCancelJob, buildCancelSummary } from "./utils/cascadeCancel";
 
 
 export default function ContractsDashboard() {
@@ -195,6 +197,38 @@ export default function ContractsDashboard() {
       Swal.fire("Deleted!", "The contract has been removed.", "success");
     } catch (error) {
       Swal.fire("Error", "Failed to delete contract.", "error");
+    }
+  };
+
+  const handleCancelContract = async (contract) => {
+    const result = await Swal.fire({
+      title: "Cancel Contract?",
+      html: `Cancel all records for <strong>${contract.clientName}</strong>?<br><br>This will cancel:<br>• Contract<br>• Invoice<br>• Bid<br>• Job folder<br>• Any schedules<br><br>Records will be preserved for audit purposes.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Cancel Contract",
+      confirmButtonColor: "#f44336",
+      cancelButtonText: "No, Keep It",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const cancelResult = await cascadeCancelJob("contracts", contract.id);
+        
+        const summaryHtml = buildCancelSummary(cancelResult);
+        
+        await Swal.fire({
+          icon: cancelResult.success ? "success" : "warning",
+          title: cancelResult.success ? "Contract Cancelled" : "Partial Cancellation",
+          html: summaryHtml,
+          confirmButtonText: "OK",
+        });
+        
+        fetchContracts();
+      } catch (error) {
+        console.error("Error cancelling contract:", error);
+        Swal.fire("Error", "Failed to cancel contract. Check console for details.", "error");
+      }
     }
   };
 
@@ -823,9 +857,23 @@ export default function ContractsDashboard() {
 
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 2 }}>
           {sortedContracts.map((contract) => (
-            <Card key={contract.id} sx={{ boxShadow: 3 }}>
+            <Card 
+              key={contract.id} 
+              sx={{ 
+                boxShadow: 3,
+                opacity: contract.status === "cancelled" ? 0.6 : 1,
+                backgroundColor: contract.status === "cancelled" ? "#f5f5f5" : "white"
+              }}
+            >
               <CardContent>
-                <Typography variant="h6" gutterBottom>
+                <Typography 
+                  variant="h6" 
+                  gutterBottom
+                  sx={{
+                    textDecoration: contract.status === "cancelled" ? "line-through" : "none",
+                    color: contract.status === "cancelled" ? "#999" : "inherit"
+                  }}
+                >
                   {contract.clientName || "Unnamed Client"}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
@@ -864,6 +912,21 @@ export default function ContractsDashboard() {
                 {isScheduled(contract) && (
                   <Chip icon={<CheckCircleIcon />} label={`Scheduled: ${contract.scheduledDate}`} color="success" variant="outlined" sx={{ width: "100%" }} />
                 )}
+                {contract.status !== "cancelled" && contract.status !== "completed" && (
+                  <Button 
+                    variant="outlined" 
+                    color="warning" 
+                    fullWidth 
+                    startIcon={<CancelIcon />} 
+                    onClick={() => handleCancelContract(contract)}
+                    sx={{ 
+                      opacity: contract.status === "cancelled" ? 0.5 : 1,
+                      textDecoration: contract.status === "cancelled" ? "line-through" : "none"
+                    }}
+                  >
+                    Cancel Contract
+                  </Button>
+                )}
                 <Button variant="outlined" color="error" fullWidth startIcon={<DeleteIcon />} onClick={() => handleDeleteContract(contract.id, contract.clientName || "this")}>
                   Delete
                 </Button>
@@ -898,8 +961,21 @@ export default function ContractsDashboard() {
           </TableHead>
           <TableBody>
             {sortedContracts.map((contract) => (
-              <TableRow key={contract.id}>
-                <TableCell>{contract.clientName || "Unnamed Client"}</TableCell>
+              <TableRow 
+                key={contract.id}
+                sx={{
+                  opacity: contract.status === "cancelled" ? 0.6 : 1,
+                  backgroundColor: contract.status === "cancelled" ? "#f5f5f5" : "inherit"
+                }}
+              >
+                <TableCell
+                  sx={{
+                    textDecoration: contract.status === "cancelled" ? "line-through" : "none",
+                    color: contract.status === "cancelled" ? "#999" : "inherit"
+                  }}
+                >
+                  {contract.clientName || "Unnamed Client"}
+                </TableCell>
                 <TableCell>{formatDate(contract)}</TableCell>
                 <TableCell>${Number(contract.amount || 0).toFixed(2)}</TableCell>
                 <TableCell>
@@ -932,6 +1008,18 @@ export default function ContractsDashboard() {
                   )}
                   {isScheduled(contract) && (
                     <Chip icon={<CheckCircleIcon />} label={contract.scheduledDate} color="success" variant="outlined" size="small" sx={{ mr: 1 }} />
+                  )}
+                  {contract.status !== "cancelled" && contract.status !== "completed" && (
+                    <Button 
+                      variant="outlined" 
+                      color="warning" 
+                      size="small" 
+                      startIcon={<CancelIcon />} 
+                      onClick={() => handleCancelContract(contract)} 
+                      sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                    >
+                      Cancel
+                    </Button>
                   )}
                   <Button variant="outlined" color="error" size="small" startIcon={<DeleteIcon />} onClick={() => handleDeleteContract(contract.id, contract.clientName || "this")} sx={{ mb: { xs: 1, lg: 0 } }}>
                     Delete
