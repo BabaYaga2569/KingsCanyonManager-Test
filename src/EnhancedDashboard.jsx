@@ -766,7 +766,7 @@ const EnhancedDashboard = () => {
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                           <Box>
                             <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                              {job.customerName || 'Unknown'}
+                              {job.clientName || job.customerName || 'Unknown'}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               {formatTime(job.date)}
