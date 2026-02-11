@@ -59,7 +59,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import generateContractPDF from "./pdf/generateContractPDF";
 import logo from "./logo.svg";
-import { cascadeCancelJob, buildCancelSummary } from "./utils/cascadeCancel";
+import { cascadeCancelJob, buildCancelSummary, buildCancelConfirmationMessage } from "./utils/cascadeCancel";
 
 
 export default function ContractsDashboard() {
@@ -203,7 +203,7 @@ export default function ContractsDashboard() {
   const handleCancelContract = async (contract) => {
     const result = await Swal.fire({
       title: "Cancel Contract?",
-      html: `Cancel all records for <strong>${contract.clientName}</strong>?<br><br>This will cancel:<br>• Contract<br>• Invoice<br>• Bid<br>• Job folder<br>• Any schedules<br><br>Records will be preserved for audit purposes.`,
+      html: buildCancelConfirmationMessage(contract.clientName, "contract"),
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, Cancel Contract",

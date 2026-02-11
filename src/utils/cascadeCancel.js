@@ -2,6 +2,20 @@ import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "fireb
 import { db } from "../firebase";
 
 /**
+ * Build a confirmation message for cascade cancel operations
+ * @param {string} entityName - Name of the customer/client
+ * @param {string} startType - Type of entity being cancelled (bid, contract, schedule)
+ * @returns {string} - HTML formatted message
+ */
+export function buildCancelConfirmationMessage(entityName, startType = "job") {
+  const entityLabel = startType === "bid" ? "Bid" : 
+                      startType === "contract" ? "Contract" : 
+                      startType === "schedule" ? "Schedule/Job" : "Job";
+  
+  return `Cancel all records for <strong>${entityName}</strong>?<br><br>This will cancel:<br>• ${entityLabel}<br>• Contract<br>• Invoice<br>• Bid<br>• Job folder<br>• Any schedules<br><br>Records will be preserved for audit purposes.`;
+}
+
+/**
  * Cascade cancel a job and all linked records across collections
  * Preserves records for audit/tax purposes by setting status to "cancelled"
  * 
@@ -221,10 +235,9 @@ export async function cascadeCancelJob(startCollection, startDocId) {
       }
     }
 
-    // Check if any documents were actually cancelled
-    const totalCancelled = Object.values(result.cancelled)
-      .filter(v => Array.isArray(v))
-      .reduce((sum, arr) => sum + arr.length, 0);
+    // Check if any documents were actually cancelled (excluding equipmentFreed)
+    const totalCancelled = ["bids", "contracts", "invoices", "jobs", "schedules"]
+      .reduce((sum, key) => sum + result.cancelled[key].length, 0);
 
     if (totalCancelled === 0) {
       result.success = false;

@@ -57,7 +57,7 @@ import { AuthProvider, useAuth } from "./AuthProvider";
 import { useNotificationCounts, markAsViewed } from "./useNotificationCounts";
 
 // Import cascade cancel utility
-import { cascadeCancelJob, buildCancelSummary } from "./utils/cascadeCancel";
+import { cascadeCancelJob, buildCancelSummary, buildCancelConfirmationMessage } from "./utils/cascadeCancel";
 
 import ContractsDashboard from "./ContractsDashboard";
 import CreateBid from "./CreateBid";
@@ -202,7 +202,7 @@ function BidsList() {
   const handleCancelBid = async (bid) => {
     const result = await Swal.fire({
       title: "Cancel Bid?",
-      html: `Cancel all records for <strong>${bid.customerName}</strong>?<br><br>This will cancel:<br>• Bid<br>• Contract<br>• Invoice<br>• Job folder<br>• Any schedules<br><br>Records will be preserved for audit purposes.`,
+      html: buildCancelConfirmationMessage(bid.customerName, "bid"),
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, Cancel Bid",

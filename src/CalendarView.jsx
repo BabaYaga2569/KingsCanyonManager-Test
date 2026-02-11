@@ -51,7 +51,7 @@ import TodayIcon from "@mui/icons-material/Today";
 import CancelIcon from "@mui/icons-material/Cancel";
 import DescriptionIcon from "@mui/icons-material/Description";
 import GrassIcon from "@mui/icons-material/Grass";
-import { cascadeCancelJob, buildCancelSummary } from "./utils/cascadeCancel";
+import { cascadeCancelJob, buildCancelSummary, buildCancelConfirmationMessage } from "./utils/cascadeCancel";
 
 const localizer = momentLocalizer(moment);
 
@@ -286,7 +286,7 @@ export default function CalendarView() {
   const handleCancelJob = async (schedule) => {
     const result = await Swal.fire({
       title: "Cancel Job?",
-      html: `Cancel all records for <strong>${schedule.clientName}</strong>?<br><br>This will cancel:<br>• Schedule<br>• Contract<br>• Invoice<br>• Bid<br>• Job folder<br><br>Records will be preserved for audit purposes.`,
+      html: buildCancelConfirmationMessage(schedule.clientName, "schedule"),
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, Cancel Job",
