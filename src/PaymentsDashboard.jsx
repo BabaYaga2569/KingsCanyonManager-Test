@@ -227,6 +227,8 @@ export default function PaymentsDashboard() {
         const invoiceSnap = await getDoc(invoiceRef);
         if (invoiceSnap.exists()) {
           invoice = { id: invoiceSnap.id, ...invoiceSnap.data() };
+        } else {
+          console.warn(`Invoice ${payment.invoiceId} not found for payment ${payment.id}`);
         }
       }
 
@@ -235,6 +237,7 @@ export default function PaymentsDashboard() {
         invoice = {
           clientName: payment.clientName,
           total: payment.amount,
+          amount: payment.amount, // Include both for compatibility
           description: payment.notes || 'Payment',
         };
       }
@@ -243,8 +246,8 @@ export default function PaymentsDashboard() {
       let newTotalPaid;
       let newRemainingBalance;
 
-      if (payment.invoiceId && invoice) {
-        // Fetch all payments for this invoice
+      if (payment.invoiceId && invoice.id) {
+        // Invoice exists - calculate totals across all payments
         const paymentsQuery = query(
           collection(db, 'payments'),
           where('invoiceId', '==', payment.invoiceId)
@@ -254,6 +257,7 @@ export default function PaymentsDashboard() {
           return sum + parseFloat(doc.data().amount || 0);
         }, 0);
 
+        // Use total field, fallback to amount for older records
         const invoiceTotal = parseFloat(invoice.total || invoice.amount || 0);
         newRemainingBalance = invoiceTotal - newTotalPaid;
       } else {
