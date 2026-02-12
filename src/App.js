@@ -550,6 +550,17 @@ function HomeRedirect() {
 }
 
 // ------------------------- ADMIN ROUTE PROTECTION -------------------------
+/**
+ * AdminRoute - Route protection component for admin-only pages
+ * 
+ * This component restricts access to routes that should only be accessible
+ * by users with 'admin' or 'god' roles. Users with 'user' or 'crew' roles
+ * are automatically redirected to /time-clock.
+ * 
+ * @param {Object} props - Component props
+ * @param {React.ReactNode} props.children - The protected route component to render
+ * @returns {React.ReactNode|null} The protected component or null during redirect
+ */
 function AdminRoute({ children }) {
   const { userRole } = useAuth();
   const navigate = useNavigate();
@@ -560,7 +571,8 @@ function AdminRoute({ children }) {
     }
   }, [userRole, navigate]);
   
-  if (userRole !== 'admin' && userRole !== 'god') {
+  // Prevent rendering if user is not admin/god or role is not yet loaded
+  if (!userRole || (userRole !== 'admin' && userRole !== 'god')) {
     return null;
   }
   
