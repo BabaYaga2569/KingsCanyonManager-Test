@@ -537,16 +537,46 @@ function HomeRedirect() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (userRole === 'crew') {
+    if (userRole === 'crew' || userRole === 'user') {
       navigate('/time-clock', { replace: true });
     }
   }, [userRole, navigate]);
 
-  if (userRole === 'crew') {
+  if (userRole === 'crew' || userRole === 'user') {
     return null;
   }
 
   return <EnhancedDashboard />;
+}
+
+// ------------------------- ADMIN ROUTE PROTECTION -------------------------
+/**
+ * AdminRoute - Route protection component for admin-only pages
+ * 
+ * This component restricts access to routes that should only be accessible
+ * by users with 'admin' or 'god' roles. Users with 'user' or 'crew' roles
+ * are automatically redirected to /time-clock.
+ * 
+ * @param {Object} props - Component props
+ * @param {React.ReactNode} props.children - The protected route component to render
+ * @returns {React.ReactNode|null} The protected component or null during redirect
+ */
+function AdminRoute({ children }) {
+  const { userRole } = useAuth();
+  const navigate = useNavigate();
+  
+  useEffect(() => {
+    if (userRole && userRole !== 'admin' && userRole !== 'god') {
+      navigate('/time-clock', { replace: true });
+    }
+  }, [userRole, navigate]);
+  
+  // Prevent rendering if user is not admin/god or role is not yet loaded
+  if (!userRole || (userRole !== 'admin' && userRole !== 'god')) {
+    return null;
+  }
+  
+  return children;
 }
 
 // ------------------------- APP CHROME -------------------------
@@ -619,14 +649,7 @@ function AppContent() {
   // ROLE-SPECIFIC MENU ITEMS
   let menuItems = [];
 
-  if (userRole === 'crew') {
-    // CREW sees only time clock and their hours
-    menuItems = [
-      { label: "Time Clock", path: "/time-clock", notificationKey: null },
-      { label: "My Profile", path: "/profile", notificationKey: null },
-      { label: "My Hours", path: "/my-hours", notificationKey: null },
-    ];
-  } else {
+  if (userRole === 'admin' || userRole === 'god') {
     // ADMIN and GOD see full menu
     menuItems = [
       { label: "Dashboard", path: "/", notificationKey: null },
@@ -649,6 +672,13 @@ function AppContent() {
 	  { label: "Employees", path: "/employees", notificationKey: null },
       { label: "SMS Notifications", path: "/notification-settings", notificationKey: null },
       { label: "My Profile", path: "/profile", notificationKey: null },
+    ];
+  } else {
+    // CREW, USER, or any other role gets limited menu
+    menuItems = [
+      { label: "Time Clock", path: "/time-clock", notificationKey: null },
+      { label: "My Profile", path: "/profile", notificationKey: null },
+      { label: "My Hours", path: "/my-hours", notificationKey: null },
     ];
   }
 
@@ -818,54 +848,10 @@ function AppContent() {
       )}
 
       <Routes>
-        {/* CREW ROUTES */}
+        {/* ACCESSIBLE TO ALL AUTHENTICATED USERS */}
         <Route path="/time-clock" element={<TimeClock />} />
         <Route path="/my-hours" element={<MyHours />} />
         <Route path="/profile" element={<UserProfile />} />
-        
-        {/* ADMIN/GOD ROUTES */}
-        <Route path="/approve-time" element={<ApproveTime />} />
-        
-        {/* HOME ROUTE - REDIRECTS CREW TO TIME CLOCK */}
-        <Route path="/" element={<HomeRedirect />} />
-        
-        {/* EXISTING ROUTES */}
-        <Route path="/bids" element={<BidsList />} />
-        <Route path="/bid/:id" element={<BidEditor />} />
-        <Route path="/create-bid" element={<CreateBid />} />
-        <Route path="/contracts" element={<ContractsDashboard />} />
-        <Route path="/contract/:id" element={<ContractEditor />} />
-        <Route path="/invoices" element={<InvoicesDashboard />} />
-        <Route path="/invoice/:id" element={<InvoiceEditor />} />		
-        <Route path="/jobs" element={<JobsManager />} />
-        <Route path="/notes" element={<NotesManager />} /> {/* ← ADDED: Notes route */}
-        <Route path="/customers" element={<CustomersDashboard />} />
-		<Route path="/migration" element={<MigrationDashboard />} />
-        <Route path="/customer-edit/:id" element={<CustomerEditor />} />
-        <Route path="/customer/:id" element={<CustomerProfile />} />
-        {/* Phase 2B: Removed standalone schedule-job - schedules created through workflow only */}
-        {/* <Route path="/schedule-job" element={<ScheduleJob />} /> */}
-        <Route path="/migrate-tokens" element={<MigrationPage />} />
-        <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
-        
-        {/* ✅ FIXED: Calendar routes - both /calendar and /calendar-view now work */}
-        <Route path="/calendar" element={<CalendarView />} />
-        <Route path="/calendar-view" element={<CalendarView />} />
-        
-        {/* 🔒 CRITICAL: Maintenance routes - DO NOT REMOVE */}
-        <Route path="/maintenance" element={<MaintenanceDashboard />} />
-        <Route path="/maintenance/:id" element={<MaintenanceEditor />} />
-        <Route path="/notification-settings" element={<NotificationSettings />} /> {/* NEW: SMS Settings */}
-        {/* ========================================= */}
-        <Route path="/payment-tracker/:id" element={<PaymentTracker />} />
-        <Route path="/payments-dashboard" element={<PaymentsDashboard />} />
-        <Route path="/crew-manager" element={<CrewManager />} />
-        <Route path="/equipment-manager" element={<EquipmentManager />} />
-		<Route path="/employees" element={<EmployeeAccountManager currentUser={user} currentUserRole={userRole} />} />
-        <Route path="/nda/:crewId" element={<NDAEditor />} />
-        <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
-        
-        {/* NEW: Employee First-Login NDA Signing */}
         <Route 
           path="/nda-signing" 
           element={
@@ -885,15 +871,49 @@ function AppContent() {
             />
           } 
         />
-        <Route path="/expenses-manager" element={<ExpensesManager />} />
-        <Route path="/crew-payroll" element={<IntegratedPayroll />} /> {/* ✅ CHANGED: New integrated system */}
-        <Route path="/crew-payment-history" element={<CrewPaymentHistory />} />
-        <Route path="/tax-report" element={<TaxReport />} />
-        <Route path="/job-expenses/:id" element={<JobExpenses />} />
         
+        {/* PUBLIC ROUTES (NOT AUTHENTICATED) */}
+        <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
         <Route path="/public/sign/:contractId" element={<ContractSigningPage />} />
 		<Route path="/sign-bid/:bidId" element={<BidSigningPage />} />
         <Route path="/public/pay/:invoiceId" element={<PaymentPortal />} />
+        
+        {/* HOME ROUTE - REDIRECTS CREW/USER TO TIME CLOCK */}
+        <Route path="/" element={<HomeRedirect />} />
+        
+        {/* ADMIN/GOD ONLY ROUTES */}
+        <Route path="/approve-time" element={<AdminRoute><ApproveTime /></AdminRoute>} />
+        <Route path="/bids" element={<AdminRoute><BidsList /></AdminRoute>} />
+        <Route path="/bid/:id" element={<AdminRoute><BidEditor /></AdminRoute>} />
+        <Route path="/create-bid" element={<AdminRoute><CreateBid /></AdminRoute>} />
+        <Route path="/contracts" element={<AdminRoute><ContractsDashboard /></AdminRoute>} />
+        <Route path="/contract/:id" element={<AdminRoute><ContractEditor /></AdminRoute>} />
+        <Route path="/invoices" element={<AdminRoute><InvoicesDashboard /></AdminRoute>} />
+        <Route path="/invoice/:id" element={<AdminRoute><InvoiceEditor /></AdminRoute>} />		
+        <Route path="/jobs" element={<AdminRoute><JobsManager /></AdminRoute>} />
+        <Route path="/notes" element={<AdminRoute><NotesManager /></AdminRoute>} />
+        <Route path="/customers" element={<AdminRoute><CustomersDashboard /></AdminRoute>} />
+		<Route path="/migration" element={<AdminRoute><MigrationDashboard /></AdminRoute>} />
+        <Route path="/customer-edit/:id" element={<AdminRoute><CustomerEditor /></AdminRoute>} />
+        <Route path="/customer/:id" element={<AdminRoute><CustomerProfile /></AdminRoute>} />
+        <Route path="/migrate-tokens" element={<AdminRoute><MigrationPage /></AdminRoute>} />
+        <Route path="/schedule-dashboard" element={<AdminRoute><ScheduleDashboard /></AdminRoute>} />
+        <Route path="/calendar" element={<AdminRoute><CalendarView /></AdminRoute>} />
+        <Route path="/calendar-view" element={<AdminRoute><CalendarView /></AdminRoute>} />
+        <Route path="/maintenance" element={<AdminRoute><MaintenanceDashboard /></AdminRoute>} />
+        <Route path="/maintenance/:id" element={<AdminRoute><MaintenanceEditor /></AdminRoute>} />
+        <Route path="/notification-settings" element={<AdminRoute><NotificationSettings /></AdminRoute>} />
+        <Route path="/payment-tracker/:id" element={<AdminRoute><PaymentTracker /></AdminRoute>} />
+        <Route path="/payments-dashboard" element={<AdminRoute><PaymentsDashboard /></AdminRoute>} />
+        <Route path="/crew-manager" element={<AdminRoute><CrewManager /></AdminRoute>} />
+        <Route path="/equipment-manager" element={<AdminRoute><EquipmentManager /></AdminRoute>} />
+		<Route path="/employees" element={<AdminRoute><EmployeeAccountManager currentUser={user} currentUserRole={userRole} /></AdminRoute>} />
+        <Route path="/nda/:crewId" element={<AdminRoute><NDAEditor /></AdminRoute>} />
+        <Route path="/expenses-manager" element={<AdminRoute><ExpensesManager /></AdminRoute>} />
+        <Route path="/crew-payroll" element={<AdminRoute><IntegratedPayroll /></AdminRoute>} />
+        <Route path="/crew-payment-history" element={<AdminRoute><CrewPaymentHistory /></AdminRoute>} />
+        <Route path="/tax-report" element={<AdminRoute><TaxReport /></AdminRoute>} />
+        <Route path="/job-expenses/:id" element={<AdminRoute><JobExpenses /></AdminRoute>} />
       </Routes>
     </>
   );
