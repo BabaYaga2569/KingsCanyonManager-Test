@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, query, where } from "firebase/firestore";
 import { db } from "./firebase";
 import { useNavigate } from "react-router-dom";
 import {
@@ -32,7 +32,10 @@ import PaymentIcon from "@mui/icons-material/Payment";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import DownloadIcon from "@mui/icons-material/Download";
 import SortIcon from "@mui/icons-material/Sort";
+import ReceiptIcon from "@mui/icons-material/Receipt";
 import { markAsViewed } from './useNotificationCounts';
+import generatePaymentReceipt from './pdf/generatePaymentReceipt';
+import { viewPaymentReceiptPDF } from './utils/pdfViewerUtils';
 
 export default function PaymentsDashboard() {
   const navigate = useNavigate();
@@ -213,6 +216,62 @@ export default function PaymentsDashboard() {
 
   const handleFilterChange = (field, value) => {
     setFilters((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleViewReceipt = async (payment) => {
+    try {
+      // Fetch the linked invoice if it exists
+      let invoice = null;
+      if (payment.invoiceId) {
+        const invoiceRef = doc(db, 'invoices', payment.invoiceId);
+        const invoiceSnap = await getDoc(invoiceRef);
+        if (invoiceSnap.exists()) {
+          invoice = { id: invoiceSnap.id, ...invoiceSnap.data() };
+        }
+      }
+
+      // If no invoice is linked, create a minimal invoice object for receipt generation
+      if (!invoice) {
+        invoice = {
+          clientName: payment.clientName,
+          total: payment.amount,
+          description: payment.notes || 'Payment',
+        };
+      }
+
+      // Calculate total paid and remaining balance for this invoice
+      let newTotalPaid = payment.amount;
+      let newRemainingBalance = 0;
+
+      if (payment.invoiceId) {
+        // Fetch all payments for this invoice
+        const paymentsQuery = query(
+          collection(db, 'payments'),
+          where('invoiceId', '==', payment.invoiceId)
+        );
+        const paymentsSnap = await getDocs(paymentsQuery);
+        newTotalPaid = paymentsSnap.docs.reduce((sum, doc) => {
+          return sum + parseFloat(doc.data().amount || 0);
+        }, 0);
+
+        const invoiceTotal = parseFloat(invoice.total || invoice.amount || 0);
+        newRemainingBalance = invoiceTotal - newTotalPaid;
+      }
+
+      // Generate and open the receipt
+      await viewPaymentReceiptPDF(
+        {
+          payment,
+          invoice,
+          newTotalPaid,
+          newRemainingBalance,
+        },
+        generatePaymentReceipt
+      );
+    } catch (error) {
+      console.error('Error viewing receipt:', error);
+      alert('Failed to generate receipt. Please try again.');
+    }
   };
 
   if (loading) {
@@ -445,15 +504,24 @@ export default function PaymentsDashboard() {
                     {payment.notes}
                   </Typography>
                 )}
-                <Button
-                  size="small"
-                  onClick={() =>
-                    navigate(`/payment-tracker/${payment.invoiceId}`)
-                  }
-                  sx={{ mt: 1 }}
-                >
-                  View Invoice
-                </Button>
+                <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      navigate(`/payment-tracker/${payment.invoiceId}`)
+                    }
+                  >
+                    View Invoice
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<ReceiptIcon />}
+                    onClick={() => handleViewReceipt(payment)}
+                  >
+                    View Receipt
+                  </Button>
+                </Box>
               </CardContent>
             </Card>
           ))}
@@ -508,14 +576,24 @@ export default function PaymentsDashboard() {
                     <TableCell>{payment.reference || "—"}</TableCell>
                     <TableCell>{payment.notes || "—"}</TableCell>
                     <TableCell>
-                      <Button
-                        size="small"
-                        onClick={() =>
-                          navigate(`/payment-tracker/${payment.invoiceId}`)
-                        }
-                      >
-                        View Invoice
-                      </Button>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button
+                          size="small"
+                          onClick={() =>
+                            navigate(`/payment-tracker/${payment.invoiceId}`)
+                          }
+                        >
+                          View Invoice
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<ReceiptIcon />}
+                          onClick={() => handleViewReceipt(payment)}
+                        >
+                          Receipt
+                        </Button>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))

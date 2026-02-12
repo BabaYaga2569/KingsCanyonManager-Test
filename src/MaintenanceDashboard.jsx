@@ -213,9 +213,26 @@ export default function MaintenanceDashboard() {
     try {
       const contract = paymentDialog.contract;
       
+      // Lookup customerId if not present on contract
+      let customerId = contract.customerId || null;
+      if (!customerId && contract.customerName) {
+        try {
+          const customersSnap = await getDocs(collection(db, 'customers'));
+          const customer = customersSnap.docs.find(doc => {
+            const data = doc.data();
+            return data.name === contract.customerName;
+          });
+          if (customer) {
+            customerId = customer.id;
+          }
+        } catch (err) {
+          console.warn('Failed to lookup customer by name:', err);
+        }
+      }
+      
       // Create payment record
       const paymentRecord = {
-        customerId: contract.customerId,
+        customerId: customerId,
         customerName: contract.customerName,
         amount: parseFloat(paymentData.amount),
         paymentMethod: paymentData.method,
@@ -232,7 +249,7 @@ export default function MaintenanceDashboard() {
       // Optionally create invoice
       if (paymentData.createInvoice) {
         const invoiceData = {
-          customerId: contract.customerId,
+          customerId: customerId,
           clientName: contract.customerName,
           customerName: contract.customerName,
           description: `Monthly Maintenance - ${getFrequencyDisplay(contract.frequency)}`,
