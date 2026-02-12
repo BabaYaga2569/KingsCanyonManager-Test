@@ -519,21 +519,7 @@ export default function InvoicesDashboard() {
         createdAt: serverTimestamp(),
         completedAt: serverTimestamp(),
       });
-
-      await addDoc(collection(db, "schedules"), {
-        clientName: customer.name,
-        jobDescription: description,
-        startDate: weedInvoice.serviceDate,
-        endDate: weedInvoice.serviceDate,
-        startTime: weedInvoice.startTime,
-        endTime: weedInvoice.endTime,
-        priority: "normal",
-        status: "completed",
-        assignedEmployees: selectedCrews.map(c => c.id),
-        selectedEquipment: [],
-        notes: "Quick weed spraying job - auto-created from invoice",
-        createdAt: serverTimestamp(),
-      });       
+      
 
       // Success!
       const photoMessage = beforePhotoURL && afterPhotoURL 
