@@ -260,7 +260,10 @@ const EnhancedDashboard = () => {
         return bidDate && bidDate.getFullYear() === selectedYear;
       });
       const bidsTotal = bidsForYear.length;
-      const bidsPending = bidsForYear.filter(doc => !doc.data().signed).length;
+      const bidsPending = bidsForYear.filter(doc => {
+        const data = doc.data();
+        return !(data.clientSignature && data.contractorSignature);
+      }).length;
 
       const contractsSnapshot = await getDocs(collection(db, 'contracts'));
       const contractsForYear = contractsSnapshot.docs.filter(doc => {

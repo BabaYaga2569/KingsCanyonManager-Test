@@ -33,6 +33,7 @@ import {
   FormControl,
   InputLabel,
   Badge,
+  Chip,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
@@ -122,6 +123,7 @@ function BidsList() {
   const [sortedBids, setSortedBids] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
   const [logoDataUrl, setLogoDataUrl] = useState(null);
+  const [contracts, setContracts] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -151,6 +153,14 @@ function BidsList() {
         ...d.data(),
       }));
       setBids(bidsData);
+      
+      // Also fetch contracts to check if bids have been converted
+      const contractsSnapshot = await getDocs(collection(db, "contracts"));
+      const contractsData = contractsSnapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+      setContracts(contractsData);
     };
     fetchBids();
   }, []);
@@ -181,6 +191,32 @@ function BidsList() {
     });
     setSortedBids(sorted);
   }, [bids, sortOrder]);
+
+  // Check if a bid has an associated contract
+  const hasContract = (bidId) => {
+    return contracts.some(contract => contract.bidId === bidId);
+  };
+
+  // Get bid status for display
+  const getBidStatus = (bid) => {
+    // Check if bid has been converted to contract
+    if (hasContract(bid.id)) {
+      return { label: "Accepted", color: "success" };
+    }
+    
+    // Check if both signatures exist
+    if (bid.clientSignature && bid.contractorSignature) {
+      return { label: "Signed", color: "info" };
+    }
+    
+    // Check if sent for signing
+    if (bid.signingToken) {
+      return { label: "Sent", color: "warning" };
+    }
+    
+    // Default status
+    return { label: "Pending", color: "default" };
+  };
 
   const handleDelete = async (bid) => {
     const confirm = await Swal.fire({
@@ -344,6 +380,12 @@ function BidsList() {
             }}
           >
             <Typography variant="h6" sx={{ mb: 1 }}>{bid.customerName}</Typography>
+            <Chip 
+              label={getBidStatus(bid).label} 
+              color={getBidStatus(bid).color} 
+              size="small" 
+              sx={{ mb: 1 }}
+            />
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Amount: ${bid.amount}
             </Typography>
@@ -377,15 +419,17 @@ function BidsList() {
               >
                 View PDF
               </Button>
-              <Button
-                variant="outlined"
-                color="success"
-                size="small"
-                onClick={() => handleCreateContract(bid)}
-                fullWidth
-              >
-                Create Contract
-              </Button>
+              {!hasContract(bid.id) && (
+                <Button
+                  variant="outlined"
+                  color="success"
+                  size="small"
+                  onClick={() => handleCreateContract(bid)}
+                  fullWidth
+                >
+                  Create Contract
+                </Button>
+              )}
               <Button
                 variant="outlined"
                 color="warning"
@@ -442,6 +486,7 @@ function BidsList() {
               }}
             >
               <th style={{ padding: 10 }}>Customer</th>
+              <th style={{ padding: 10 }}>Status</th>
               <th style={{ padding: 10 }}>Amount ($)</th>
               <th style={{ padding: 10 }}>Description</th>
               <th style={{ padding: 10 }}>Materials</th>
@@ -453,6 +498,13 @@ function BidsList() {
             {sortedBids.map((bid) => (
               <tr key={bid.id} style={{ borderBottom: "1px solid #ddd" }}>
                 <td style={{ padding: 10 }}>{bid.customerName}</td>
+                <td style={{ padding: 10 }}>
+                  <Chip 
+                    label={getBidStatus(bid).label} 
+                    color={getBidStatus(bid).color} 
+                    size="small" 
+                  />
+                </td>
                 <td style={{ padding: 10 }}>${bid.amount}</td>
                 <td style={{ padding: 10 }}>{bid.description}</td>
                 <td style={{ padding: 10 }}>{bid.materials}</td>
@@ -478,15 +530,17 @@ function BidsList() {
                   >
                     View PDF
                   </Button>
-                  <Button
-                    variant="outlined"
-                    color="success"
-                    size="small"
-                    onClick={() => handleCreateContract(bid)}
-                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
-                  >
-                    Create Contract
-                  </Button>
+                  {!hasContract(bid.id) && (
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      size="small"
+                      onClick={() => handleCreateContract(bid)}
+                      sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                    >
+                      Create Contract
+                    </Button>
+                  )}
                   <Button
                     variant="outlined"
                     color="warning"
@@ -511,7 +565,7 @@ function BidsList() {
             
             {sortedBids.length === 0 && (
               <tr>
-                <td colSpan="6" style={{ padding: 40, textAlign: 'center' }}>
+                <td colSpan="7" style={{ padding: 40, textAlign: 'center' }}>
                   <Typography variant="h6" color="text.secondary">
                     No Bids Yet
                   </Typography>
@@ -875,7 +929,7 @@ function AppContent() {
         {/* PUBLIC ROUTES (NOT AUTHENTICATED) */}
         <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
         <Route path="/public/sign/:contractId" element={<ContractSigningPage />} />
-		<Route path="/sign-bid/:bidId" element={<BidSigningPage />} />
+        <Route path="/public/sign-bid/:bidId" element={<BidSigningPage />} />
         <Route path="/public/pay/:invoiceId" element={<PaymentPortal />} />
         
         {/* HOME ROUTE - REDIRECTS CREW/USER TO TIME CLOCK */}
