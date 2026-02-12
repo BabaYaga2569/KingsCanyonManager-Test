@@ -217,13 +217,13 @@ export default function MaintenanceDashboard() {
       let customerId = contract.customerId || null;
       if (!customerId && contract.customerName) {
         try {
-          const customersSnap = await getDocs(collection(db, 'customers'));
-          const customer = customersSnap.docs.find(doc => {
-            const data = doc.data();
-            return data.name === contract.customerName;
-          });
-          if (customer) {
-            customerId = customer.id;
+          const customersQuery = query(
+            collection(db, 'customers'),
+            where('name', '==', contract.customerName)
+          );
+          const customersSnap = await getDocs(customersQuery);
+          if (!customersSnap.empty) {
+            customerId = customersSnap.docs[0].id;
           }
         } catch (err) {
           console.warn('Failed to lookup customer by name:', err);

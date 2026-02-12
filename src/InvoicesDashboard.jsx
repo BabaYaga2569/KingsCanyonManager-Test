@@ -262,13 +262,13 @@ export default function InvoicesDashboard() {
           let customerId = invoiceData.customerId || null;
           if (!customerId && invoiceData.clientName) {
             try {
-              const customersSnap = await getDocs(collection(db, 'customers'));
-              const customer = customersSnap.docs.find(doc => {
-                const data = doc.data();
-                return data.name === invoiceData.clientName;
-              });
-              if (customer) {
-                customerId = customer.id;
+              const customersQuery = query(
+                collection(db, 'customers'),
+                where('name', '==', invoiceData.clientName)
+              );
+              const customersSnap = await getDocs(customersQuery);
+              if (!customersSnap.empty) {
+                customerId = customersSnap.docs[0].id;
               }
             } catch (err) {
               console.warn('Failed to lookup customer by name:', err);
