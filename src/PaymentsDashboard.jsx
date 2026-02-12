@@ -240,10 +240,10 @@ export default function PaymentsDashboard() {
       }
 
       // Calculate total paid and remaining balance for this invoice
-      let newTotalPaid = payment.amount;
-      let newRemainingBalance = 0;
+      let newTotalPaid;
+      let newRemainingBalance;
 
-      if (payment.invoiceId) {
+      if (payment.invoiceId && invoice) {
         // Fetch all payments for this invoice
         const paymentsQuery = query(
           collection(db, 'payments'),
@@ -256,6 +256,10 @@ export default function PaymentsDashboard() {
 
         const invoiceTotal = parseFloat(invoice.total || invoice.amount || 0);
         newRemainingBalance = invoiceTotal - newTotalPaid;
+      } else {
+        // No invoice linked - single payment
+        newTotalPaid = parseFloat(payment.amount || 0);
+        newRemainingBalance = 0;
       }
 
       // Generate and open the receipt
