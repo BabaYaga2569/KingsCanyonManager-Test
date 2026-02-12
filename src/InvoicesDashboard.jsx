@@ -258,11 +258,28 @@ export default function InvoicesDashboard() {
         const paymentsSnap = await getDocs(paymentsQuery);
         
         if (paymentsSnap.empty) {
+          // Lookup customerId if not present on invoice
+          let customerId = invoiceData.customerId || null;
+          if (!customerId && invoiceData.clientName) {
+            try {
+              const customersQuery = query(
+                collection(db, 'customers'),
+                where('name', '==', invoiceData.clientName)
+              );
+              const customersSnap = await getDocs(customersQuery);
+              if (!customersSnap.empty) {
+                customerId = customersSnap.docs[0].id;
+              }
+            } catch (err) {
+              console.warn('Failed to lookup customer by name:', err);
+            }
+          }
+
           // Auto-create payment record
           await addDoc(collection(db, "payments"), {
             invoiceId: id,
             clientName: invoiceData.clientName,
-            customerId: invoiceData.customerId || null,
+            customerId: customerId,
             amount: total,
             paymentMethod: "other",
             paymentDate: new Date().toISOString().split("T")[0],

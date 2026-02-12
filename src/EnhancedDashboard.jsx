@@ -262,6 +262,9 @@ const EnhancedDashboard = () => {
       const bidsTotal = bidsForYear.length;
       const bidsPending = bidsForYear.filter(doc => {
         const data = doc.data();
+        const status = (data.status || '').toLowerCase();
+        // Don't count accepted, cancelled, or signed bids as "pending"
+        if (status === 'accepted' || status === 'cancelled' || status === 'signed') return false;
         return !(data.clientSignature && data.contractorSignature);
       }).length;
 
