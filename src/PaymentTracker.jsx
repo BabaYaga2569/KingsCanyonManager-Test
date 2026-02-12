@@ -145,6 +145,7 @@ export default function PaymentTracker() {
       const paymentData = {
         invoiceId: id,
         clientName: invoice.clientName,
+        customerId: invoice.customerId || null,
         amount: paymentAmount,
         paymentMethod: paymentForm.paymentMethod,
         paymentDate: paymentForm.paymentDate,
