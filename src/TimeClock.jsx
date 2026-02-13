@@ -90,11 +90,43 @@ export default function TimeClock() {
         // Get client name (check multiple field names for compatibility)
         const clientName = data.clientName || data.customerName || "Unknown Client";
         
+        // Build a short job type label from description/jobType
+        let shortType = "";
+        const desc = (data.description || data.jobDescription || data.jobType || "").toLowerCase();
+        if (desc.includes("weed")) shortType = "Weed";
+        else if (desc.includes("landscape") || desc.includes("landscaping")) shortType = "Landscape";
+        else if (desc.includes("maint")) shortType = "Maint.";
+        else if (desc.includes("clean")) shortType = "Cleanup";
+        else if (desc.includes("trim")) shortType = "Trimming";
+        else if (desc.includes("irrig")) shortType = "Irrigation";
+        else if (desc.includes("tree")) shortType = "Tree";
+        else if (desc.includes("rock") || desc.includes("gravel")) shortType = "Rock/Gravel";
+        else if (desc.includes("fence")) shortType = "Fence";
+        else if (desc.includes("haul")) shortType = "Hauling";
+        else if (data.jobType) shortType = data.jobType.substring(0, 12);
+        else if (data.description) shortType = data.description.substring(0, 12);
+        
+        // Get a short date from serviceDate, startDate, or createdAt
+        let shortDate = "";
+        const dateSource = data.serviceDate || data.startDate || data.createdAt;
+        if (dateSource) {
+          const d2 = dateSource.toDate ? dateSource.toDate() : new Date(dateSource);
+          if (!isNaN(d2.getTime())) {
+            shortDate = `${d2.getMonth() + 1}/${d2.getDate()}`;
+          }
+        }
+        
+        // Build display: "John Smith — Weed (2/10)"
+        let displayName = clientName;
+        if (shortType && shortDate) displayName += ` — ${shortType} (${shortDate})`;
+        else if (shortType) displayName += ` — ${shortType}`;
+        else if (shortDate) displayName += ` (${shortDate})`;
+        
         return { 
           id: d.id, 
           ...data,
           clientName: clientName,
-          displayName: clientName  // KISS - just show the client name!
+          displayName: displayName
         };
       });
       
@@ -243,7 +275,8 @@ export default function TimeClock() {
         crewEmail: user.email, // ✅ NEW: Store email separately
         jobId: selectedJob,
         jobName: job?.displayName || "Unknown Job",
-        jobDescription: job?.displayName || "No description", // ✅ Add description
+        jobDescription: job?.description || job?.jobDescription || job?.jobType || job?.displayName || "No description",
+        clientName: job?.clientName || "",
         clockIn: now,
         clockOut: null,
         hoursWorked: null,

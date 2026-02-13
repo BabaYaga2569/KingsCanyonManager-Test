@@ -42,6 +42,7 @@ import {
   Checkbox,
   FormControlLabel,
   Alert,
+  LinearProgress,
 } from "@mui/material";
 import { useNavigate, useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
@@ -123,7 +124,28 @@ export default function InvoicesDashboard() {
     try {
       const snap = await getDocs(collection(db, "invoices"));
       const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setInvoices(data);
+      
+      // Load all payments and attach totals to each invoice
+      const paymentsSnap = await getDocs(collection(db, "payments"));
+      const allPayments = paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      
+      const invoicesWithPayments = data.map((inv) => {
+        const invoicePayments = allPayments.filter((p) => p.invoiceId === inv.id);
+        const totalPaid = invoicePayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+        const invoiceTotal = parseFloat(inv.total || inv.amount || 0);
+        const remainingBalance = invoiceTotal - totalPaid;
+        const paymentCount = invoicePayments.length;
+        
+        return {
+          ...inv,
+          _totalPaid: totalPaid,
+          _remainingBalance: remainingBalance,
+          _paymentCount: paymentCount,
+          _percentPaid: invoiceTotal > 0 ? Math.min((totalPaid / invoiceTotal) * 100, 100) : 0,
+        };
+      });
+      
+      setInvoices(invoicesWithPayments);
     } catch (err) {
       console.error("Error loading invoices:", err);
     }
@@ -994,6 +1016,36 @@ export default function InvoicesDashboard() {
                 ðŸ“… Created: {formatInvoiceDate(inv)}
               </Typography>
 
+              {/* Payment Progress */}
+              {inv._paymentCount > 0 && (
+                <Box sx={{ mb: 2, p: 1.5, bgcolor: inv._remainingBalance <= 0 ? '#e8f5e9' : '#fff3e0', borderRadius: 1, border: `1px solid ${inv._remainingBalance <= 0 ? '#4caf50' : '#ff9800'}` }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="caption" fontWeight="bold">
+                      💰 {inv._paymentCount} payment{inv._paymentCount !== 1 ? 's' : ''} received
+                    </Typography>
+                    <Typography variant="caption" fontWeight="bold" color={inv._remainingBalance <= 0 ? 'success.main' : 'warning.main'}>
+                      {inv._remainingBalance <= 0 ? '✅ PAID IN FULL' : `$${inv._remainingBalance.toFixed(2)} remaining`}
+                    </Typography>
+                  </Box>
+                  <LinearProgress 
+                    variant="determinate" 
+                    value={inv._percentPaid} 
+                    sx={{ 
+                      height: 8, 
+                      borderRadius: 4,
+                      bgcolor: '#e0e0e0',
+                      '& .MuiLinearProgress-bar': {
+                        bgcolor: inv._percentPaid >= 100 ? '#4caf50' : '#ff9800',
+                        borderRadius: 4,
+                      }
+                    }} 
+                  />
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                    ${inv._totalPaid.toFixed(2)} of ${parseFloat(inv.total || inv.amount || 0).toFixed(2)} ({inv._percentPaid.toFixed(0)}%)
+                  </Typography>
+                </Box>
+              )}
+
               <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                 <InputLabel>Change Status</InputLabel>
                 <Select
@@ -1089,24 +1141,54 @@ export default function InvoicesDashboard() {
                 <TableCell>${inv.total || inv.amount || 0}</TableCell>
                 <TableCell>{formatInvoiceDate(inv)}</TableCell>
                 <TableCell>
-                  <Chip
-                    label={inv.status || "Pending"}
-                    color={getColor(inv.status)}
-                    sx={{ fontWeight: "bold", mr: 1 }}
-                  />
-                  <Select
-                    size="small"
-                    value={inv.status || "Pending"}
-                    onChange={(e) =>
-                      handleStatusChange(inv.id, e.target.value)
-                    }
-                  >
-                    <MenuItem value="Pending">Pending</MenuItem>
-                    <MenuItem value="Sent">Sent</MenuItem>
-                    <MenuItem value="Making Payments">Making Payments</MenuItem>
-                    <MenuItem value="Paid">Paid</MenuItem>
-                    <MenuItem value="Overdue">Overdue</MenuItem>
-                  </Select>
+                  <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: inv._paymentCount > 0 ? 1 : 0 }}>
+                      <Chip
+                        label={inv.status || "Pending"}
+                        color={getColor(inv.status)}
+                        sx={{ fontWeight: "bold" }}
+                      />
+                      <Select
+                        size="small"
+                        value={inv.status || "Pending"}
+                        onChange={(e) =>
+                          handleStatusChange(inv.id, e.target.value)
+                        }
+                        sx={{ minWidth: 120 }}
+                      >
+                        <MenuItem value="Pending">Pending</MenuItem>
+                        <MenuItem value="Sent">Sent</MenuItem>
+                        <MenuItem value="Making Payments">Making Payments</MenuItem>
+                        <MenuItem value="Paid">Paid</MenuItem>
+                        <MenuItem value="Overdue">Overdue</MenuItem>
+                      </Select>
+                    </Box>
+                    {inv._paymentCount > 0 && (
+                      <Box sx={{ minWidth: 180 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography variant="caption" fontWeight="bold">
+                            💰 {inv._paymentCount} payment{inv._paymentCount !== 1 ? 's' : ''}
+                          </Typography>
+                          <Typography variant="caption" fontWeight="bold" color={inv._remainingBalance <= 0 ? 'success.main' : 'warning.main'}>
+                            {inv._remainingBalance <= 0 ? '✅ Paid' : `$${inv._remainingBalance.toFixed(2)} left`}
+                          </Typography>
+                        </Box>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={inv._percentPaid} 
+                          sx={{ 
+                            height: 6, 
+                            borderRadius: 3,
+                            bgcolor: '#e0e0e0',
+                            '& .MuiLinearProgress-bar': {
+                              bgcolor: inv._percentPaid >= 100 ? '#4caf50' : '#ff9800',
+                              borderRadius: 3,
+                            }
+                          }} 
+                        />
+                      </Box>
+                    )}
+                  </Box>
                 </TableCell>
                 <TableCell align="right">
                   <Button
