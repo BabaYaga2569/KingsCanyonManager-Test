@@ -1,10 +1,136 @@
 const functions = require('firebase-functions');
-const vision = require('@google-cloud/vision');
-const twilio = require('twilio');
+// const vision = require('@google-cloud/vision');  // Temporarily disabled - needs Vision API enabled
+const nodemailer = require('nodemailer');
 const admin = require('firebase-admin');
 
 admin.initializeApp();
-const visionClient = new vision.ImageAnnotatorClient();
+// const visionClient = new vision.ImageAnnotatorClient();  // Temporarily disabled
+
+// ========================= CARRIER GATEWAY MAP =========================
+const CARRIER_GATEWAYS = {
+  tmobile: '@tmomail.net',
+  att: '@txt.att.net',
+  verizon: '@vtext.com',
+  cricket: '@sms.cricketwireless.net',
+  mint: '@tmomail.net',       // Mint runs on T-Mobile
+  metro: '@mymetropcs.com',   // Metro by T-Mobile
+  boost: '@sms.myboostmobile.com',
+  uscellular: '@email.uscc.net',
+  visible: '@vtext.com',      // Visible runs on Verizon
+};
+
+/**
+ * Get SMS gateway email address for a phone number + carrier
+ */
+function getSMSGateway(phone, carrier) {
+  // Strip everything except digits
+  const digits = phone.replace(/\D/g, '');
+  // Use last 10 digits (remove country code)
+  const number = digits.length > 10 ? digits.slice(-10) : digits;
+  const gateway = CARRIER_GATEWAYS[carrier] || CARRIER_GATEWAYS.tmobile;
+  return `${number}${gateway}`;
+}
+
+/**
+ * Create a Nodemailer transporter from settings
+ */
+function createTransporter(gmailEmail, gmailAppPassword) {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: gmailEmail,
+      pass: gmailAppPassword,
+    },
+  });
+}
+
+/**
+ * Send email-to-SMS to a single recipient
+ */
+async function sendEmailToSMS(transporter, fromEmail, toGateway, message) {
+  const mailOptions = {
+    from: fromEmail,
+    to: toGateway,
+    subject: 'Kings Canyon', // Shows as label on some carriers
+    text: message,
+  };
+  
+  return await transporter.sendMail(mailOptions);
+}
+
+/**
+ * Helper: Send notification to ALL admin phones
+ */
+async function sendToAllAdmins(settings, message, type, metadata = {}) {
+  const adminPhones = settings.adminPhones || [];
+  
+  if (adminPhones.length === 0) {
+    console.log('No admin phones configured');
+    return { success: false, reason: 'no_admins' };
+  }
+  
+  const transporter = createTransporter(settings.gmailEmail, settings.gmailAppPassword);
+  const results = [];
+  
+  for (const adminEntry of adminPhones) {
+    const gateway = getSMSGateway(adminEntry.phone, adminEntry.carrier || 'tmobile');
+    
+    try {
+      await sendEmailToSMS(transporter, settings.gmailEmail, gateway, message);
+      console.log(`Sent to ${adminEntry.name} (${gateway})`);
+      
+      // Log success
+      await admin.firestore().collection('notifications_log').add({
+        to: adminEntry.phone,
+        toName: adminEntry.name,
+        toGateway: gateway,
+        message: message,
+        type: type,
+        status: 'sent',
+        sentAt: new Date().toISOString(),
+        metadata,
+      });
+      
+      results.push({ name: adminEntry.name, success: true });
+    } catch (error) {
+      console.error(`Failed to send to ${adminEntry.name}:`, error.message);
+      
+      // Log failure
+      await admin.firestore().collection('notifications_log').add({
+        to: adminEntry.phone,
+        toName: adminEntry.name,
+        toGateway: gateway,
+        message: message,
+        type: type,
+        status: 'failed',
+        sentAt: new Date().toISOString(),
+        error: error.message,
+        metadata,
+      });
+      
+      results.push({ name: adminEntry.name, success: false, error: error.message });
+    }
+  }
+  
+  transporter.close();
+  return { success: true, results };
+}
+
+/**
+ * Get notification settings from Firestore
+ */
+async function getSettings() {
+  const snap = await admin.firestore()
+    .collection('notification_settings')
+    .limit(1)
+    .get();
+  
+  if (snap.empty) return null;
+  return snap.docs[0].data();
+}
+
+
+// ========================= RECEIPT SCANNER (UNCHANGED) =========================
 
 function parseReceiptText(text) {
   console.log("=".repeat(80));
@@ -20,14 +146,12 @@ function parseReceiptText(text) {
   let date = '';
   const lineItems = [];
   
-  // Store patterns
   const storePatterns = [
     { pattern: /LOWE'?S/i, name: "Lowe's" },
     { pattern: /HOME\s*DEPOT/i, name: 'Home Depot' },
     { pattern: /WAL\s*MART/i, name: 'Walmart' },
   ];
   
-  // FIND VENDOR
   const fullText = lines.join(' ');
   for (const store of storePatterns) {
     if (store.pattern.test(fullText)) {
@@ -38,7 +162,6 @@ function parseReceiptText(text) {
   }
   if (!vendor && lines.length > 0) vendor = lines[0];
   
-  // FIND DATE
   for (const line of lines) {
     let dateMatch = line.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if (!dateMatch) {
@@ -61,7 +184,6 @@ function parseReceiptText(text) {
     }
   }
   
-  // FIND TOTALS
   for (const line of lines) {
     const upper = line.toUpperCase();
     
@@ -90,7 +212,6 @@ function parseReceiptText(text) {
     }
   }
   
-  // EXTRACT LINE ITEMS - MULTI-LINE LOGIC
   console.log(">>> Extracting items (multi-line mode)...");
   
   const skipWords = [
@@ -105,14 +226,12 @@ function parseReceiptText(text) {
     const line = lines[i];
     const upper = line.toUpperCase();
     
-    // Start items section
     if (upper.includes('SALE') || upper.includes('TRANS')) {
       inItemsSection = true;
       console.log(`>>> Line ${i}: Started items section`);
       continue;
     }
     
-    // Stop at totals
     if (upper.includes('SUBTOTAL') || upper.includes('TOTAL TAX')) {
       inItemsSection = false;
       console.log(`>>> Line ${i}: Ended items section`);
@@ -122,56 +241,41 @@ function parseReceiptText(text) {
     if (!inItemsSection) continue;
     if (skipWords.some(word => upper.includes(word))) continue;
     
-    // Skip quantity-only lines like "5 @" or "28"
     if (/^\d+\s*@?\s*$/.test(line)) {
       console.log(`>>> Line ${i}: Skipped quantity line "${line}"`);
       continue;
     }
     
-    // Check if line is JUST a price (no item description)
     if (/^\d+\.\d{2}$/.test(line)) {
       console.log(`>>> Line ${i}: Skipped standalone price "${line}"`);
       continue;
     }
     
-    // PATTERN 1: Item with price on SAME line
-    // Example: "130760 2-8-16 TC #2 PREM KD DOUG 105.40"
     const sameLine = line.match(/^(\d{5,})\s+(.+?)\s+(\d+\.\d{2})$/);
     if (sameLine) {
       const price = parseFloat(sameLine[3]);
       const itemName = sameLine[2].trim();
       
       if (itemName.length >= 3 && price > 0) {
-        lineItems.push({
-          item: itemName,
-          quantity: '1',
-          price: price
-        });
+        lineItems.push({ item: itemName, quantity: '1', price: price });
         console.log(`>>> Line ${i}: FOUND (same line) "${itemName}" = $${price}`);
         continue;
       }
     }
     
-    // PATTERN 2: Item WITHOUT price, check NEXT line for price
-    // Example: "12151 100-CT 6-IN BAR TIE" followed by "12.76"
     const itemWithoutPrice = line.match(/^(\d{5,})\s+(.+)$/);
     if (itemWithoutPrice && i + 1 < lines.length) {
       const nextLine = lines[i + 1].trim();
       
-      // Check if next line is JUST a price
       const nextLinePrice = nextLine.match(/^(\d+\.\d{2})$/);
       if (nextLinePrice) {
         const price = parseFloat(nextLinePrice[1]);
         const itemName = itemWithoutPrice[2].trim();
         
         if (itemName.length >= 3 && price > 0 && price < 1000) {
-          lineItems.push({
-            item: itemName,
-            quantity: '1',
-            price: price
-          });
+          lineItems.push({ item: itemName, quantity: '1', price: price });
           console.log(`>>> Line ${i}-${i+1}: FOUND (multi-line) "${itemName}" = $${price}`);
-          i++; // Skip next line since we used it
+          i++;
           continue;
         }
       }
@@ -180,7 +284,6 @@ function parseReceiptText(text) {
   
   console.log(`>>> Total items extracted: ${lineItems.length}`);
   
-  // Use receipt total if found, otherwise calculate
   if (total === 0) {
     if (subtotal > 0 && tax > 0) {
       total = subtotal + tax;
@@ -191,7 +294,7 @@ function parseReceiptText(text) {
     }
   }
   
-  const result = {
+  return {
     vendor: vendor || 'Unknown Vendor',
     amount: Math.round(total * 100) / 100,
     subtotal: Math.round(subtotal * 100) / 100,
@@ -202,15 +305,9 @@ function parseReceiptText(text) {
     lineItems: lineItems,
     rawText: text,
   };
-  
-  console.log("=".repeat(80));
-  console.log("FINAL RESULT:");
-  console.log(JSON.stringify(result, null, 2));
-  console.log("=".repeat(80));
-  
-  return result;
 }
 
+/*  TEMPORARILY DISABLED - needs Vision API enabled on this project
 exports.scanReceipt = functions.https.onCall(async (data, context) => {
   console.log(">>> SCAN STARTED");
   
@@ -242,305 +339,263 @@ exports.scanReceipt = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
+*/
 
 exports.testFunction = functions.https.onCall(async (data, context) => {
   return { success: true, message: "Working v10 MULTILINE!", timestamp: new Date().toISOString() };
 });
 
-// ========================= SMS NOTIFICATION FUNCTIONS =========================
+
+// ========================= NOTIFICATION FUNCTIONS (EMAIL-TO-SMS) =========================
 
 /**
- * Send SMS via Twilio
- * Triggered by HTTPS request from frontend
+ * Send notification to all admins via email-to-SMS
+ * Called from frontend via httpsCallable
  */
-exports.sendSMS = functions.https.onRequest(async (req, res) => {
-  // Enable CORS
-  res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.status(204).send('');
-    return;
-  }
-
-  if (req.method !== 'POST') {
-    res.status(405).send({ error: 'Method not allowed' });
-    return;
-  }
-
+exports.sendNotification = functions.https.onCall(async (data, context) => {
+  console.log('>>> sendNotification called');
+  
   try {
-    const { to, message, type, metadata } = req.body;
-
-    if (!to || !message) {
-      res.status(400).send({ error: 'Missing required fields: to, message' });
-      return;
+    const { message, type, metadata } = data;
+    
+    if (!message) {
+      throw new functions.https.HttpsError('invalid-argument', 'Message is required');
     }
-
-    // Get Twilio credentials from Firestore
-    const settingsSnap = await admin.firestore()
-      .collection('notification_settings')
-      .limit(1)
-      .get();
-
-    if (settingsSnap.empty) {
-      res.status(500).send({ error: 'Notification settings not configured' });
-      return;
+    
+    const settings = await getSettings();
+    
+    if (!settings) {
+      throw new functions.https.HttpsError('failed-precondition', 'Notification settings not found');
     }
-
-    const settings = settingsSnap.docs[0].data();
-
-    if (!settings.twilioConfigured || !settings.twilioAccountSid || !settings.twilioAuthToken) {
-      res.status(500).send({ error: 'Twilio not configured' });
-      return;
+    
+    if (!settings.gmailConfigured || !settings.gmailEmail || !settings.gmailAppPassword) {
+      throw new functions.https.HttpsError('failed-precondition', 'Gmail not configured. Go to SMS Settings to set up.');
     }
-
-    // Initialize Twilio client
-    const client = twilio(settings.twilioAccountSid, settings.twilioAuthToken);
-
-    // Send SMS
-    const smsResult = await client.messages.create({
-      body: message,
-      from: settings.twilioPhoneNumber,
-      to: to
-    });
-
-    console.log(`SMS sent successfully: ${smsResult.sid}`);
-
-    // Return success
-    res.status(200).send({
-      success: true,
-      sid: smsResult.sid,
-      type: type,
-      timestamp: new Date().toISOString()
-    });
-
+    
+    const result = await sendToAllAdmins(settings, message, type || 'general', metadata || {});
+    
+    console.log('>>> Notification result:', JSON.stringify(result));
+    return result;
+    
   } catch (error) {
-    console.error('Error sending SMS:', error);
-    res.status(500).send({
-      error: error.message,
-      code: error.code || 'UNKNOWN'
-    });
+    console.error('>>> sendNotification error:', error);
+    throw new functions.https.HttpsError('internal', error.message);
   }
 });
 
 /**
- * Daily cron job to send payment reminders
- * Runs every day at 8 AM PST
+ * Send test notification to verify setup
  */
-exports.sendPaymentReminders = functions.pubsub
+exports.sendTestNotification = functions.https.onCall(async (data, context) => {
+  console.log('>>> sendTestNotification called');
+  
+  try {
+    const settings = await getSettings();
+    
+    if (!settings || !settings.gmailConfigured) {
+      throw new functions.https.HttpsError('failed-precondition', 'Gmail not configured');
+    }
+    
+    const adminPhones = settings.adminPhones || [];
+    if (adminPhones.length === 0) {
+      throw new functions.https.HttpsError('failed-precondition', 'No admin phones configured');
+    }
+    
+    const now = new Date().toLocaleString('en-US', { timeZone: 'America/Phoenix' });
+    const message = `KCL Manager\nTest notification working!\n${now}`;
+    
+    const result = await sendToAllAdmins(settings, message, 'test', { test: true });
+    return result;
+    
+  } catch (error) {
+    console.error('>>> sendTestNotification error:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+
+// ========================= DAILY CRON JOBS =========================
+
+/**
+ * Daily check at 8 AM Arizona time
+ * - Payment reminders (invoices due soon)
+ * - Overdue invoice alerts
+ * - Upcoming job reminders
+ */
+exports.dailyNotifications = functions.pubsub
   .schedule('0 8 * * *')
-  .timeZone('America/Los_Angeles')
+  .timeZone('America/Phoenix')
   .onRun(async (context) => {
-    console.log('Running payment reminders check...');
-
+    console.log('Running daily notifications check...');
+    
     try {
-      // Get notification settings
-      const settingsSnap = await admin.firestore()
-        .collection('notification_settings')
-        .limit(1)
-        .get();
-
-      if (settingsSnap.empty) {
-        console.log('No notification settings found');
+      const settings = await getSettings();
+      
+      if (!settings || !settings.gmailConfigured) {
+        console.log('Gmail not configured, skipping');
         return null;
       }
-
-      const settings = settingsSnap.docs[0].data();
-
-      if (!settings.paymentReminders?.enabled || !settings.twilioConfigured) {
-        console.log('Payment reminders disabled or Twilio not configured');
+      
+      const adminPhones = settings.adminPhones || [];
+      if (adminPhones.length === 0) {
+        console.log('No admin phones, skipping');
         return null;
       }
-
-      // Calculate target date (X days from now)
-      const targetDate = new Date();
-      targetDate.setDate(targetDate.getDate() + settings.paymentReminders.daysBefore);
-      const targetDateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
-
-      // Get invoices due on target date
-      const invoicesSnap = await admin.firestore()
-        .collection('invoices')
-        .where('dueDate', '==', targetDateStr)
-        .where('status', '!=', 'paid')
-        .get();
-
-      if (invoicesSnap.empty) {
-        console.log('No invoices due on target date:', targetDateStr);
-        return null;
-      }
-
-      // Initialize Twilio
-      const client = twilio(settings.twilioAccountSid, settings.twilioAuthToken);
-
-      // Send reminders
-      let sentCount = 0;
-      for (const invoiceDoc of invoicesSnap.docs) {
-        const invoice = invoiceDoc.data();
-
-        if (!invoice.customerPhone) {
-          console.log(`No phone number for customer: ${invoice.customerName}`);
-          continue;
-        }
-
-        const message = `💰 PAYMENT REMINDER\n\n` +
-          `Hi ${invoice.customerName},\n\n` +
-          `Your payment of $${invoice.total} for ${invoice.description || 'services'} ` +
-          `is due on ${new Date(targetDateStr).toLocaleDateString()}.\n\n` +
-          `Pay via Zelle: 928-450-5733\n\n` +
-          `Thank you!\n` +
-          `Kings Canyon Landscaping`;
-
+      
+      const messages = [];
+      
+      // ---- PAYMENT REMINDERS ----
+      if (settings.paymentReminders?.enabled) {
+        const daysBefore = settings.paymentReminders.daysBefore || 3;
+        const targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() + daysBefore);
+        const targetDateStr = targetDate.toISOString().split('T')[0];
+        
+        // Find unpaid invoices due on target date
         try {
-          await client.messages.create({
-            body: message,
-            from: settings.twilioPhoneNumber,
-            to: invoice.customerPhone
-          });
-
-          // Log to Firestore
-          await admin.firestore().collection('notifications_log').add({
-            to: invoice.customerPhone,
-            message: message,
-            type: 'payment_reminder',
-            status: 'sent',
-            sentAt: new Date().toISOString(),
-            metadata: {
-              invoiceId: invoiceDoc.id,
-              customerId: invoice.customerId,
-              amount: invoice.total
+          const invoicesSnap = await admin.firestore()
+            .collection('invoices')
+            .where('dueDate', '==', targetDateStr)
+            .get();
+          
+          for (const invoiceDoc of invoicesSnap.docs) {
+            const inv = invoiceDoc.data();
+            const status = (inv.status || '').toLowerCase();
+            if (status !== 'paid') {
+              messages.push({
+                text: `INVOICE DUE\n${inv.clientName || inv.customerName} - $${inv.total}\nDue: ${targetDateStr}`,
+                type: 'payment_reminder',
+                metadata: { invoiceId: invoiceDoc.id }
+              });
             }
-          });
-
-          sentCount++;
-          console.log(`Sent payment reminder to ${invoice.customerName}`);
-
-        } catch (error) {
-          console.error(`Failed to send to ${invoice.customerName}:`, error);
+          }
+        } catch (err) {
+          console.error('Error checking payment reminders:', err);
+        }
+        
+        // Find overdue invoices
+        try {
+          const todayStr = new Date().toISOString().split('T')[0];
+          const overdueSnap = await admin.firestore()
+            .collection('invoices')
+            .where('dueDate', '<', todayStr)
+            .get();
+          
+          for (const invoiceDoc of overdueSnap.docs) {
+            const inv = invoiceDoc.data();
+            const status = (inv.status || '').toLowerCase();
+            if (status !== 'paid') {
+              const daysOverdue = Math.floor((new Date() - new Date(inv.dueDate)) / 86400000);
+              messages.push({
+                text: `OVERDUE\n${inv.clientName || inv.customerName} - $${inv.total}\n${daysOverdue} days past due`,
+                type: 'overdue_invoice',
+                metadata: { invoiceId: invoiceDoc.id }
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Error checking overdue invoices:', err);
         }
       }
-
-      console.log(`Payment reminders sent: ${sentCount}`);
+      
+      // ---- JOB REMINDERS ----
+      if (settings.jobReminders?.enabled) {
+        const daysBefore = settings.jobReminders.daysBefore || 1;
+        const targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() + daysBefore);
+        const targetDateStr = targetDate.toISOString().split('T')[0];
+        
+        try {
+          const schedulesSnap = await admin.firestore()
+            .collection('schedules')
+            .where('startDate', '==', targetDateStr)
+            .where('status', '==', 'scheduled')
+            .get();
+          
+          for (const schedDoc of schedulesSnap.docs) {
+            const sched = schedDoc.data();
+            messages.push({
+              text: `JOB TOMORROW\n${sched.clientName || 'Unknown'}\n${sched.startTime || '8:00 AM'}${sched.notes ? '\n' + sched.notes.substring(0, 40) : ''}`,
+              type: 'job_reminder',
+              metadata: { scheduleId: schedDoc.id }
+            });
+          }
+        } catch (err) {
+          console.error('Error checking job reminders:', err);
+        }
+      }
+      
+      // ---- SEND ALL MESSAGES ----
+      if (messages.length > 0) {
+        console.log(`Sending ${messages.length} daily notifications...`);
+        
+        for (const msg of messages) {
+          await sendToAllAdmins(settings, msg.text, msg.type, msg.metadata);
+        }
+        
+        console.log('Daily notifications complete');
+      } else {
+        console.log('No notifications to send today');
+      }
+      
       return null;
-
+      
     } catch (error) {
-      console.error('Error in sendPaymentReminders:', error);
+      console.error('Error in dailyNotifications:', error);
       return null;
     }
   });
 
 /**
- * Daily cron job to send job reminders
- * Runs every day at 8 AM PST
+ * Evening job reminder at 6 PM Arizona time
+ * Reminds about tomorrow's jobs
  */
-exports.sendJobReminders = functions.pubsub
-  .schedule('0 8 * * *')
-  .timeZone('America/Los_Angeles')
+exports.eveningJobReminder = functions.pubsub
+  .schedule('0 18 * * *')
+  .timeZone('America/Phoenix')
   .onRun(async (context) => {
-    console.log('Running job reminders check...');
-
+    console.log('Running evening job reminder...');
+    
     try {
-      // Get notification settings
-      const settingsSnap = await admin.firestore()
-        .collection('notification_settings')
-        .limit(1)
-        .get();
-
-      if (settingsSnap.empty) {
-        console.log('No notification settings found');
+      const settings = await getSettings();
+      
+      if (!settings || !settings.gmailConfigured || !settings.jobReminders?.enabled) {
+        console.log('Job reminders not enabled or Gmail not configured');
         return null;
       }
-
-      const settings = settingsSnap.docs[0].data();
-
-      if (!settings.jobReminders?.enabled || !settings.twilioConfigured) {
-        console.log('Job reminders disabled or Twilio not configured');
-        return null;
-      }
-
-      // Calculate target date (X days from now)
-      const targetDate = new Date();
-      targetDate.setDate(targetDate.getDate() + settings.jobReminders.daysBefore);
-      const targetDateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
-
-      // Get scheduled jobs on target date
+      
+      // Get tomorrow's date
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+      
       const schedulesSnap = await admin.firestore()
         .collection('schedules')
-        .where('startDate', '==', targetDateStr)
-        .where('status', '!=', 'cancelled')
-        .where('status', '!=', 'completed')
+        .where('startDate', '==', tomorrowStr)
+        .where('status', '==', 'scheduled')
         .get();
-
+      
       if (schedulesSnap.empty) {
-        console.log('No jobs scheduled for target date:', targetDateStr);
+        console.log('No jobs scheduled for tomorrow');
         return null;
       }
-
-      // Get customers to find phone numbers
-      const customersSnap = await admin.firestore().collection('customers').get();
-      const customersMap = {};
-      customersSnap.docs.forEach(doc => {
-        customersMap[doc.id] = { id: doc.id, ...doc.data() };
+      
+      // Build a summary message
+      const jobs = schedulesSnap.docs.map(d => d.data());
+      let message = `TOMORROW (${jobs.length} job${jobs.length > 1 ? 's' : ''}):\n`;
+      jobs.forEach(j => {
+        message += `- ${j.clientName || 'Unknown'} ${j.startTime || ''}\n`;
       });
-
-      // Initialize Twilio
-      const client = twilio(settings.twilioAccountSid, settings.twilioAuthToken);
-
-      // Send reminders
-      let sentCount = 0;
-      for (const scheduleDoc of schedulesSnap.docs) {
-        const schedule = scheduleDoc.data();
-        const customer = customersMap[schedule.customerId];
-
-        if (!customer || !customer.phone) {
-          console.log(`No phone number for customer: ${schedule.clientName}`);
-          continue;
-        }
-
-        const jobDate = new Date(targetDateStr);
-        const message = `📅 JOB REMINDER\n\n` +
-          `Hi ${schedule.clientName},\n\n` +
-          `This is a reminder about your scheduled service:\n\n` +
-          `Date: ${jobDate.toLocaleDateString()}\n` +
-          `Time: ${schedule.startTime || '8:00 AM'}\n\n` +
-          `We look forward to serving you!\n\n` +
-          `Kings Canyon Landscaping\n` +
-          `928-450-5733`;
-
-        try {
-          await client.messages.create({
-            body: message,
-            from: settings.twilioPhoneNumber,
-            to: customer.phone
-          });
-
-          // Log to Firestore
-          await admin.firestore().collection('notifications_log').add({
-            to: customer.phone,
-            message: message,
-            type: 'job_reminder',
-            status: 'sent',
-            sentAt: new Date().toISOString(),
-            metadata: {
-              scheduleId: scheduleDoc.id,
-              customerId: schedule.customerId,
-              jobDate: targetDateStr
-            }
-          });
-
-          sentCount++;
-          console.log(`Sent job reminder to ${schedule.clientName}`);
-
-        } catch (error) {
-          console.error(`Failed to send to ${schedule.clientName}:`, error);
-        }
-      }
-
-      console.log(`Job reminders sent: ${sentCount}`);
+      
+      await sendToAllAdmins(settings, message.trim(), 'evening_reminder', {
+        date: tomorrowStr,
+        jobCount: jobs.length
+      });
+      
       return null;
-
+      
     } catch (error) {
-      console.error('Error in sendJobReminders:', error);
+      console.error('Error in eveningJobReminder:', error);
       return null;
     }
   });

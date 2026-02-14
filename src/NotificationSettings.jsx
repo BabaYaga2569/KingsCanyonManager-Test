@@ -15,6 +15,7 @@ import {
   List,
   ListItem,
   ListItemText,
+  ListItemSecondaryAction,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -25,6 +26,7 @@ import {
   MenuItem,
   Card,
   CardContent,
+  Grid,
 } from '@mui/material';
 import { collection, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { db } from './firebase';
@@ -35,42 +37,56 @@ import SendIcon from '@mui/icons-material/Send';
 import PhoneIcon from '@mui/icons-material/Phone';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import HistoryIcon from '@mui/icons-material/History';
+import EmailIcon from '@mui/icons-material/Email';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { sendTestNotification, getNotificationHistory } from './smsNotificationService';
+
+const CARRIERS = [
+  { value: 'tmobile', label: 'T-Mobile' },
+  { value: 'att', label: 'AT&T' },
+  { value: 'verizon', label: 'Verizon' },
+  { value: 'cricket', label: 'Cricket' },
+  { value: 'mint', label: 'Mint Mobile' },
+  { value: 'metro', label: 'Metro by T-Mobile' },
+  { value: 'boost', label: 'Boost Mobile' },
+  { value: 'uscellular', label: 'US Cellular' },
+  { value: 'visible', label: 'Visible' },
+];
 
 export default function NotificationSettings() {
   const [settings, setSettings] = useState({
     paymentReminders: {
       enabled: false,
       daysBefore: 3,
-      phoneNumbers: []
     },
     jobReminders: {
       enabled: false,
       daysBefore: 1,
-      phoneNumbers: []
     },
     clockAlerts: {
       enabled: false,
       trackAllEmployees: true,
       trackedEmployeeIds: [],
-      phoneNumbers: [],
       quietHoursStart: '22:00',
       quietHoursEnd: '06:00'
     },
-    twilioAccountSid: '',
-    twilioAuthToken: '',
-    twilioPhoneNumber: '',
-    twilioConfigured: false
+    adminPhones: [],
+    gmailEmail: 'ramslife2569@gmail.com',
+    gmailAppPassword: '',
+    gmailConfigured: false,
   });
 
   const [settingsId, setSettingsId] = useState(null);
   const [employees, setEmployees] = useState([]);
-  const [addPhoneDialog, setAddPhoneDialog] = useState({ open: false, type: null });
-  const [newPhoneNumber, setNewPhoneNumber] = useState('');
+  const [addAdminDialog, setAddAdminDialog] = useState(false);
+  const [newAdmin, setNewAdmin] = useState({ name: '', phone: '', carrier: 'tmobile' });
   const [historyDialog, setHistoryDialog] = useState(false);
   const [notificationHistory, setNotificationHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -81,9 +97,18 @@ export default function NotificationSettings() {
     try {
       const snap = await getDocs(collection(db, 'notification_settings'));
       if (!snap.empty) {
-        const doc = snap.docs[0];
-        setSettingsId(doc.id);
-        setSettings({ ...settings, ...doc.data() });
+        const docData = snap.docs[0];
+        setSettingsId(docData.id);
+        const data = docData.data();
+        setSettings(prev => ({
+          ...prev,
+          ...data,
+          // Ensure nested objects exist
+          clockAlerts: { ...prev.clockAlerts, ...(data.clockAlerts || {}) },
+          paymentReminders: { ...prev.paymentReminders, ...(data.paymentReminders || {}) },
+          jobReminders: { ...prev.jobReminders, ...(data.jobReminders || {}) },
+          adminPhones: data.adminPhones || [],
+        }));
       }
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -103,147 +128,111 @@ export default function NotificationSettings() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Build save data
+      const saveData = {
+        ...settings,
+        gmailConfigured: !!(settings.gmailEmail && settings.gmailAppPassword),
+        updatedAt: new Date().toISOString(),
+      };
+
       if (settingsId) {
-        await updateDoc(doc(db, 'notification_settings', settingsId), settings);
+        await updateDoc(doc(db, 'notification_settings', settingsId), saveData);
       } else {
-        const docRef = await addDoc(collection(db, 'notification_settings'), settings);
+        const docRef = await addDoc(collection(db, 'notification_settings'), saveData);
         setSettingsId(docRef.id);
       }
+
+      // Update local state with gmailConfigured
+      setSettings(prev => ({
+        ...prev,
+        gmailConfigured: !!(prev.gmailEmail && prev.gmailAppPassword),
+      }));
       
       Swal.fire({
         title: 'Saved!',
-        text: 'Notification settings updated successfully',
+        text: 'Notification settings updated',
         icon: 'success',
-        timer: 2000
+        timer: 2000,
+        showConfirmButton: false,
       });
     } catch (error) {
       console.error('Error saving settings:', error);
-      Swal.fire('Error', 'Failed to save settings: ' + error.message, 'error');
+      Swal.fire('Error', 'Failed to save: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleAddPhoneNumber = (type) => {
-    if (!newPhoneNumber || newPhoneNumber.trim() === '') {
-      Swal.fire('Error', 'Please enter a phone number', 'error');
+  const handleAddAdmin = () => {
+    if (!newAdmin.name || !newAdmin.phone) {
+      Swal.fire('Error', 'Name and phone number are required', 'error');
       return;
     }
 
-    // Format phone number
-    let formatted = newPhoneNumber.trim();
-    if (!formatted.startsWith('+')) {
-      formatted = '+1' + formatted.replace(/\D/g, '');
+    // Clean phone number - digits only
+    const cleanPhone = newAdmin.phone.replace(/\D/g, '');
+    if (cleanPhone.length < 10) {
+      Swal.fire('Error', 'Please enter a valid 10-digit phone number', 'error');
+      return;
     }
 
-    // Add to appropriate array
-    const newSettings = { ...settings };
-    if (type === 'payment') {
-      newSettings.paymentReminders.phoneNumbers.push(formatted);
-    } else if (type === 'job') {
-      newSettings.jobReminders.phoneNumbers.push(formatted);
-    } else if (type === 'clock') {
-      newSettings.clockAlerts.phoneNumbers.push(formatted);
-    }
+    const adminEntry = {
+      name: newAdmin.name.trim(),
+      phone: cleanPhone.slice(-10), // Last 10 digits
+      carrier: newAdmin.carrier || 'tmobile',
+    };
 
-    setSettings(newSettings);
-    setNewPhoneNumber('');
-    setAddPhoneDialog({ open: false, type: null });
+    setSettings(prev => ({
+      ...prev,
+      adminPhones: [...(prev.adminPhones || []), adminEntry],
+    }));
+
+    setNewAdmin({ name: '', phone: '', carrier: 'tmobile' });
+    setAddAdminDialog(false);
   };
 
-  const handleRemovePhoneNumber = (type, index) => {
-    const newSettings = { ...settings };
-    if (type === 'payment') {
-      newSettings.paymentReminders.phoneNumbers.splice(index, 1);
-    } else if (type === 'job') {
-      newSettings.jobReminders.phoneNumbers.splice(index, 1);
-    } else if (type === 'clock') {
-      newSettings.clockAlerts.phoneNumbers.splice(index, 1);
-    }
-    setSettings(newSettings);
+  const handleRemoveAdmin = (index) => {
+    setSettings(prev => ({
+      ...prev,
+      adminPhones: prev.adminPhones.filter((_, i) => i !== index),
+    }));
   };
 
   const handleTestNotification = async () => {
-    // Gather all unique phone numbers from settings
-    const allNumbers = [
-      ...(settings.clockAlerts?.phoneNumbers || []),
-      ...(settings.paymentReminders?.phoneNumbers || []),
-      ...(settings.jobReminders?.phoneNumbers || []),
-    ];
-    const uniqueNumbers = [...new Set(allNumbers)];
-
-    // Build dropdown options
-    const inputOptions = {};
-    uniqueNumbers.forEach(num => { inputOptions[num] = num; });
-    inputOptions["custom"] = "-- Enter a different number --";
-
-    let result;
-    if (uniqueNumbers.length > 0) {
-      result = await Swal.fire({
-        title: "Send Test SMS",
-        input: "select",
-        inputOptions,
-        inputLabel: "Select phone number to test",
-        showCancelButton: true,
-        confirmButtonText: "Send Test",
-        inputValidator: (value) => {
-          if (!value) return "Please select a phone number";
-        }
-      });
-
-      // If they picked custom, prompt for manual entry
-      if (result.isConfirmed && result.value === "custom") {
-        result = await Swal.fire({
-          title: "Send Test SMS",
-          input: "text",
-          inputLabel: "Enter phone number",
-          inputPlaceholder: "+19285551234",
-          showCancelButton: true,
-          confirmButtonText: "Send Test",
-          inputValidator: (value) => {
-            if (!value) return "Please enter a phone number";
-          }
-        });
-      }
-    } else {
-      result = await Swal.fire({
-        title: "Send Test SMS",
-        input: "text",
-        inputLabel: "Enter phone number to test",
-        inputPlaceholder: "+19285551234",
-        showCancelButton: true,
-        confirmButtonText: "Send Test",
-        inputValidator: (value) => {
-          if (!value) return "Please enter a phone number";
-        }
-      });
+    if (!settings.gmailConfigured && !(settings.gmailEmail && settings.gmailAppPassword)) {
+      Swal.fire('Error', 'Please configure Gmail settings and save first', 'error');
+      return;
     }
 
-    if (result.isConfirmed) {
-      Swal.fire({
-        title: 'Sending...',
-        text: 'Please wait',
-        allowOutsideClick: false,
-        didOpen: () => {
-          Swal.showLoading();
-        }
-      });
+    if (!settings.adminPhones?.length) {
+      Swal.fire('Error', 'Please add at least one admin phone number', 'error');
+      return;
+    }
 
-      const testResult = await sendTestNotification(result.value);
-      
-      if (testResult.success) {
-        Swal.fire({
-          title: 'Test SMS Sent!',
-          text: 'Check your phone for the test message',
-          icon: 'success'
-        });
-      } else {
-        Swal.fire({
-          title: 'Failed to Send',
-          text: testResult.error || 'Unknown error',
-          icon: 'error'
-        });
-      }
+    // Save first to make sure settings are current
+    await handleSave();
+
+    Swal.fire({
+      title: 'Sending Test...',
+      text: 'Please wait',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading(),
+    });
+
+    const result = await sendTestNotification();
+    
+    if (result.success) {
+      Swal.fire({
+        title: 'Test Sent!',
+        text: 'Check your phone — you should receive a text within 10 seconds',
+        icon: 'success',
+      });
+    } else {
+      Swal.fire({
+        title: 'Failed to Send',
+        html: `<p>${result.error || 'Unknown error'}</p><p style="font-size:0.85em;color:#666;">Make sure your Gmail App Password is correct and you've saved settings.</p>`,
+        icon: 'error',
+      });
     }
   };
 
@@ -255,6 +244,20 @@ export default function NotificationSettings() {
     setLoading(false);
   };
 
+  const formatPhoneDisplay = (phone) => {
+    if (!phone) return '';
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 10) {
+      return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+    }
+    return phone;
+  };
+
+  const getCarrierLabel = (value) => {
+    const carrier = CARRIERS.find(c => c.value === value);
+    return carrier ? carrier.label : value;
+  };
+
   return (
     <Container sx={{ mt: 3, mb: 6 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
@@ -262,66 +265,127 @@ export default function NotificationSettings() {
         <Box>
           <Typography variant="h5">SMS Notification Settings</Typography>
           <Typography variant="body2" color="text.secondary">
-            Configure automated text message notifications
+            Get text alerts when employees clock in/out, invoices are due, and jobs are scheduled
           </Typography>
         </Box>
       </Box>
 
-      {/* Twilio Configuration */}
+      {/* ===== GMAIL SETUP ===== */}
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Twilio Configuration
-        </Typography>
-        <Alert severity={settings.twilioConfigured ? 'success' : 'warning'} sx={{ mb: 2 }}>
-          {settings.twilioConfigured
-            ? '✅ Twilio is configured and ready to send SMS'
-            : '⚠️ Configure Twilio credentials to enable SMS notifications'}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <EmailIcon color="primary" />
+          <Typography variant="h6">Email-to-SMS Setup</Typography>
+        </Box>
+
+        <Alert severity={settings.gmailConfigured ? 'success' : 'info'} sx={{ mb: 2 }}>
+          {settings.gmailConfigured
+            ? '✅ Gmail is configured and ready to send notifications'
+            : 'Set up Gmail to send text notifications to your phone for FREE — no Twilio needed!'}
         </Alert>
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField
-            label="Twilio Account SID"
-            value={settings.twilioAccountSid}
-            onChange={(e) => setSettings({ ...settings, twilioAccountSid: e.target.value })}
+            label="Gmail Address"
+            value={settings.gmailEmail}
+            onChange={(e) => setSettings({ ...settings, gmailEmail: e.target.value })}
             fullWidth
-            type="password"
-            helperText="Found in your Twilio console dashboard"
+            helperText="The Gmail account that will send notifications"
           />
           <TextField
-            label="Twilio Auth Token"
-            value={settings.twilioAuthToken}
-            onChange={(e) => setSettings({ ...settings, twilioAuthToken: e.target.value })}
+            label="Gmail App Password"
+            value={settings.gmailAppPassword}
+            onChange={(e) => setSettings({ ...settings, gmailAppPassword: e.target.value })}
             fullWidth
-            type="password"
-            helperText="Found in your Twilio console dashboard"
-          />
-          <TextField
-            label="Twilio Phone Number"
-            value={settings.twilioPhoneNumber}
-            onChange={(e) => setSettings({ ...settings, twilioPhoneNumber: e.target.value })}
-            fullWidth
-            placeholder="+19285551234"
-            helperText="Your Twilio phone number (must include +1)"
-          />
-          <FormControlLabel
-            control={
-              <Switch
-                checked={settings.twilioConfigured}
-                onChange={(e) => setSettings({ ...settings, twilioConfigured: e.target.checked })}
-              />
-            }
-            label="Twilio Configured (enable after adding credentials)"
+            type={showPassword ? 'text' : 'password'}
+            placeholder="xxxx xxxx xxxx xxxx"
+            helperText="16-character App Password (NOT your regular Gmail password)"
+            InputProps={{
+              endAdornment: (
+                <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                  {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                </IconButton>
+              ),
+            }}
           />
         </Box>
+
+        <Alert severity="warning" sx={{ mt: 2 }}>
+          <Typography variant="subtitle2" gutterBottom fontWeight="bold">
+            How to get a Gmail App Password:
+          </Typography>
+          <Typography variant="body2" component="div">
+            1. Go to <strong>myaccount.google.com</strong> → Security → 2-Step Verification (enable it if off)<br/>
+            2. At the bottom, click <strong>"App passwords"</strong><br/>
+            3. Select app: <strong>Mail</strong>, Select device: <strong>Other</strong> → type "KCL Manager"<br/>
+            4. Click <strong>Generate</strong> → copy the 16-character password and paste it above<br/>
+            5. Click <strong>Save Settings</strong> below
+          </Typography>
+        </Alert>
       </Paper>
 
-      {/* Clock In/Out Alerts */}
+      {/* ===== ADMIN PHONES ===== */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Box>
-            <Typography variant="h6">👔 Admin Clock Alerts</Typography>
+            <Typography variant="h6">📱 Admin Phones</Typography>
             <Typography variant="caption" color="text.secondary">
-              YOU get notified when crew clocks in/out
+              These people receive ALL enabled notifications as text messages
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={() => setAddAdminDialog(true)}
+          >
+            Add Admin
+          </Button>
+        </Box>
+
+        {settings.adminPhones?.length === 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            No admin phones added yet. Add at least one phone number to receive notifications.
+          </Alert>
+        )}
+
+        <List>
+          {(settings.adminPhones || []).map((admin, index) => (
+            <ListItem
+              key={index}
+              sx={{
+                bgcolor: '#f5f5f5',
+                borderRadius: 1,
+                mb: 1,
+              }}
+            >
+              <PhoneIcon sx={{ mr: 2, color: 'primary.main' }} />
+              <ListItemText
+                primary={
+                  <Typography fontWeight="bold">{admin.name}</Typography>
+                }
+                secondary={`${formatPhoneDisplay(admin.phone)} • ${getCarrierLabel(admin.carrier)}`}
+              />
+              <ListItemSecondaryAction>
+                <IconButton
+                  edge="end"
+                  color="error"
+                  onClick={() => handleRemoveAdmin(index)}
+                >
+                  <DeleteIcon />
+                </IconButton>
+              </ListItemSecondaryAction>
+            </ListItem>
+          ))}
+        </List>
+      </Paper>
+
+      {/* ===== CLOCK IN/OUT ALERTS ===== */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Box>
+            <Typography variant="h6">⏰ Clock In/Out Alerts</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Get texted when employees clock in and out
             </Typography>
           </Box>
           <FormControlLabel
@@ -335,19 +399,17 @@ export default function NotificationSettings() {
                 color="primary"
               />
             }
-            label={settings.clockAlerts.enabled ? 'Enabled' : 'Disabled'}
+            label={settings.clockAlerts.enabled ? 'ON' : 'OFF'}
           />
         </Box>
 
-        <Alert severity="success" sx={{ mb: 2 }}>
-          <Typography variant="body2">
-            <strong>📱 You Get Notified:</strong> When employees clock in/out, YOU receive instant text messages.
-            Perfect for tracking who is working in real-time!
-          </Typography>
-        </Alert>
-
         {settings.clockAlerts.enabled && (
           <>
+            <Alert severity="success" sx={{ mb: 2 }}>
+              When an employee clocks in or out, all admins above will receive a text like:<br/>
+              <strong>"CLOCK IN — Mike Johnson - 8:30 AM — Job: John Smith"</strong>
+            </Alert>
+
             <FormControlLabel
               control={
                 <Switch
@@ -385,29 +447,7 @@ export default function NotificationSettings() {
               </FormControl>
             )}
 
-            <Typography variant="subtitle2" gutterBottom>
-              Admin Phone Numbers (YOU get notified):
-            </Typography>
-            <Box sx={{ mb: 2 }}>
-              {settings.clockAlerts.phoneNumbers.map((phone, index) => (
-                <Chip
-                  key={index}
-                  label={phone}
-                  onDelete={() => handleRemovePhoneNumber('clock', index)}
-                  icon={<PhoneIcon />}
-                  sx={{ mr: 1, mb: 1 }}
-                />
-              ))}
-              <Button
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={() => setAddPhoneDialog({ open: true, type: 'clock' })}
-              >
-                Add Number
-              </Button>
-            </Box>
-
-            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+            <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField
                 label="Quiet Hours Start"
                 type="time"
@@ -417,7 +457,7 @@ export default function NotificationSettings() {
                   clockAlerts: { ...settings.clockAlerts, quietHoursStart: e.target.value }
                 })}
                 InputLabelProps={{ shrink: true }}
-                helperText="No notifications after this time"
+                helperText="No texts after this time"
               />
               <TextField
                 label="Quiet Hours End"
@@ -428,17 +468,22 @@ export default function NotificationSettings() {
                   clockAlerts: { ...settings.clockAlerts, quietHoursEnd: e.target.value }
                 })}
                 InputLabelProps={{ shrink: true }}
-                helperText="Resume notifications after this time"
+                helperText="Resume texts after this time"
               />
             </Box>
           </>
         )}
       </Paper>
 
-      {/* Payment Reminders */}
+      {/* ===== INVOICE / PAYMENT REMINDERS ===== */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6">Payment Reminders</Typography>
+          <Box>
+            <Typography variant="h6">💰 Invoice & Payment Alerts</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Get texted about upcoming and overdue invoices
+            </Typography>
+          </Box>
           <FormControlLabel
             control={
               <Switch
@@ -450,59 +495,42 @@ export default function NotificationSettings() {
                 color="primary"
               />
             }
-            label={settings.paymentReminders.enabled ? 'Enabled' : 'Disabled'}
+            label={settings.paymentReminders.enabled ? 'ON' : 'OFF'}
           />
         </Box>
 
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Automatically remind customers about upcoming payments
-        </Alert>
-
         {settings.paymentReminders.enabled && (
           <>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              You'll get a text when invoices are coming due and when they're overdue.
+              Runs automatically every morning at 8 AM.
+            </Alert>
+
             <TextField
               label="Days Before Due Date"
               type="number"
               value={settings.paymentReminders.daysBefore}
               onChange={(e) => setSettings({
                 ...settings,
-                paymentReminders: { ...settings.paymentReminders, daysBefore: parseInt(e.target.value) }
+                paymentReminders: { ...settings.paymentReminders, daysBefore: parseInt(e.target.value) || 3 }
               })}
               inputProps={{ min: 1, max: 14 }}
               fullWidth
-              sx={{ mb: 2 }}
-              helperText="Send reminder this many days before payment is due"
+              helperText="Remind this many days before payment is due"
             />
-
-            <Typography variant="subtitle2" gutterBottom>
-              Send To (Optional - for internal tracking):
-            </Typography>
-            <Box sx={{ mb: 2 }}>
-              {settings.paymentReminders.phoneNumbers.map((phone, index) => (
-                <Chip
-                  key={index}
-                  label={phone}
-                  onDelete={() => handleRemovePhoneNumber('payment', index)}
-                  icon={<PhoneIcon />}
-                  sx={{ mr: 1, mb: 1 }}
-                />
-              ))}
-              <Button
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={() => setAddPhoneDialog({ open: true, type: 'payment' })}
-              >
-                Add Number
-              </Button>
-            </Box>
           </>
         )}
       </Paper>
 
-      {/* Job Reminders */}
+      {/* ===== JOB REMINDERS ===== */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6">Job Reminders</Typography>
+          <Box>
+            <Typography variant="h6">📅 Upcoming Job Alerts</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Get texted about scheduled jobs coming up
+            </Typography>
+          </Box>
           <FormControlLabel
             control={
               <Switch
@@ -514,56 +542,33 @@ export default function NotificationSettings() {
                 color="primary"
               />
             }
-            label={settings.jobReminders.enabled ? 'Enabled' : 'Disabled'}
+            label={settings.jobReminders.enabled ? 'ON' : 'OFF'}
           />
         </Box>
 
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Automatically remind customers about upcoming scheduled jobs
-        </Alert>
-
         {settings.jobReminders.enabled && (
           <>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Morning alert at 8 AM and evening summary at 6 PM for tomorrow's jobs.
+            </Alert>
+
             <TextField
               label="Days Before Job"
               type="number"
               value={settings.jobReminders.daysBefore}
               onChange={(e) => setSettings({
                 ...settings,
-                jobReminders: { ...settings.jobReminders, daysBefore: parseInt(e.target.value) }
+                jobReminders: { ...settings.jobReminders, daysBefore: parseInt(e.target.value) || 1 }
               })}
               inputProps={{ min: 1, max: 7 }}
               fullWidth
-              sx={{ mb: 2 }}
-              helperText="Send reminder this many days before scheduled job"
+              helperText="Remind this many days before scheduled job"
             />
-
-            <Typography variant="subtitle2" gutterBottom>
-              Send To (Optional - for internal tracking):
-            </Typography>
-            <Box sx={{ mb: 2 }}>
-              {settings.jobReminders.phoneNumbers.map((phone, index) => (
-                <Chip
-                  key={index}
-                  label={phone}
-                  onDelete={() => handleRemovePhoneNumber('job', index)}
-                  icon={<PhoneIcon />}
-                  sx={{ mr: 1, mb: 1 }}
-                />
-              ))}
-              <Button
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={() => setAddPhoneDialog({ open: true, type: 'job' })}
-              >
-                Add Number
-              </Button>
-            </Box>
           </>
         )}
       </Paper>
 
-      {/* Action Buttons */}
+      {/* ===== ACTION BUTTONS ===== */}
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
         <Button
           variant="contained"
@@ -579,9 +584,8 @@ export default function NotificationSettings() {
           size="large"
           startIcon={<SendIcon />}
           onClick={handleTestNotification}
-          disabled={!settings.twilioConfigured}
         >
-          Send Test SMS
+          Send Test Text
         </Button>
         <Button
           variant="outlined"
@@ -593,38 +597,53 @@ export default function NotificationSettings() {
         </Button>
       </Box>
 
-      {/* Add Phone Number Dialog */}
+      {/* ===== ADD ADMIN DIALOG ===== */}
       <Dialog
-        open={addPhoneDialog.open}
-        onClose={() => setAddPhoneDialog({ open: false, type: null })}
+        open={addAdminDialog}
+        onClose={() => setAddAdminDialog(false)}
+        maxWidth="sm"
+        fullWidth
       >
-        <DialogTitle>Add Phone Number</DialogTitle>
+        <DialogTitle>Add Admin Phone</DialogTitle>
         <DialogContent>
-          <TextField
-            autoFocus
-            label="Phone Number"
-            value={newPhoneNumber}
-            onChange={(e) => setNewPhoneNumber(e.target.value)}
-            fullWidth
-            placeholder="+1 928-450-5733"
-            helperText="Include country code (e.g., +1 for US)"
-            sx={{ mt: 2 }}
-          />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              autoFocus
+              label="Name"
+              value={newAdmin.name}
+              onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })}
+              fullWidth
+              placeholder="Steve"
+            />
+            <TextField
+              label="Phone Number"
+              value={newAdmin.phone}
+              onChange={(e) => setNewAdmin({ ...newAdmin, phone: e.target.value })}
+              fullWidth
+              placeholder="928-450-5733"
+              helperText="10-digit US phone number"
+            />
+            <FormControl fullWidth>
+              <InputLabel>Carrier</InputLabel>
+              <Select
+                value={newAdmin.carrier}
+                label="Carrier"
+                onChange={(e) => setNewAdmin({ ...newAdmin, carrier: e.target.value })}
+              >
+                {CARRIERS.map((c) => (
+                  <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddPhoneDialog({ open: false, type: null })}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => handleAddPhoneNumber(addPhoneDialog.type)}
-          >
-            Add
-          </Button>
+          <Button onClick={() => setAddAdminDialog(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleAddAdmin}>Add</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Notification History Dialog */}
+      {/* ===== NOTIFICATION HISTORY DIALOG ===== */}
       <Dialog
         open={historyDialog}
         onClose={() => setHistoryDialog(false)}
@@ -648,7 +667,7 @@ export default function NotificationSettings() {
                           color={notif.status === 'sent' ? 'success' : 'error'}
                         />
                         <Typography variant="body2">
-                          {notif.to}
+                          {notif.toName || notif.to || 'Unknown'}
                         </Typography>
                       </Box>
                     }
@@ -659,6 +678,7 @@ export default function NotificationSettings() {
                         </Typography>
                         <Typography variant="caption" color="text.secondary" component="span" display="block">
                           {new Date(notif.sentAt).toLocaleString()}
+                          {notif.error && ` — Error: ${notif.error}`}
                         </Typography>
                       </>
                     }
