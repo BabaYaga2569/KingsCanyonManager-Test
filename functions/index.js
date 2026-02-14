@@ -599,3 +599,115 @@ exports.eveningJobReminder = functions.pubsub
       return null;
     }
   });
+
+
+// ========================= CUSTOMER EMAIL FUNCTIONS =========================
+
+/**
+ * Send email to customer with PDF attachment
+ * Called from frontend (BidEditor, ContractEditor, InvoiceEditor)
+ */
+exports.sendCustomerEmail = functions.https.onCall(async (data, context) => {
+  console.log('>>> sendCustomerEmail called');
+  
+  try {
+    const {
+      customerEmail,
+      customerName,
+      subject,
+      htmlBody,
+      pdfBase64,
+      pdfFilename,
+      docType,      // 'bid', 'contract', or 'invoice'
+      docId,
+      metadata,
+    } = data;
+    
+    if (!customerEmail || !subject) {
+      throw new functions.https.HttpsError('invalid-argument', 'Email and subject are required');
+    }
+    
+    // Get Gmail settings
+    const settings = await getSettings();
+    
+    if (!settings || !settings.gmailConfigured || !settings.gmailEmail || !settings.gmailAppPassword) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Gmail not configured. Go to SMS Settings to set up Gmail.'
+      );
+    }
+    
+    const transporter = createTransporter(settings.gmailEmail, settings.gmailAppPassword);
+    
+    // Build email
+    const mailOptions = {
+      from: `"Kings Canyon Landscaping" <${settings.gmailEmail}>`,
+      to: customerEmail,
+      subject: subject,
+      html: htmlBody,
+    };
+    
+    // Attach PDF if provided
+    if (pdfBase64 && pdfFilename) {
+      mailOptions.attachments = [{
+        filename: pdfFilename,
+        content: Buffer.from(pdfBase64, 'base64'),
+        contentType: 'application/pdf',
+      }];
+    }
+    
+    // Send email
+    await transporter.sendMail(mailOptions);
+    console.log(`Email sent to ${customerName} (${customerEmail})`);
+    
+    transporter.close();
+    
+    // Log to Firestore
+    await admin.firestore().collection('email_log').add({
+      to: customerEmail,
+      toName: customerName,
+      subject: subject,
+      docType: docType || 'general',
+      docId: docId || null,
+      status: 'sent',
+      sentAt: new Date().toISOString(),
+      sentBy: context.auth?.uid || 'unknown',
+      metadata: metadata || {},
+    });
+    
+    // Notify admins that email was sent
+    if (settings.adminPhones?.length > 0) {
+      const adminMsg = `EMAIL SENT\n${docType?.toUpperCase() || 'Doc'} → ${customerName}\n${customerEmail}`;
+      
+      // Fire and forget - don't block on admin notification
+      sendToAllAdmins(settings, adminMsg, 'email_sent', {
+        docType,
+        docId,
+        customerEmail,
+      }).catch(err => console.error('Admin notify error:', err));
+    }
+    
+    return { success: true, message: `Email sent to ${customerEmail}` };
+    
+  } catch (error) {
+    console.error('>>> sendCustomerEmail error:', error);
+    
+    // Log failure
+    try {
+      await admin.firestore().collection('email_log').add({
+        to: data.customerEmail,
+        toName: data.customerName,
+        subject: data.subject,
+        docType: data.docType || 'general',
+        docId: data.docId || null,
+        status: 'failed',
+        error: error.message,
+        sentAt: new Date().toISOString(),
+      });
+    } catch (logErr) {
+      console.error('Error logging email failure:', logErr);
+    }
+    
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
