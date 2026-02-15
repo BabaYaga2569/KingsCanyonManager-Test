@@ -899,8 +899,8 @@ export default function ContractsDashboard() {
                     Sign Now (Darren)
                   </Button>
                 )}
-                <Button variant="outlined" fullWidth startIcon={<SendIcon />} onClick={() => handleOpenSendDialog(contract)}>
-                  Send for Signature
+                <Button variant="outlined" fullWidth startIcon={<SendIcon />} onClick={() => handleViewEdit(contract.id)}>
+                  Email / Sign
                 </Button>
                 <Button variant="outlined" fullWidth startIcon={<PictureAsPdfIcon />} onClick={() => handleGeneratePDF(contract)}>
                   View PDF
@@ -934,8 +934,7 @@ export default function ContractsDashboard() {
             </Card>
           ))}
         </Box>
-
-        <SendDialog />
+        
         <ScheduleDialog />
       </Box>
     );
@@ -992,9 +991,9 @@ export default function ContractsDashboard() {
                       Sign Now
                     </Button>
                   )}
-                  <Button variant="outlined" size="small" startIcon={<SendIcon />} onClick={() => handleOpenSendDialog(contract)} sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}>
-                    Send
-                  </Button>
+                  <Button variant="outlined" size="small" startIcon={<EmailIcon />} onClick={() => handleViewEdit(contract.id)} sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}>
+                    Email
+</Button>
                   <Button variant="outlined" size="small" startIcon={<PictureAsPdfIcon />} onClick={() => handleGeneratePDF(contract)} sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}>
                     PDF
                   </Button>
@@ -1030,8 +1029,7 @@ export default function ContractsDashboard() {
           </TableBody>
         </Table>
       </TableContainer>
-
-      <SendDialog />
+      
       <ScheduleDialog />
     </Box>
   );
