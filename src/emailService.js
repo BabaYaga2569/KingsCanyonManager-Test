@@ -74,6 +74,25 @@ function buildEmailHTML(customerName, docType, bodyContent, amount) {
  * Send bid email to customer
  */
 export async function sendBidEmail(customerEmail, customerName, bidData, pdfBase64) {
+  // Build signing link if token exists
+  const signingToken = bidData.signingToken || '';
+  const signingLink = signingToken 
+    ? `${window.location.origin}/public/sign-bid/${bidData.id}?token=${signingToken}`
+    : '';
+  
+  const signingButton = signingLink ? `
+    <div style="text-align: center; margin: 24px 0;">
+      <a href="${signingLink}" 
+         style="display: inline-block; background-color: #2e7d32; color: white; padding: 14px 32px; 
+                text-decoration: none; border-radius: 8px; font-size: 16px; font-weight: bold;">
+        ✅ Review & Accept Estimate
+      </a>
+      <p style="margin: 8px 0 0 0; font-size: 12px; color: #999;">
+        Tap the button above to review and sign on your phone
+      </p>
+    </div>
+  ` : '';
+
   const bodyContent = `
     <p style="font-size: 15px; color: #333;">
       Thank you for your interest in our services! Please find attached your estimate for the following work:
@@ -82,8 +101,9 @@ export async function sendBidEmail(customerEmail, customerName, bidData, pdfBase
       <p style="margin: 0; font-size: 14px; color: #333;"><strong>Description:</strong> ${bidData.description || 'See attached PDF'}</p>
       ${bidData.materials ? `<p style="margin: 8px 0 0 0; font-size: 14px; color: #333;"><strong>Materials:</strong> ${bidData.materials}</p>` : ''}
     </div>
+    ${signingButton}
     <p style="font-size: 15px; color: #333;">
-      This estimate is valid for 30 days. Please review the attached PDF and let us know if you'd like to proceed.
+      This estimate is valid for 30 days. ${signingLink ? 'Tap the button above to accept, or reply to this email with any questions.' : 'Please review the attached PDF and let us know if you\'d like to proceed.'}
     </p>
   `;
   
@@ -99,6 +119,7 @@ export async function sendBidEmail(customerEmail, customerName, bidData, pdfBase
     pdfFilename: `KCL_Estimate_${customerName.replace(/\s+/g, '_')}.pdf`,
     docType: 'bid',
     docId: bidData.id,
+    metadata: { signingLink },
   });
   
   return result.data;
@@ -108,6 +129,25 @@ export async function sendBidEmail(customerEmail, customerName, bidData, pdfBase
  * Send contract email to customer
  */
 export async function sendContractEmail(customerEmail, customerName, contractData, pdfBase64) {
+  // Build signing link if token exists
+  const signingToken = contractData.signingToken || '';
+  const signingLink = signingToken
+    ? `${window.location.origin}/public/sign/${contractData.id}?token=${signingToken}`
+    : '';
+  
+  const signingButton = signingLink ? `
+    <div style="text-align: center; margin: 24px 0;">
+      <a href="${signingLink}" 
+         style="display: inline-block; background-color: #1565c0; color: white; padding: 14px 32px; 
+                text-decoration: none; border-radius: 8px; font-size: 16px; font-weight: bold;">
+        ✍️ Review & Sign Contract
+      </a>
+      <p style="margin: 8px 0 0 0; font-size: 12px; color: #999;">
+        Tap the button above to review and sign on your phone
+      </p>
+    </div>
+  ` : '';
+
   const bodyContent = `
     <p style="font-size: 15px; color: #333;">
       Please find attached your service contract for the following work:
@@ -115,8 +155,9 @@ export async function sendContractEmail(customerEmail, customerName, contractDat
     <div style="background-color: #e8f5e9; border-left: 4px solid #4caf50; padding: 12px 16px; margin: 16px 0; border-radius: 0 4px 4px 0;">
       <p style="margin: 0; font-size: 14px; color: #333;"><strong>Scope of Work:</strong> ${contractData.description || 'See attached PDF'}</p>
     </div>
+    ${signingButton}
     <p style="font-size: 15px; color: #333;">
-      Please review the attached contract PDF. If everything looks good, we'll get started as soon as it's signed.
+      ${signingLink ? 'Please tap the button above to review and sign the contract. The attached PDF is for your records.' : 'Please review the attached contract PDF. If everything looks good, we\'ll get started as soon as it\'s signed.'}
     </p>
   `;
   
@@ -132,7 +173,7 @@ export async function sendContractEmail(customerEmail, customerName, contractDat
     pdfFilename: `KCL_Contract_${customerName.replace(/\s+/g, '_')}.pdf`,
     docType: 'contract',
     docId: contractData.id,
-    metadata: { amount: contractData.amount },
+    metadata: { amount: contractData.amount, signingLink },
   });
   
   return result.data;

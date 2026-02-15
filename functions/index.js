@@ -711,3 +711,60 @@ exports.sendCustomerEmail = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
+
+
+/**
+ * Notify admins when a customer signs a bid or contract
+ * Called from BidSigningPage and ContractSigningPage (public pages, no auth)
+ */
+exports.notifySignature = functions.https.onCall(async (data, context) => {
+  console.log('>>> notifySignature called');
+  
+  try {
+    const {
+      docType,
+      docId,
+      customerName,
+      amount,
+    } = data;
+    
+    if (!docType || !docId || !customerName) {
+      throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
+    }
+    
+    const settings = await getSettings();
+    
+    if (!settings || !settings.adminPhones?.length) {
+      console.log('No admin phones configured, skipping notification');
+      return { success: true, message: 'No admins to notify' };
+    }
+    
+    const typeLabel = docType === 'bid' ? 'BID ACCEPTED' : 'CONTRACT SIGNED';
+    const amountStr = amount ? `\n$${parseFloat(amount).toFixed(2)}` : '';
+    
+    const message = `${typeLabel}\n${customerName}${amountStr}\nCheck the app for details`;
+    
+    await sendToAllAdmins(settings, message, 'signature_received', {
+      docType,
+      docId,
+      customerName,
+    });
+    
+    // Log to Firestore
+    await admin.firestore().collection('notifications_log').add({
+      type: 'signature_received',
+      docType,
+      docId,
+      customerName,
+      message,
+      sentAt: new Date().toISOString(),
+    });
+    
+    console.log(`Signature notification sent for ${docType} from ${customerName}`);
+    return { success: true };
+    
+  } catch (error) {
+    console.error('>>> notifySignature error:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
