@@ -126,12 +126,16 @@ export const AuthProvider = ({ children }) => {
     );
   }
 
-  // Show login screen if not authenticated
-  if (!user) {
+  // ✅ Phase 3 Fix: Allow public pages WITHOUT login
+  // Public pages include signing pages, payment portal, NDA signing
+  const isPublicPage = window.location.pathname.startsWith('/public/');
+
+  // Show login screen if not authenticated AND not on a public page
+  if (!user && !isPublicPage) {
     return <Login onLoginSuccess={(user) => setUser(user)} />;
   }
 
-  // User is authenticated, show app
+  // User is authenticated OR on a public page - show app
   return (
     <AuthContext.Provider value={value}>
       {children}
