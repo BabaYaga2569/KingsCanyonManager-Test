@@ -242,7 +242,7 @@ function ContractSigningPageContent() {
         >
           <Typography variant="h6">Contract Already Signed</Typography>
           <Typography>
-            This contract was signed on {new Date(contract.clientSignedAt).toLocaleString()}.
+            This contract was signed on {contract.clientSignedAt ? new Date(contract.clientSignedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'a previous date'}.
             You're all set — no further action needed.
           </Typography>
         </Alert>

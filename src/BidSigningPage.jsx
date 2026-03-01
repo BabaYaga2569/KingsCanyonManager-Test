@@ -234,7 +234,7 @@ function BidSigningPageContent() {
             Bid Already Accepted!
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-            You accepted this bid on {new Date(bid.clientSignedAt).toLocaleString()}
+            You accepted this bid on {bid.clientSignedAt ? new Date(bid.clientSignedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'a previous date'}
           </Typography>
           <Divider sx={{ my: 3 }} />
           <Typography variant="h6" gutterBottom>
