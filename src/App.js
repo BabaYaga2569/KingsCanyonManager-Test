@@ -347,7 +347,25 @@ function BidsList() {
           Bids List ({sortedBids.length})
         </Typography>
         
-        
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={() => exportBidsToExcel(sortedBids)}
+          >
+            Export Excel
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DescriptionIcon />}
+            onClick={() => exportAllBidsToWord(sortedBids)}
+          >
+            Export All (Word Zip)
+          </Button>
+        </Box>
+
         <FormControl size="small" sx={{ minWidth: 200 }}>
           <InputLabel id="sort-label">
             <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'middle' }} />
