@@ -122,7 +122,7 @@ const scanReceipt = async (file) => {
           };
           
           console.log("=".repeat(80));
-          console.log("ðŸŽ‰ SCAN COMPLETE - SUCCESS!");
+          console.log("🎉 SCAN COMPLETE - SUCCESS!");
           console.log("=".repeat(80));
           console.log("Final result:", JSON.stringify(finalResult, null, 2));
           
@@ -411,7 +411,7 @@ export default function ExpensesManager() {
         const storageRef = ref(storage, `receipts/expenses/${fileName}`);
         await uploadBytes(storageRef, expenseForm.receiptFile);
         receiptUrl = await getDownloadURL(storageRef);
-        console.log("âœ… Receipt uploaded");
+        console.log("✅ Receipt uploaded");
       }
 
       const expenseData = {
@@ -423,6 +423,7 @@ export default function ExpensesManager() {
         description: expenseForm.description,
         jobId: expenseForm.jobId || null,
         jobName: expenseForm.jobName || "General Business Expense",
+        customerId: null,
         taxDeductible: expenseForm.taxDeductible,
         paymentMethod: expenseForm.paymentMethod,
         notes: expenseForm.notes,
@@ -431,6 +432,14 @@ export default function ExpensesManager() {
         lineItems: expenseForm.lineItems || [],
         createdAt: new Date().toISOString(),
       };
+
+      // If linked to a job, get the customerId from the job
+      if (expenseForm.jobId) {
+        const linkedJob = jobs.find(j => j.id === expenseForm.jobId);
+        if (linkedJob) {
+          expenseData.customerId = linkedJob.customerId || null;
+        }
+      }
 
       console.log("ðŸ’¾ Saving to Firestore...");
       const docRef = await addDoc(collection(db, "expenses"), expenseData);
@@ -558,6 +567,7 @@ export default function ExpensesManager() {
         description: expenseForm.description,
         jobId: newJobId,
         jobName: expenseForm.jobName || "General Business Expense",
+        customerId: null,
         taxDeductible: expenseForm.taxDeductible,
         paymentMethod: expenseForm.paymentMethod,
         notes: expenseForm.notes,
@@ -565,6 +575,14 @@ export default function ExpensesManager() {
         receiptFileName: expenseForm.receiptFileName,
         lineItems: expenseForm.lineItems || [],
       };
+
+      // If linked to a job, get the customerId from the job
+      if (newJobId) {
+        const linkedJob = jobs.find(j => j.id === newJobId);
+        if (linkedJob) {
+          expenseData.customerId = linkedJob.customerId || null;
+        }
+      }
 
       await updateDoc(doc(db, "expenses", editingExpense.id), expenseData);
 
@@ -792,7 +810,7 @@ export default function ExpensesManager() {
                       <strong>Time:</strong> ${new Date(debugInfo.timestamp).toLocaleString()}<br/>
                     </div>
                   `,
-                  icon: debugInfo.status.includes('âœ…') ? 'success' : 'error',
+                  icon: debugInfo.status.includes('✅') ? 'success' : 'error',
                 });
               }}
               size="small"
@@ -818,7 +836,7 @@ export default function ExpensesManager() {
             disabled={scanning}
             color="primary"
           >
-            {scanning ? "Scanning..." : isMobile ? "ðŸ“¸ Scan" : "ðŸ“¸ Scan Receipt"}
+            {scanning ? "Scanning..." : isMobile ? "📸 Scan" : "📸 Scan Receipt"}
             <input
               type="file"
               hidden
@@ -1181,7 +1199,7 @@ export default function ExpensesManager() {
           {editExpenseOpen ? "Edit Expense" : "Add Expense"}
           {scannedData && scannedData.scanSuccess && (
             <Chip
-              label="âœ“ AI Scanned"
+              label="✓ AI Scanned"
               color="success"
               size="small"
               sx={{ ml: 2 }}
@@ -1193,7 +1211,7 @@ export default function ExpensesManager() {
           {scannedData && scannedData.scanSuccess && (
             <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircleIcon />}>
               <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-                ðŸ“¸ Receipt Scanned Successfully!
+                📸 Receipt Scanned Successfully!
               </Typography>
               <Typography variant="body2">
                 <strong>Vendor:</strong> {scannedData.vendor}<br/>
@@ -1232,7 +1250,7 @@ export default function ExpensesManager() {
             <Paper sx={{ p: 2, mb: 3, backgroundColor: '#f5f5f5' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h6">
-                  ðŸ“‹ Itemized Receipt
+                  📋 Itemized Receipt
                 </Typography>
                 <Button 
                   size="small" 

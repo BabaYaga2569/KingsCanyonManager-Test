@@ -33,11 +33,13 @@ import {
   FormControl,
   InputLabel,
   Badge,
+  Chip,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
 import LogoutIcon from "@mui/icons-material/Logout";
 import SortIcon from "@mui/icons-material/Sort";
+import CancelIcon from "@mui/icons-material/Cancel";
 import DownloadIcon from "@mui/icons-material/Download";
 import DescriptionIcon from "@mui/icons-material/Description";
 import Swal from "sweetalert2";
@@ -57,10 +59,15 @@ import { AuthProvider, useAuth } from "./AuthProvider";
 // Import notification counts hook
 import { useNotificationCounts, markAsViewed } from "./useNotificationCounts";
 
+// Import cascade cancel utility
+import { cascadeCancelJob, buildCancelSummary, buildCancelConfirmationMessage } from "./utils/cascadeCancel";
+
 import ContractsDashboard from "./ContractsDashboard";
 import CreateBid from "./CreateBid";
 import ContractEditor from "./ContractEditor";
 import Dashboard from "./Dashboard";
+import EnhancedDashboard from './EnhancedDashboard';
+import CalendarView from './CalendarView';
 import InvoicesDashboard from "./InvoicesDashboard";
 import InvoiceEditor from "./InvoiceEditor";
 import JobsManager from "./JobsManager";
@@ -69,7 +76,6 @@ import CustomerProfile from "./CustomerProfile";
 import CustomerEditor from "./CustomerEditor";
 import ScheduleJob from "./ScheduleJob";
 import ScheduleDashboard from "./ScheduleDashboard";
-import CalendarView from "./CalendarView";
 // ========================================
 // 🔒 CRITICAL: MAINTENANCE COMPONENTS - DO NOT REMOVE
 // If these are missing, the Maintenance tab won't work!
@@ -89,9 +95,9 @@ import IntegratedPayroll from "./IntegratedPayroll"; // ✅ CHANGED: New integra
 import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
 import MigrationPage from './MigrationPage';
-import MigrationDashboard from './MigrationDashboard';  // ← ADD THIS LINE
+import MigrationDashboard from './MigrationDashboard';
 import JobExpenses from "./JobExpenses";
-import NotesManager from "./NotesManager"; // â† ADDED: Notes Manager
+import NotesManager from "./NotesManager"; // ← ADDED: Notes Manager
 import NotificationSettings from "./NotificationSettings"; // NEW: SMS Notification Settings
 import EmployeeAccountManager from './EmployeeAccountManager';
 import { createFullJobPackage } from "./utils/createFullJobPackage";
@@ -120,6 +126,7 @@ function BidsList() {
   const [sortedBids, setSortedBids] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
   const [logoDataUrl, setLogoDataUrl] = useState(null);
+  const [contracts, setContracts] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -149,6 +156,14 @@ function BidsList() {
         ...d.data(),
       }));
       setBids(bidsData);
+      
+      // Also fetch contracts to check if bids have been converted
+      const contractsSnapshot = await getDocs(collection(db, "contracts"));
+      const contractsData = contractsSnapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+      setContracts(contractsData);
     };
     fetchBids();
   }, []);
@@ -180,6 +195,32 @@ function BidsList() {
     setSortedBids(sorted);
   }, [bids, sortOrder]);
 
+  // Check if a bid has an associated contract
+  const hasContract = (bidId) => {
+    return contracts.some(contract => contract.bidId === bidId);
+  };
+
+  // Get bid status for display
+  const getBidStatus = (bid) => {
+    // Check if bid has been converted to contract
+    if (hasContract(bid.id)) {
+      return { label: "Accepted", color: "success" };
+    }
+    
+    // Check if both signatures exist
+    if (bid.clientSignature && bid.contractorSignature) {
+      return { label: "Signed", color: "info" };
+    }
+    
+    // Check if sent for signing
+    if (bid.signingToken) {
+      return { label: "Sent", color: "warning" };
+    }
+    
+    // Default status
+    return { label: "Pending", color: "default" };
+  };
+
   const handleDelete = async (bid) => {
     const confirm = await Swal.fire({
       title: `Delete bid for ${bid.customerName}?`,
@@ -194,6 +235,44 @@ function BidsList() {
       await deleteDoc(doc(db, "bids", bid.id));
       setBids(bids.filter((b) => b.id !== bid.id));
       Swal.fire("Deleted!", "Bid has been removed.", "success");
+    }
+  };
+
+  const handleCancelBid = async (bid) => {
+    const result = await Swal.fire({
+      title: "Cancel Bid?",
+      html: buildCancelConfirmationMessage(bid.customerName, "bid"),
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Cancel Bid",
+      confirmButtonColor: "#f44336",
+      cancelButtonText: "No, Keep It",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const cancelResult = await cascadeCancelJob("bids", bid.id);
+        
+        const summaryHtml = buildCancelSummary(cancelResult);
+        
+        await Swal.fire({
+          icon: cancelResult.success ? "success" : "warning",
+          title: cancelResult.success ? "Bid Cancelled" : "Partial Cancellation",
+          html: summaryHtml,
+          confirmButtonText: "OK",
+        });
+        
+        // Reload bids
+        const querySnapshot = await getDocs(collection(db, "bids"));
+        const bidsData = querySnapshot.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }));
+        setBids(bidsData);
+      } catch (error) {
+        console.error("Error cancelling bid:", error);
+        Swal.fire("Error", "Failed to cancel bid. Check console for details.", "error");
+      }
     }
   };
 
@@ -268,7 +347,25 @@ function BidsList() {
           Bids List ({sortedBids.length})
         </Typography>
         
-        
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={() => exportBidsToExcel(sortedBids)}
+          >
+            Export Excel
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DescriptionIcon />}
+            onClick={() => exportAllBidsToWord(sortedBids)}
+          >
+            Export All (Word Zip)
+          </Button>
+        </Box>
+
         <FormControl size="small" sx={{ minWidth: 200 }}>
           <InputLabel id="sort-label">
             <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'middle' }} />
@@ -288,24 +385,6 @@ function BidsList() {
             <MenuItem value="amount-low">Lowest Amount</MenuItem>
           </Select>
         </FormControl>
-
-        <Button
-          variant="outlined"
-          startIcon={<DownloadIcon />}
-          onClick={() => exportBidsToExcel(sortedBids)}
-          size="small"
-        >
-          Export Excel
-        </Button>
-
-        <Button
-          variant="outlined"
-          startIcon={<DescriptionIcon />}
-          onClick={() => exportAllBidsToWord(sortedBids)}
-          size="small"
-        >
-          Export All (Word Zip)
-        </Button>
       </Box>
       
       {/* MOBILE VIEW - Card Layout */}
@@ -322,6 +401,12 @@ function BidsList() {
             }}
           >
             <Typography variant="h6" sx={{ mb: 1 }}>{bid.customerName}</Typography>
+            <Chip 
+              label={getBidStatus(bid).label} 
+              color={getBidStatus(bid).color} 
+              size="small" 
+              sx={{ mb: 1 }}
+            />
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Amount: ${bid.amount}
             </Typography>
@@ -355,14 +440,26 @@ function BidsList() {
               >
                 View PDF
               </Button>
+              {!hasContract(bid.id) && (
+                <Button
+                  variant="outlined"
+                  color="success"
+                  size="small"
+                  onClick={() => handleCreateContract(bid)}
+                  fullWidth
+                >
+                  Create Contract
+                </Button>
+              )}
               <Button
                 variant="outlined"
-                color="success"
+                color="warning"
                 size="small"
-                onClick={() => handleCreateContract(bid)}
+                onClick={() => handleCancelBid(bid)}
                 fullWidth
+                startIcon={<CancelIcon />}
               >
-                Create Contract
+                Cancel
               </Button>
               <Button
                 variant="outlined"
@@ -419,6 +516,7 @@ function BidsList() {
               }}
             >
               <th style={{ padding: 10 }}>Customer</th>
+              <th style={{ padding: 10 }}>Status</th>
               <th style={{ padding: 10 }}>Amount ($)</th>
               <th style={{ padding: 10 }}>Description</th>
               <th style={{ padding: 10 }}>Materials</th>
@@ -430,11 +528,18 @@ function BidsList() {
             {sortedBids.map((bid) => (
               <tr key={bid.id} style={{ borderBottom: "1px solid #ddd" }}>
                 <td style={{ padding: 10 }}>{bid.customerName}</td>
+                <td style={{ padding: 10 }}>
+                  <Chip 
+                    label={getBidStatus(bid).label} 
+                    color={getBidStatus(bid).color} 
+                    size="small" 
+                  />
+                </td>
                 <td style={{ padding: 10 }}>${bid.amount}</td>
                 <td style={{ padding: 10 }}>{bid.description}</td>
                 <td style={{ padding: 10 }}>{bid.materials}</td>
                 <td style={{ padding: 10 }}>
-                  {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : 'â€”'}
+                  {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : '—'}
                 </td>
                 <td style={{ padding: 10 }}>
                   <Button
@@ -455,14 +560,26 @@ function BidsList() {
                   >
                     View PDF
                   </Button>
+                  {!hasContract(bid.id) && (
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      size="small"
+                      onClick={() => handleCreateContract(bid)}
+                      sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                    >
+                      Create Contract
+                    </Button>
+                  )}
                   <Button
                     variant="outlined"
-                    color="success"
+                    color="warning"
                     size="small"
-                    onClick={() => handleCreateContract(bid)}
+                    onClick={() => handleCancelBid(bid)}
+                    startIcon={<CancelIcon />}
                     sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
                   >
-                    Create Contract
+                    Cancel
                   </Button>
                   <Button
                     variant="outlined"
@@ -487,7 +604,7 @@ function BidsList() {
             
             {sortedBids.length === 0 && (
               <tr>
-                <td colSpan="6" style={{ padding: 40, textAlign: 'center' }}>
+                <td colSpan="7" style={{ padding: 40, textAlign: 'center' }}>
                   <Typography variant="h6" color="text.secondary">
                     No Bids Yet
                   </Typography>
@@ -513,16 +630,46 @@ function HomeRedirect() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (userRole === 'crew') {
+    if (userRole === 'crew' || userRole === 'user') {
       navigate('/time-clock', { replace: true });
     }
   }, [userRole, navigate]);
 
-  if (userRole === 'crew') {
+  if (userRole === 'crew' || userRole === 'user') {
     return null;
   }
 
-  return <Dashboard />;
+  return <EnhancedDashboard />;
+}
+
+// ------------------------- ADMIN ROUTE PROTECTION -------------------------
+/**
+ * AdminRoute - Route protection component for admin-only pages
+ * 
+ * This component restricts access to routes that should only be accessible
+ * by users with 'admin' or 'god' roles. Users with 'user' or 'crew' roles
+ * are automatically redirected to /time-clock.
+ * 
+ * @param {Object} props - Component props
+ * @param {React.ReactNode} props.children - The protected route component to render
+ * @returns {React.ReactNode|null} The protected component or null during redirect
+ */
+function AdminRoute({ children }) {
+  const { userRole } = useAuth();
+  const navigate = useNavigate();
+  
+  useEffect(() => {
+    if (userRole && userRole !== 'admin' && userRole !== 'god') {
+      navigate('/time-clock', { replace: true });
+    }
+  }, [userRole, navigate]);
+  
+  // Prevent rendering if user is not admin/god or role is not yet loaded
+  if (!userRole || (userRole !== 'admin' && userRole !== 'god')) {
+    return null;
+  }
+  
+  return children;
 }
 
 // ------------------------- APP CHROME -------------------------
@@ -547,39 +694,6 @@ function AppContent() {
   useEffect(() => {
     window.dispatchEvent(new Event('refreshBadges'));
   }, [location.pathname]);
-
-  // Auto-refresh when user comes back to the app (iPhone/Android/desktop)
-  useEffect(() => {
-    let lastVersion = null;
-
-    const checkForUpdate = async () => {
-      try {
-        const res = await fetch('/version.txt?t=' + Date.now());
-        if (res.ok) {
-          const version = await res.text();
-          if (lastVersion && version !== lastVersion) {
-            window.location.reload();
-          }
-          lastVersion = version;
-        }
-      } catch (e) {
-        // Network error, ignore
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        checkForUpdate();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    checkForUpdate(); // Check on first load
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, []);
 
   // NEW: Listen to user data changes for first-login detection
   useEffect(() => {
@@ -628,14 +742,7 @@ function AppContent() {
   // ROLE-SPECIFIC MENU ITEMS
   let menuItems = [];
 
-  if (userRole === 'crew') {
-    // CREW sees only time clock and their hours
-    menuItems = [
-      { label: "Time Clock", path: "/time-clock", notificationKey: null },
-      { label: "My Profile", path: "/profile", notificationKey: null },
-      { label: "My Hours", path: "/my-hours", notificationKey: null },
-    ];
-  } else {
+  if (userRole === 'admin' || userRole === 'god') {
     // ADMIN and GOD see full menu
     menuItems = [
       { label: "Dashboard", path: "/", notificationKey: null },
@@ -645,9 +752,8 @@ function AppContent() {
       { label: "Invoices", path: "/invoices", notificationKey: "invoices" },
       { label: "Jobs", path: "/jobs", notificationKey: "jobs" },
       { label: "Notes", path: "/notes", notificationKey: "notes" },
-      { label: "Customers", path: "/customers", notificationKey: "customers" },
-      { label: "Schedule", path: "/schedule-dashboard", notificationKey: "schedules" },
-      { label: "Calendar", path: "/calendar-view", notificationKey: null },
+      { label: "Customers", path: "/customers", notificationKey: "customers" },      
+      { label: "Calendar", path: "/calendar", notificationKey: null }, // ✅ FIXED: Changed to /calendar
       // 🔒 CRITICAL: Maintenance menu item - DO NOT REMOVE
       { label: "Maintenance", path: "/maintenance", notificationKey: null },
       { label: "Payments", path: "/payments-dashboard", notificationKey: "payments" },
@@ -659,6 +765,13 @@ function AppContent() {
 	  { label: "Employees", path: "/employees", notificationKey: null },
       { label: "SMS Notifications", path: "/notification-settings", notificationKey: null },
       { label: "My Profile", path: "/profile", notificationKey: null },
+    ];
+  } else {
+    // CREW, USER, or any other role gets limited menu
+    menuItems = [
+      { label: "Time Clock", path: "/time-clock", notificationKey: null },
+      { label: "My Profile", path: "/profile", notificationKey: null },
+      { label: "My Hours", path: "/my-hours", notificationKey: null },
     ];
   }
 
@@ -828,53 +941,10 @@ function AppContent() {
       )}
 
       <Routes>
-        {/* CREW ROUTES */}
+        {/* ACCESSIBLE TO ALL AUTHENTICATED USERS */}
         <Route path="/time-clock" element={<TimeClock />} />
         <Route path="/my-hours" element={<MyHours />} />
         <Route path="/profile" element={<UserProfile />} />
-        
-        {/* ADMIN/GOD ROUTES */}
-        <Route path="/approve-time" element={<ApproveTime />} />
-        
-        {/* HOME ROUTE - REDIRECTS CREW TO TIME CLOCK */}
-        <Route path="/" element={<HomeRedirect />} />
-        
-        {/* EXISTING ROUTES */}
-        <Route path="/bids" element={<BidsList />} />
-        <Route path="/bid/:id" element={<BidEditor />} />
-        <Route path="/create-bid" element={<CreateBid />} />
-        <Route path="/contracts" element={<ContractsDashboard />} />
-        <Route path="/contract/:id" element={<ContractEditor />} />
-        <Route path="/invoices" element={<InvoicesDashboard />} />
-        <Route path="/invoice/:id" element={<InvoiceEditor />} />
-		{/* OLD migration page - disabled */}
-        {/* <Route path="/migration" element={<MigrationPage />} /> */}
-
-        {/* NEW migration dashboard */}
-        <Route path="/migration" element={<MigrationDashboard />} />
-        <Route path="/jobs" element={<JobsManager />} />
-        <Route path="/notes" element={<NotesManager />} /> {/* â† ADDED: Notes route */}
-        <Route path="/customers" element={<CustomersDashboard />} />
-        <Route path="/customer-edit/:id" element={<CustomerEditor />} />
-        <Route path="/customer/:id" element={<CustomerProfile />} />
-        <Route path="/schedule-job" element={<ScheduleJob />} />
-        <Route path="/migrate-tokens" element={<MigrationPage />} />
-        <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
-        <Route path="/calendar-view" element={<CalendarView />} />
-        {/* 🔒 CRITICAL: Maintenance routes - DO NOT REMOVE */}
-        <Route path="/maintenance" element={<MaintenanceDashboard />} />
-        <Route path="/maintenance/:id" element={<MaintenanceEditor />} />
-        <Route path="/notification-settings" element={<NotificationSettings />} /> {/* NEW: SMS Settings */}
-        {/* ========================================= */}
-        <Route path="/payment-tracker/:id" element={<PaymentTracker />} />
-        <Route path="/payments-dashboard" element={<PaymentsDashboard />} />
-        <Route path="/crew-manager" element={<CrewManager />} />
-        <Route path="/equipment-manager" element={<EquipmentManager />} />
-		<Route path="/employees" element={<EmployeeAccountManager currentUser={user} currentUserRole={userRole} />} />
-        <Route path="/nda/:crewId" element={<NDAEditor />} />
-        <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
-        
-        {/* NEW: Employee First-Login NDA Signing */}
         <Route 
           path="/nda-signing" 
           element={
@@ -894,15 +964,49 @@ function AppContent() {
             />
           } 
         />
-        <Route path="/expenses-manager" element={<ExpensesManager />} />
-        <Route path="/crew-payroll" element={<IntegratedPayroll />} /> {/* ✅ CHANGED: New integrated system */}
-        <Route path="/crew-payment-history" element={<CrewPaymentHistory />} />
-        <Route path="/tax-report" element={<TaxReport />} />
-        <Route path="/job-expenses/:id" element={<JobExpenses />} />
         
+        {/* PUBLIC ROUTES (NOT AUTHENTICATED) */}
+        <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
         <Route path="/public/sign/:contractId" element={<ContractSigningPage />} />
-		<Route path="/sign-bid/:bidId" element={<BidSigningPage />} />
+        <Route path="/public/sign-bid/:bidId" element={<BidSigningPage />} />
         <Route path="/public/pay/:invoiceId" element={<PaymentPortal />} />
+        
+        {/* HOME ROUTE - REDIRECTS CREW/USER TO TIME CLOCK */}
+        <Route path="/" element={<HomeRedirect />} />
+        
+        {/* ADMIN/GOD ONLY ROUTES */}
+        <Route path="/approve-time" element={<AdminRoute><ApproveTime /></AdminRoute>} />
+        <Route path="/bids" element={<AdminRoute><BidsList /></AdminRoute>} />
+        <Route path="/bid/:id" element={<AdminRoute><BidEditor /></AdminRoute>} />
+        <Route path="/create-bid" element={<AdminRoute><CreateBid /></AdminRoute>} />
+        <Route path="/contracts" element={<AdminRoute><ContractsDashboard /></AdminRoute>} />
+        <Route path="/contract/:id" element={<AdminRoute><ContractEditor /></AdminRoute>} />
+        <Route path="/invoices" element={<AdminRoute><InvoicesDashboard /></AdminRoute>} />
+        <Route path="/invoice/:id" element={<AdminRoute><InvoiceEditor /></AdminRoute>} />		
+        <Route path="/jobs" element={<AdminRoute><JobsManager /></AdminRoute>} />
+        <Route path="/notes" element={<AdminRoute><NotesManager /></AdminRoute>} />
+        <Route path="/customers" element={<AdminRoute><CustomersDashboard /></AdminRoute>} />
+		<Route path="/migration" element={<AdminRoute><MigrationDashboard /></AdminRoute>} />
+        <Route path="/customer-edit/:id" element={<AdminRoute><CustomerEditor /></AdminRoute>} />
+        <Route path="/customer/:id" element={<AdminRoute><CustomerProfile /></AdminRoute>} />
+        <Route path="/migrate-tokens" element={<AdminRoute><MigrationPage /></AdminRoute>} />
+        <Route path="/schedule-dashboard" element={<AdminRoute><ScheduleDashboard /></AdminRoute>} />
+        <Route path="/calendar" element={<AdminRoute><CalendarView /></AdminRoute>} />
+        <Route path="/calendar-view" element={<AdminRoute><CalendarView /></AdminRoute>} />
+        <Route path="/maintenance" element={<AdminRoute><MaintenanceDashboard /></AdminRoute>} />
+        <Route path="/maintenance/:id" element={<AdminRoute><MaintenanceEditor /></AdminRoute>} />
+        <Route path="/notification-settings" element={<AdminRoute><NotificationSettings /></AdminRoute>} />
+        <Route path="/payment-tracker/:id" element={<AdminRoute><PaymentTracker /></AdminRoute>} />
+        <Route path="/payments-dashboard" element={<AdminRoute><PaymentsDashboard /></AdminRoute>} />
+        <Route path="/crew-manager" element={<AdminRoute><CrewManager /></AdminRoute>} />
+        <Route path="/equipment-manager" element={<AdminRoute><EquipmentManager /></AdminRoute>} />
+		<Route path="/employees" element={<AdminRoute><EmployeeAccountManager currentUser={user} currentUserRole={userRole} /></AdminRoute>} />
+        <Route path="/nda/:crewId" element={<AdminRoute><NDAEditor /></AdminRoute>} />
+        <Route path="/expenses-manager" element={<AdminRoute><ExpensesManager /></AdminRoute>} />
+        <Route path="/crew-payroll" element={<AdminRoute><IntegratedPayroll /></AdminRoute>} />
+        <Route path="/crew-payment-history" element={<AdminRoute><CrewPaymentHistory /></AdminRoute>} />
+        <Route path="/tax-report" element={<AdminRoute><TaxReport /></AdminRoute>} />
+        <Route path="/job-expenses/:id" element={<AdminRoute><JobExpenses /></AdminRoute>} />
       </Routes>
     </>
   );

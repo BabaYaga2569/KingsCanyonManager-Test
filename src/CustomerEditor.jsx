@@ -126,9 +126,17 @@ export default function CustomerEditor() {
   };
 
   const handleSave = async () => {
-    // Validation
-    if (!customer.name || !customer.phone) {
-      Swal.fire("Missing Info", "Name and phone are required", "warning");
+        // Validation - Phase 2A: address is now required
+    if (!customer.name || !customer.phone || !customer.address) {
+      const missing = [];
+      if (!customer.name) missing.push("Name");
+      if (!customer.phone) missing.push("Phone");
+      if (!customer.address) missing.push("Address");
+      Swal.fire(
+        "Missing Info",
+        `The following fields are required: ${missing.join(", ")}`,
+        "warning"
+      );
       return;
     }
 
@@ -303,13 +311,15 @@ export default function CustomerEditor() {
           />
 
           {/* Address */}
-          <TextField
+                    <TextField
             label="Street Address"
             name="address"
             value={customer.address}
             onChange={handleChange}
+            required
             fullWidth
             placeholder="e.g., 123 Desert View Dr"
+            helperText="Required – needed for scheduling and GPS navigation"
           />
 
           {/* City, State, Zip */}
