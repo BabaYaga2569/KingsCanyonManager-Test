@@ -40,6 +40,8 @@ import CloseIcon from "@mui/icons-material/Close";
 import LogoutIcon from "@mui/icons-material/Logout";
 import SortIcon from "@mui/icons-material/Sort";
 import CancelIcon from "@mui/icons-material/Cancel";
+import DownloadIcon from "@mui/icons-material/Download";
+import DescriptionIcon from "@mui/icons-material/Description";
 import Swal from "sweetalert2";
 import { db } from "./firebase";
 import {
@@ -99,6 +101,7 @@ import NotesManager from "./NotesManager"; // ← ADDED: Notes Manager
 import NotificationSettings from "./NotificationSettings"; // NEW: SMS Notification Settings
 import EmployeeAccountManager from './EmployeeAccountManager';
 import { createFullJobPackage } from "./utils/createFullJobPackage";
+import { exportBidsToExcel, exportBidToWord, exportAllBidsToWord } from "./utils/exportUtils";
 import generateBidPDF from "./pdf/generateBidPDF";
 import ContractSigningPage from "./ContractSigningPage";
 import BidSigningPage from './BidSigningPage';
@@ -442,6 +445,15 @@ function BidsList() {
               </Button>
               <Button
                 variant="outlined"
+                size="small"
+                startIcon={<DescriptionIcon />}
+                onClick={() => exportBidToWord(bid)}
+                fullWidth
+              >
+                Word Doc
+              </Button>
+              <Button
+                variant="outlined"
                 color="error"
                 size="small"
                 onClick={() => handleDelete(bid)}
@@ -550,6 +562,15 @@ function BidsList() {
                     sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
                   >
                     Cancel
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<DescriptionIcon />}
+                    onClick={() => exportBidToWord(bid)}
+                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                  >
+                    Word
                   </Button>
                   <Button
                     variant="outlined"
