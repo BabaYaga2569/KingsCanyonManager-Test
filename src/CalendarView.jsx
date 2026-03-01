@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs, doc, deleteDoc, updateDoc } from "firebase/firestore";
+import { collection, getDocs, doc, deleteDoc, updateDoc, addDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { useNavigate } from "react-router-dom";
 import { Calendar, momentLocalizer } from "react-big-calendar";
@@ -48,6 +48,11 @@ import PhoneIcon from "@mui/icons-material/Phone";
 import NavigationIcon from "@mui/icons-material/Navigation";
 import CloseIcon from "@mui/icons-material/Close";
 import TodayIcon from "@mui/icons-material/Today";
+import EventIcon from "@mui/icons-material/Event";
+import PersonIcon from "@mui/icons-material/Person";
+import HandshakeIcon from "@mui/icons-material/Handshake";
+import NotificationsIcon from "@mui/icons-material/Notifications";
+import LocationOnIcon from "@mui/icons-material/LocationOn";
 
 const localizer = momentLocalizer(moment);
 
@@ -82,6 +87,19 @@ export default function CalendarView() {
     endTime: "",
     priority: "normal",
     status: "scheduled",
+    notes: "",
+  });
+
+  // Add Event state
+  const [addEventOpen, setAddEventOpen] = useState(false);
+  const [newEvent, setNewEvent] = useState({
+    title: "",
+    eventType: "client-meeting",
+    startDate: moment().format("YYYY-MM-DD"),
+    startTime: "09:00",
+    endTime: "10:00",
+    location: "",
+    phone: "",
     notes: "",
   });
 
@@ -149,9 +167,22 @@ export default function CalendarView() {
           ? new Date(`${schedule.endDate}T${schedule.endTime || "17:00"}`)
           : new Date(`${schedule.startDate}T${schedule.endTime || "17:00"}`);
 
+        // Build title based on event type
+        let title = schedule.clientName || "Untitled";
+        const eventType = schedule.type || "job";
+        if (eventType === "client-meeting") {
+          title = `🤝 ${title}`;
+        } else if (eventType === "personal") {
+          title = `👤 ${title}`;
+        } else if (eventType === "reminder") {
+          title = `🔔 ${title}`;
+        } else if (eventType === "maintenance") {
+          title = `🔧 ${title}`;
+        }
+
         return {
           id: schedule.id,
-          title: schedule.clientName || "Untitled Job",
+          title,
           start: startDateTime,
           end: endDateTime,
           resource: schedule,
@@ -173,7 +204,17 @@ export default function CalendarView() {
 
   const handleSelectSlot = ({ start }) => {
     const dateStr = moment(start).format("YYYY-MM-DD");
-    navigate(`/schedule-job?date=${dateStr}`);
+    setNewEvent({
+      title: "",
+      eventType: "client-meeting",
+      startDate: dateStr,
+      startTime: "09:00",
+      endTime: "10:00",
+      location: "",
+      phone: "",
+      notes: "",
+    });
+    setAddEventOpen(true);
   };
 
   const handleNavigate = (action) => {
@@ -201,9 +242,10 @@ export default function CalendarView() {
   };
 
   const handleDelete = async (schedule) => {
+    const isEvent = isNonJobEvent(schedule);
     const result = await Swal.fire({
-      title: "Delete Schedule?",
-      text: `Remove ${schedule.clientName}'s scheduled job?`,
+      title: isEvent ? "Delete Event?" : "Delete Schedule?",
+      text: `Remove "${schedule.clientName}"?`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, Delete",
@@ -325,6 +367,89 @@ export default function CalendarView() {
     }
   };
 
+  // Create a new calendar event (meeting, personal, reminder)
+  const handleCreateEvent = async () => {
+    if (!newEvent.title.trim()) {
+      Swal.fire("Error", "Please enter a title", "error");
+      return;
+    }
+    if (!newEvent.startDate) {
+      Swal.fire("Error", "Please select a date", "error");
+      return;
+    }
+
+    try {
+      const scheduleData = {
+        clientName: newEvent.title.trim(),
+        type: newEvent.eventType,
+        startDate: newEvent.startDate,
+        endDate: newEvent.startDate,
+        startTime: newEvent.startTime || "09:00",
+        endTime: newEvent.endTime || "10:00",
+        location: newEvent.location || "",
+        customerPhone: newEvent.phone || "",
+        notes: newEvent.notes || "",
+        status: "scheduled",
+        priority: "normal",
+        selectedCrews: [],
+        assignedEmployees: [],
+        selectedEquipment: [],
+        createdAt: new Date().toISOString(),
+      };
+
+      await addDoc(collection(db, "schedules"), scheduleData);
+
+      setAddEventOpen(false);
+      setNewEvent({
+        title: "",
+        eventType: "client-meeting",
+        startDate: moment().format("YYYY-MM-DD"),
+        startTime: "09:00",
+        endTime: "10:00",
+        location: "",
+        phone: "",
+        notes: "",
+      });
+      loadData();
+
+      Swal.fire({
+        icon: "success",
+        title: "Event Created!",
+        text: `${getEventTypeLabel(newEvent.eventType)} added to calendar`,
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (error) {
+      console.error("Error creating event:", error);
+      Swal.fire("Error", "Failed to create event", "error");
+    }
+  };
+
+  const getEventTypeLabel = (type) => {
+    switch (type) {
+      case "client-meeting": return "Client Meeting";
+      case "personal": return "Personal Appointment";
+      case "reminder": return "Reminder";
+      case "maintenance": return "Maintenance";
+      default: return "Job";
+    }
+  };
+
+  const getEventTypeColor = (type) => {
+    switch (type) {
+      case "client-meeting": return "#e65100"; // deep orange
+      case "personal": return "#7b1fa2"; // purple
+      case "reminder": return "#00838f"; // teal
+      case "maintenance": return "#2e7d32"; // dark green
+      default: return null; // use priority color for jobs
+    }
+  };
+
+  const isNonJobEvent = (schedule) => {
+    const t = schedule?.type;
+    return t === "client-meeting" || t === "personal" || t === "reminder";
+  };
+
   const getCrewNames = (crewIds) => {
     if (!crewIds || crewIds.length === 0) return "No crew assigned";
     return crewIds
@@ -362,17 +487,28 @@ export default function CalendarView() {
 
   const eventStyleGetter = (event) => {
     const schedule = event.resource;
-    let backgroundColor = getPriorityColor(schedule.priority || "normal");
+    const eventType = schedule.type || "job";
+    
+    // First check event type for non-job events
+    let backgroundColor = getEventTypeColor(eventType);
+    
+    // For jobs (no type or type=job), use priority color
+    if (!backgroundColor) {
+      backgroundColor = getPriorityColor(schedule.priority || "normal");
+    }
 
+    // Override for completed/cancelled status
     if (schedule.status === "completed") {
       backgroundColor = "#4caf50";
+    } else if (schedule.status === "cancelled") {
+      backgroundColor = "#f44336";
     }
 
     return {
       style: {
         backgroundColor,
         borderRadius: "8px",
-        opacity: schedule.status === "completed" ? 0.7 : 0.95,
+        opacity: schedule.status === "completed" || schedule.status === "cancelled" ? 0.7 : 0.95,
         color: "white",
         border: "none",
         display: "block",
@@ -518,7 +654,34 @@ export default function CalendarView() {
                   '&:hover': { backgroundColor: '#f5f5f5' }
                 }}
               >
-                {isMobile ? "Add" : "Add Job"}
+                {isMobile ? "Job" : "Add Job"}
+              </Button>
+
+              <Button
+                variant="contained"
+                startIcon={<EventIcon />}
+                onClick={() => {
+                  setNewEvent({
+                    title: "",
+                    eventType: "client-meeting",
+                    startDate: moment().format("YYYY-MM-DD"),
+                    startTime: "09:00",
+                    endTime: "10:00",
+                    location: "",
+                    phone: "",
+                    notes: "",
+                  });
+                  setAddEventOpen(true);
+                }}
+                sx={{ 
+                  backgroundColor: 'rgba(255,255,255,0.2)', 
+                  color: 'white', 
+                  fontWeight: 600,
+                  border: '1px solid rgba(255,255,255,0.4)',
+                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.3)' }
+                }}
+              >
+                {isMobile ? "Event" : "Add Event"}
               </Button>
             </Box>
           </Box>
@@ -544,6 +707,21 @@ export default function CalendarView() {
               label="✅ Completed" 
               size="small" 
               sx={{ backgroundColor: 'rgba(76,175,80,0.2)', color: 'white', fontWeight: 600 }} 
+            />
+            <Chip 
+              label="🤝 Meeting" 
+              size="small" 
+              sx={{ backgroundColor: 'rgba(230,81,0,0.3)', color: 'white', fontWeight: 600 }} 
+            />
+            <Chip 
+              label="👤 Personal" 
+              size="small" 
+              sx={{ backgroundColor: 'rgba(123,31,162,0.3)', color: 'white', fontWeight: 600 }} 
+            />
+            <Chip 
+              label="🔔 Reminder" 
+              size="small" 
+              sx={{ backgroundColor: 'rgba(0,131,143,0.3)', color: 'white', fontWeight: 600 }} 
             />
           </Box>
         </Container>
@@ -598,7 +776,13 @@ export default function CalendarView() {
             eventPropGetter={eventStyleGetter}
             views={["month", "week", "day"]}
             popup
-            tooltipAccessor={(event) => `${event.title} - ${event.resource.jobDescription || 'No description'}`}
+            tooltipAccessor={(event) => {
+              const s = event.resource;
+              if (isNonJobEvent(s)) {
+                return `${event.title}${s.location ? ` - ${s.location}` : ''}`;
+              }
+              return `${event.title} - ${s.jobDescription || 'No description'}`;
+            }}
           />
         </Paper>
       </Container>
@@ -617,9 +801,16 @@ export default function CalendarView() {
       >
         {selectedEvent && (
           <>
-            <DialogTitle sx={{ backgroundColor: '#667eea', color: 'white' }}>
+            <DialogTitle sx={{ 
+              backgroundColor: isNonJobEvent(selectedEvent) 
+                ? getEventTypeColor(selectedEvent.type) 
+                : '#667eea', 
+              color: 'white' 
+            }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="h6" sx={{ fontWeight: 700 }}>Job Details</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  {isNonJobEvent(selectedEvent) ? getEventTypeLabel(selectedEvent.type) : "Job Details"}
+                </Typography>
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                   <Chip
                     label={selectedEvent.status || "scheduled"}
@@ -630,7 +821,7 @@ export default function CalendarView() {
                     }}
                     size="small"
                   />
-                  {selectedEvent.priority && selectedEvent.priority !== "normal" && (
+                  {!isNonJobEvent(selectedEvent) && selectedEvent.priority && selectedEvent.priority !== "normal" && (
                     <Chip
                       label={selectedEvent.priority}
                       sx={{
@@ -651,7 +842,7 @@ export default function CalendarView() {
               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">
-                    Client
+                    {isNonJobEvent(selectedEvent) ? "Title" : "Client"}
                   </Typography>
                   <Typography variant="h6" sx={{ fontWeight: 700 }}>{selectedEvent.clientName}</Typography>
                 </Box>
@@ -659,7 +850,7 @@ export default function CalendarView() {
                 {selectedEvent.jobDescription && (
                   <Box>
                     <Typography variant="subtitle2" color="text.secondary">
-                      Job Description
+                      {isNonJobEvent(selectedEvent) ? "Description" : "Job Description"}
                     </Typography>
                     <Typography variant="body1">{selectedEvent.jobDescription}</Typography>
                   </Box>
@@ -682,42 +873,67 @@ export default function CalendarView() {
                   )}
                 </Box>
 
-                <Divider />
-
-                {/* Quick Actions */}
-                <Box>
-                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                    Quick Actions
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                    {selectedEvent.customerPhone && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<PhoneIcon />}
-                        onClick={() => window.open(`tel:${selectedEvent.customerPhone}`)}
-                        sx={{ borderColor: '#667eea', color: '#667eea' }}
-                      >
-                        Call
-                      </Button>
-                    )}
-                    {selectedEvent.customerAddress && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<NavigationIcon />}
-                        onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedEvent.customerAddress)}`)}
-                        sx={{ borderColor: '#667eea', color: '#667eea' }}
-                      >
-                        Navigate
-                      </Button>
-                    )}
+                {/* Location - for meetings/personal */}
+                {selectedEvent.location && (
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      📍 Location
+                    </Typography>
+                    <Typography variant="body1">{selectedEvent.location}</Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<NavigationIcon />}
+                      onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedEvent.location)}`)}
+                      sx={{ mt: 0.5, borderColor: '#667eea', color: '#667eea' }}
+                    >
+                      Navigate
+                    </Button>
                   </Box>
-                </Box>
+                )}
 
                 <Divider />
 
-                <Box>
+                {/* Quick Actions - show call/navigate for all types that have contact info */}
+                {(selectedEvent.customerPhone || (selectedEvent.customerAddress && !selectedEvent.location)) && (
+                  <>
+                    <Box>
+                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                        Quick Actions
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        {selectedEvent.customerPhone && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<PhoneIcon />}
+                            onClick={() => window.open(`tel:${selectedEvent.customerPhone}`)}
+                            sx={{ borderColor: '#667eea', color: '#667eea' }}
+                          >
+                            Call
+                          </Button>
+                        )}
+                        {selectedEvent.customerAddress && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<NavigationIcon />}
+                            onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedEvent.customerAddress)}`)}
+                            sx={{ borderColor: '#667eea', color: '#667eea' }}
+                          >
+                            Navigate
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+                    <Divider />
+                  </>
+                )}
+
+                {/* Crew/Equipment section - only for job types */}
+                {!isNonJobEvent(selectedEvent) && (
+                  <>
+                    <Box>
                   <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
                     👷 Assigned Employees
                   </Typography>
@@ -841,6 +1057,8 @@ export default function CalendarView() {
                     {getEquipmentNames(selectedEvent.selectedEquipment)}
                   </Typography>
                 </Box>
+                  </>
+                )}
 
                 {selectedEvent.notes && (
                   <Box>
@@ -873,9 +1091,9 @@ export default function CalendarView() {
                 fullWidth={isMobile}
                 sx={{ borderColor: '#667eea', color: '#667eea' }}
               >
-                Edit Job
+                {isNonJobEvent(selectedEvent) ? "Edit Event" : "Edit Job"}
               </Button>
-              {selectedEvent.contractId && (
+              {!isNonJobEvent(selectedEvent) && selectedEvent.contractId && (
                 <Button
                   variant="outlined"
                   startIcon={<EditIcon />}
@@ -889,7 +1107,7 @@ export default function CalendarView() {
                   View Contract
                 </Button>
               )}
-              {selectedEvent.status !== "completed" && (
+              {selectedEvent.status !== "completed" && !isNonJobEvent(selectedEvent) && (
                 <Button
                   variant="contained"
                   color="success"
@@ -1058,6 +1276,156 @@ export default function CalendarView() {
           <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleSaveEdit} variant="contained" sx={{ backgroundColor: '#667eea' }}>
             Save Changes
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Event Dialog */}
+      <Dialog
+        open={addEventOpen}
+        onClose={() => setAddEventOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isMobile}
+        TransitionComponent={Zoom}
+      >
+        <DialogTitle sx={{ 
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+          color: 'white', 
+          fontWeight: 700 
+        }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <EventIcon />
+              Add Calendar Event
+            </Box>
+            <IconButton onClick={() => setAddEventOpen(false)} sx={{ color: 'white' }} size="small">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+            <FormControl fullWidth>
+              <InputLabel>Event Type</InputLabel>
+              <Select
+                value={newEvent.eventType}
+                label="Event Type"
+                onChange={(e) => setNewEvent({ ...newEvent, eventType: e.target.value })}
+              >
+                <MenuItem value="client-meeting">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <HandshakeIcon sx={{ color: '#e65100' }} fontSize="small" /> Client Meeting
+                  </Box>
+                </MenuItem>
+                <MenuItem value="personal">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <PersonIcon sx={{ color: '#7b1fa2' }} fontSize="small" /> Personal Appointment
+                  </Box>
+                </MenuItem>
+                <MenuItem value="reminder">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <NotificationsIcon sx={{ color: '#00838f' }} fontSize="small" /> Reminder / To-Do
+                  </Box>
+                </MenuItem>
+              </Select>
+            </FormControl>
+
+            <TextField
+              label={
+                newEvent.eventType === "client-meeting" ? "Client / Contact Name" :
+                newEvent.eventType === "personal" ? "Appointment Title" :
+                "Reminder Title"
+              }
+              fullWidth
+              value={newEvent.title}
+              onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
+              placeholder={
+                newEvent.eventType === "client-meeting" ? "e.g. John Smith - Bid Walkthrough" :
+                newEvent.eventType === "personal" ? "e.g. Dentist Appointment" :
+                "e.g. Order mulch for next week"
+              }
+              autoFocus
+            />
+
+            <TextField
+              label="Date"
+              type="date"
+              fullWidth
+              value={newEvent.startDate}
+              onChange={(e) => setNewEvent({ ...newEvent, startDate: e.target.value })}
+              InputLabelProps={{ shrink: true }}
+            />
+            
+            <Box sx={{ display: "flex", gap: 2 }}>
+              <TextField
+                label="Start Time"
+                type="time"
+                value={newEvent.startTime}
+                onChange={(e) => setNewEvent({ ...newEvent, startTime: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                sx={{ flex: 1 }}
+              />
+              <TextField
+                label="End Time"
+                type="time"
+                value={newEvent.endTime}
+                onChange={(e) => setNewEvent({ ...newEvent, endTime: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                sx={{ flex: 1 }}
+              />
+            </Box>
+
+            {newEvent.eventType === "client-meeting" && (
+              <TextField
+                label="Phone Number"
+                fullWidth
+                value={newEvent.phone}
+                onChange={(e) => setNewEvent({ ...newEvent, phone: e.target.value })}
+                placeholder="e.g. 928-555-1234"
+              />
+            )}
+
+            {newEvent.eventType !== "reminder" && (
+              <TextField
+                label="Location (optional)"
+                fullWidth
+                value={newEvent.location}
+                onChange={(e) => setNewEvent({ ...newEvent, location: e.target.value })}
+                placeholder="e.g. 1234 Desert Rd, Bullhead City"
+                InputProps={{
+                  startAdornment: <LocationOnIcon sx={{ color: 'text.secondary', mr: 0.5 }} fontSize="small" />,
+                }}
+              />
+            )}
+
+            <TextField
+              label="Notes (optional)"
+              fullWidth
+              multiline
+              rows={3}
+              value={newEvent.notes}
+              onChange={(e) => setNewEvent({ ...newEvent, notes: e.target.value })}
+              placeholder={
+                newEvent.eventType === "client-meeting" ? "What to discuss, bring samples, etc." :
+                newEvent.eventType === "personal" ? "Any details..." :
+                "What needs to be done..."
+              }
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setAddEventOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={handleCreateEvent} 
+            variant="contained" 
+            startIcon={<AddIcon />}
+            sx={{ 
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              fontWeight: 600,
+            }}
+          >
+            Add to Calendar
           </Button>
         </DialogActions>
       </Dialog>

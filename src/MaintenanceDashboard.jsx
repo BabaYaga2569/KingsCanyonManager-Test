@@ -194,6 +194,51 @@ export default function MaintenanceDashboard() {
     }
   };
 
+  // Create a pending invoice for a maintenance contract and open it in the editor
+  const handleCreateInvoice = async (contract) => {
+    try {
+      Swal.fire({
+        title: 'Creating Invoice...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading(),
+      });
+
+      const invoiceData = {
+        customerId: contract.customerId || '',
+        clientName: contract.customerName,
+        customerName: contract.customerName,
+        description: `Monthly Maintenance - ${getFrequencyDisplay(contract.frequency)}`,
+        lineItems: [{
+          description: contract.servicesIncluded || 'Monthly maintenance service',
+          amount: parseFloat(contract.monthlyRate) || 0,
+        }],
+        subtotal: parseFloat(contract.monthlyRate) || 0,
+        tax: 0,
+        taxRate: 0,
+        total: parseFloat(contract.monthlyRate) || 0,
+        amount: parseFloat(contract.monthlyRate) || 0,
+        status: 'Pending',
+        invoiceDate: moment().format('YYYY-MM-DD'),
+        date: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        maintenanceContractId: contract.id,
+        type: 'maintenance',
+        paymentToken: generateSecureToken(),
+        totalPaid: 0,
+        remainingBalance: parseFloat(contract.monthlyRate) || 0,
+        paymentStatus: 'unpaid',
+      };
+
+      const docRef = await addDoc(collection(db, 'invoices'), invoiceData);
+      
+      Swal.close();
+      navigate(`/invoice/${docRef.id}`);
+    } catch (error) {
+      console.error('Error creating maintenance invoice:', error);
+      Swal.fire('Error', 'Failed to create invoice: ' + error.message, 'error');
+    }
+  };
+
   const handleCollectPayment = (contract) => {
     setPaymentDialog({ open: true, contract });
     setPaymentData({
@@ -482,7 +527,7 @@ export default function MaintenanceDashboard() {
                 <Button
                   size="small"
                   startIcon={<ReceiptIcon />}
-                  onClick={() => navigate(`/invoice/new?maintenanceId=${contract.id}`)}
+                  onClick={() => handleCreateInvoice(contract)}
                   color="success"
                 >
                   Invoice

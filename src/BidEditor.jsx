@@ -21,6 +21,7 @@ import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import Swal from "sweetalert2";
 import SignatureCanvas from "react-signature-canvas";
+import { notifyBidAccepted } from "./pushoverNotificationService";
 
 export default function BidEditor() {
   const { id } = useParams();
@@ -326,6 +327,13 @@ export default function BidEditor() {
         updatedAt: new Date().toISOString(),
       });
       
+      // Notify if client just signed the bid
+      if (clientSigData && !bid.clientSignature) {
+        try {
+          await notifyBidAccepted(bid.customerName, bid.amount);
+        } catch (e) { console.error("Pushover error:", e); }
+      }
+
       await Swal.fire("Saved", "Bid updated successfully.", "success");
       navigate("/bids");
     } catch (e) {

@@ -45,6 +45,8 @@ import {
 } from "@mui/material";
 import { useNavigate, useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
+import { notifyInvoicePaid } from "./pushoverNotificationService";
+import { emailInvoiceDueReminder } from "./emailNotificationService";
 import EditIcon from "@mui/icons-material/Edit";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -59,6 +61,8 @@ import moment from "moment";
 import generateInvoicePDF from "./pdf/generateInvoicePDF";
 import { markAsViewed } from './useNotificationCounts';
 import { useAuth } from './AuthProvider';
+import DownloadIcon from "@mui/icons-material/Download";
+import { exportInvoicesToExcel } from './utils/exportUtils';
 
 export default function InvoicesDashboard() {
   const { user } = useAuth();
@@ -287,6 +291,15 @@ export default function InvoicesDashboard() {
           remainingBalance: 0,
           paymentStatus: "paid",
         });
+
+        // Notify admin via Pushover
+        try {
+          await notifyInvoicePaid(
+            invoiceData.clientName || "Customer",
+            total,
+            invoiceData.paymentMethod || null
+          );
+        } catch (e) { console.error("Pushover error:", e); }
       } else {
         // Normal status update
         await updateDoc(ref, { status: newStatus });
@@ -303,6 +316,32 @@ export default function InvoicesDashboard() {
   };
 
   // ===================== QUICK WEED INVOICE HANDLERS =====================
+
+  // Send invoice due reminder email to customer
+  const handleSendDueReminder = async (invoice) => {
+    if (!invoice.clientEmail) {
+      Swal.fire("No Email", "This customer doesn't have an email address on file.", "warning");
+      return;
+    }
+    try {
+      const dueDate = invoice.dueDate || invoice.due_date || null;
+      const daysUntilDue = dueDate
+        ? Math.ceil((new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24))
+        : 3;
+      await emailInvoiceDueReminder(
+        invoice.clientEmail,
+        invoice.clientName,
+        invoice.total || invoice.amount,
+        dueDate,
+        invoice.description || invoice.jobDescription || "Landscaping services",
+        daysUntilDue
+      );
+      Swal.fire("Reminder Sent!", `Payment reminder emailed to ${invoice.clientEmail}`, "success");
+    } catch (e) {
+      console.error("EmailJS error:", e);
+      Swal.fire("Error", "Failed to send reminder email.", "error");
+    }
+  };
   
   const calculateWeedTotal = () => {
     let total = 0;
@@ -888,6 +927,15 @@ export default function InvoicesDashboard() {
             {isMobile ? <SpeedIcon /> : "Quick Weed Invoice"}
           </Button>
 
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={() => exportInvoicesToExcel(filteredInvoices)}
+            sx={{ fontWeight: "bold" }}
+          >
+            {isMobile ? <DownloadIcon /> : "Export Excel"}
+          </Button>
+
           <FormControl size="small" sx={{ minWidth: 150 }}>
             <InputLabel>Year</InputLabel>
             <Select
@@ -1009,6 +1057,17 @@ export default function InvoicesDashboard() {
               >
                 Edit Invoice
               </Button>
+              {inv.status !== "Paid" && inv.clientEmail && (
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  size="small"
+                  onClick={() => handleSendDueReminder(inv)}
+                  fullWidth
+                >
+                  📧 Send Reminder
+                </Button>
+              )}
               <Button
                 variant="outlined"
                 color="error"

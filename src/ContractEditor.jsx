@@ -15,6 +15,7 @@ import {
 import Swal from "sweetalert2";
 import jsPDF from "jspdf";
 import SignatureCanvas from "react-signature-canvas";
+import { notifyContractSigned } from "./pushoverNotificationService";
 
 const COMPANY = {
   name: "Kings Canyon Landscaping LLC",
@@ -177,6 +178,13 @@ const ContractEditor = () => {
     const sigData = clientSigRef.current.toDataURL();
     setClientSignedAt(timestamp);
     setClientSigData(sigData);
+    // Send Pushover notification
+    try {
+      notifyContractSigned(
+        contract?.clientName || "Customer",
+        contract?.amount || contract?.totalAmount || 0
+      );
+    } catch (e) { console.error("Pushover error:", e); }
     Swal.fire({
       icon: "success",
       title: "Signature Saved!",

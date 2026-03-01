@@ -21,6 +21,7 @@ import {
 import SignatureCanvas from "react-signature-canvas";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import Swal from "sweetalert2";
+import { notifyBidAccepted } from "./pushoverNotificationService";
 
 // Create a simple theme for public pages
 const publicTheme = createTheme({
@@ -131,6 +132,13 @@ function BidSigningPageContent() {
       });
 
       console.log("Bid accepted by client:", bidId);
+
+      // Notify admin via Pushover
+      try {
+        await notifyBidAccepted(bid.customerName, bid.amount);
+      } catch (e) {
+        console.error("Pushover notification error:", e);
+      }
 
       Swal.fire({
         icon: "success",

@@ -21,6 +21,8 @@ import {
 import SignatureCanvas from "react-signature-canvas";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import Swal from "sweetalert2";
+import { notifyContractSigned } from "./pushoverNotificationService";
+import { emailContractSigned } from "./emailNotificationService";
 
 // Create a simple theme for public pages
 const publicTheme = createTheme({
@@ -134,6 +136,23 @@ function ContractSigningPageContent() {
 
       // Send notification email (placeholder - will be implemented with Cloud Function)
       console.log("Contract signed by client:", contractId);
+
+      // Send Pushover alert to admin
+      try {
+        await notifyContractSigned(
+          contract.clientName || "Customer",
+          contract.amount || 0
+        );
+      } catch (e) { console.error("Pushover error:", e); }
+
+      // Send confirmation email to customer
+      try {
+        await emailContractSigned(
+          contract.clientEmail || contract.email || null,
+          contract.clientName || "Valued Customer",
+          contract.amount || 0
+        );
+      } catch (e) { console.error("EmailJS error:", e); }
 
       Swal.fire({
         icon: "success",

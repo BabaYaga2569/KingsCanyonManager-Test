@@ -41,6 +41,7 @@ import {
 } from "@mui/material";
 import Swal from "sweetalert2";
 import generateContractPDF from "./pdf/generateContractPDF";
+import { notifyContractSigned } from "./pushoverNotificationService";
 import { useNavigate } from "react-router-dom";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
@@ -50,7 +51,10 @@ import TouchAppIcon from "@mui/icons-material/TouchApp";
 import EmailIcon from "@mui/icons-material/Email";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import SortIcon from "@mui/icons-material/Sort";
+import DownloadIcon from "@mui/icons-material/Download";
+import DescriptionIcon from "@mui/icons-material/Description";
 import { markAsViewed } from './useNotificationCounts';
+import { exportContractsToExcel, exportContractToWord, exportAllContractsToWord } from './utils/exportUtils';
 
 const logo = "/logo-kcl.png";
 const COMPANY_PHONE = "(928) 450-5733";
@@ -189,6 +193,15 @@ export default function ContractsDashboard() {
           c.id === contract.id ? { ...c, status: newStatus } : c
         )
       );
+      // Notify when contract is signed
+      if (newStatus.toLowerCase().includes("signed") || newStatus.toLowerCase().includes("completed")) {
+        try {
+          await notifyContractSigned(
+            contract.customerName || contract.clientName || "Customer",
+            contract.amount || contract.totalAmount || 0
+          );
+        } catch (e) { console.error("Pushover error:", e); }
+      }
       Swal.fire("Updated", "Contract status changed successfully.", "success");
     } catch (error) {
       Swal.fire("Error", "Failed to update status.", "error");
@@ -399,6 +412,28 @@ export default function ContractsDashboard() {
           </Box>
         </Box>
 
+        <Button
+          variant="outlined"
+          startIcon={<DownloadIcon />}
+          onClick={() => exportContractsToExcel(sortedContracts)}
+          size="small"
+          fullWidth
+          sx={{ mb: 1 }}
+        >
+          Export All (Excel)
+        </Button>
+
+        <Button
+          variant="outlined"
+          startIcon={<DescriptionIcon />}
+          onClick={() => exportAllContractsToWord(sortedContracts)}
+          size="small"
+          fullWidth
+          sx={{ mb: 2 }}
+        >
+          Export All (Word Zip)
+        </Button>
+
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 2 }}>
           {sortedContracts.map((contract) => (
             <Card key={contract.id} sx={{ boxShadow: 3 }}>
@@ -453,6 +488,14 @@ export default function ContractsDashboard() {
                   onClick={() => handleGeneratePDF(contract)}
                 >
                   View PDF
+                </Button>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  startIcon={<DescriptionIcon />}
+                  onClick={() => exportContractToWord(contract)}
+                >
+                  Word Doc
                 </Button>
                 <Button
                   variant="outlined"
@@ -601,6 +644,23 @@ export default function ContractsDashboard() {
         </Box>
       </Box>
 
+      <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+        <Button
+          variant="outlined"
+          startIcon={<DownloadIcon />}
+          onClick={() => exportContractsToExcel(sortedContracts)}
+        >
+          Export All (Excel)
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<DescriptionIcon />}
+          onClick={() => exportAllContractsToWord(sortedContracts)}
+        >
+          Export All (Word Zip)
+        </Button>
+      </Box>
+
       <TableContainer
         component={Paper}
         sx={{
@@ -699,6 +759,16 @@ export default function ContractsDashboard() {
                     sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
                   >
                     Schedule
+                  </Button>
+
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<DescriptionIcon />}
+                    onClick={() => exportContractToWord(contract)}
+                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                  >
+                    Word
                   </Button>
 
                   <Button

@@ -245,9 +245,17 @@ service cloud.firestore {
     }
     
     // ============================================
-    // NOTIFICATIONS LOG COLLECTION (SMS History)
+    // NOTIFICATIONS LOG COLLECTION (Legacy)
     // ============================================
     match /notifications_log/{logId} {
+      allow read: if isGodOrAdmin();
+      allow create: if isAuthenticated();
+    }
+
+    // ============================================
+    // NOTIFICATION LOG COLLECTION (Pushover History)
+    // ============================================
+    match /notification_log/{logId} {
       allow read: if isGodOrAdmin();
       allow create: if isAuthenticated();
     }

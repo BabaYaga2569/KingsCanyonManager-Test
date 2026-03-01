@@ -38,6 +38,8 @@ import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
 import LogoutIcon from "@mui/icons-material/Logout";
 import SortIcon from "@mui/icons-material/Sort";
+import DownloadIcon from "@mui/icons-material/Download";
+import DescriptionIcon from "@mui/icons-material/Description";
 import Swal from "sweetalert2";
 import { db } from "./firebase";
 import {
@@ -93,6 +95,7 @@ import NotesManager from "./NotesManager"; // â† ADDED: Notes Manager
 import NotificationSettings from "./NotificationSettings"; // NEW: SMS Notification Settings
 import EmployeeAccountManager from './EmployeeAccountManager';
 import { createFullJobPackage } from "./utils/createFullJobPackage";
+import { exportBidsToExcel, exportBidToWord, exportAllBidsToWord } from "./utils/exportUtils";
 import generateBidPDF from "./pdf/generateBidPDF";
 import ContractSigningPage from "./ContractSigningPage";
 import BidSigningPage from './BidSigningPage';
@@ -285,6 +288,24 @@ function BidsList() {
             <MenuItem value="amount-low">Lowest Amount</MenuItem>
           </Select>
         </FormControl>
+
+        <Button
+          variant="outlined"
+          startIcon={<DownloadIcon />}
+          onClick={() => exportBidsToExcel(sortedBids)}
+          size="small"
+        >
+          Export Excel
+        </Button>
+
+        <Button
+          variant="outlined"
+          startIcon={<DescriptionIcon />}
+          onClick={() => exportAllBidsToWord(sortedBids)}
+          size="small"
+        >
+          Export All (Word Zip)
+        </Button>
       </Box>
       
       {/* MOBILE VIEW - Card Layout */}
@@ -342,6 +363,15 @@ function BidsList() {
                 fullWidth
               >
                 Create Contract
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DescriptionIcon />}
+                onClick={() => exportBidToWord(bid)}
+                fullWidth
+              >
+                Word Doc
               </Button>
               <Button
                 variant="outlined"
@@ -436,6 +466,15 @@ function BidsList() {
                   </Button>
                   <Button
                     variant="outlined"
+                    size="small"
+                    startIcon={<DescriptionIcon />}
+                    onClick={() => exportBidToWord(bid)}
+                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
+                  >
+                    Word
+                  </Button>
+                  <Button
+                    variant="outlined"
                     color="error"
                     size="small"
                     onClick={() => handleDelete(bid)}
@@ -508,6 +547,39 @@ function AppContent() {
   useEffect(() => {
     window.dispatchEvent(new Event('refreshBadges'));
   }, [location.pathname]);
+
+  // Auto-refresh when user comes back to the app (iPhone/Android/desktop)
+  useEffect(() => {
+    let lastVersion = null;
+
+    const checkForUpdate = async () => {
+      try {
+        const res = await fetch('/version.txt?t=' + Date.now());
+        if (res.ok) {
+          const version = await res.text();
+          if (lastVersion && version !== lastVersion) {
+            window.location.reload();
+          }
+          lastVersion = version;
+        }
+      } catch (e) {
+        // Network error, ignore
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkForUpdate();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    checkForUpdate(); // Check on first load
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   // NEW: Listen to user data changes for first-login detection
   useEffect(() => {

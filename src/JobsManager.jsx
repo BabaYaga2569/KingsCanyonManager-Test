@@ -36,8 +36,11 @@ import PhotoLibraryIcon from "@mui/icons-material/PhotoLibrary";
 import EditIcon from "@mui/icons-material/Edit";
 import SortIcon from "@mui/icons-material/Sort";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import DownloadIcon from "@mui/icons-material/Download";
 import Swal from "sweetalert2";
+import { notifyJobCompleted, notifyJobScheduled } from "./pushoverNotificationService";
 import { markAsViewed } from './useNotificationCounts';
+import { exportJobsToExcel } from './utils/exportUtils';
 
 export default function JobsManager() {
   const [jobs, setJobs] = useState([]);
@@ -306,6 +309,19 @@ export default function JobsManager() {
           job.id === editingJob.id ? { ...job, ...editForm } : job
         )
       );
+      // Notify if job was just marked completed
+      if (
+        editForm.status === "Completed" &&
+        editingJob.status !== "Completed"
+      ) {
+        try {
+          await notifyJobCompleted(
+            editForm.clientName || editingJob.clientName || "Customer",
+            editForm.jobDescription || editingJob.jobDescription || "Job",
+            editForm.amount || editingJob.amount || 0
+          );
+        } catch (e) { console.error("Pushover error:", e); }
+      }
       Swal.fire("Updated!", "Job details have been saved.", "success");
       handleCloseEditDialog();
     } catch (error) {
@@ -599,6 +615,14 @@ export default function JobsManager() {
               <MenuItem value="status-pending">Pending First</MenuItem>
             </Select>
           </FormControl>
+
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={() => exportJobsToExcel(sortedJobs)}
+          >
+            Export Excel
+          </Button>
         </Box>
       </Box>
 

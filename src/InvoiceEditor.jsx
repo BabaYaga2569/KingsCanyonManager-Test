@@ -20,6 +20,7 @@ import {
   Card,
   CardContent,
   Chip,
+  Autocomplete,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -48,6 +49,9 @@ const InvoiceEditor = () => {
   const [numberOfPayments, setNumberOfPayments] = useState(4);
   const [downPaymentPercent, setDownPaymentPercent] = useState(20);
   const [firstPaymentDate, setFirstPaymentDate] = useState(moment().format('YYYY-MM-DD'));
+
+  // Customer lookup
+  const [customers, setCustomers] = useState([]);
 
   useEffect(() => {
     const fetchInvoice = async () => {
@@ -108,6 +112,19 @@ const InvoiceEditor = () => {
     };
     fetchInvoice();
   }, [id, navigate]);
+
+  // Load customers for auto-fill
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      try {
+        const snap = await getDocs(collection(db, "customers"));
+        setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.error("Error loading customers:", e);
+      }
+    };
+    fetchCustomers();
+  }, []);
 
   // NEW: Load expenses for this job
   useEffect(() => {
@@ -443,13 +460,37 @@ const InvoiceEditor = () => {
             Client Information
           </Typography>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <TextField
-              label="Client Name"
-              name="clientName"
+            <Autocomplete
+              freeSolo
+              options={customers}
+              getOptionLabel={(option) =>
+                typeof option === "string" ? option : option.name || ""
+              }
               value={invoice.clientName || ""}
-              onChange={handleChange}
-              fullWidth
-              required
+              onInputChange={(e, newValue) => {
+                setInvoice({ ...invoice, clientName: newValue });
+              }}
+              onChange={(e, selectedCustomer) => {
+                if (selectedCustomer && typeof selectedCustomer === "object") {
+                  setInvoice({
+                    ...invoice,
+                    clientName: selectedCustomer.name || "",
+                    clientEmail: selectedCustomer.email || "",
+                    clientPhone: selectedCustomer.phone || "",
+                    clientAddress: selectedCustomer.address || "",
+                    customerId: selectedCustomer.id || "",
+                  });
+                }
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Client Name"
+                  required
+                  fullWidth
+                  helperText="Type or select from customers to auto-fill email, phone & address"
+                />
+              )}
             />
 
             <TextField
