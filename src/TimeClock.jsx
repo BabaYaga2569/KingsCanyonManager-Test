@@ -17,11 +17,9 @@ import {
 } from "@mui/material";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import RestaurantIcon from "@mui/icons-material/Restaurant";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import moment from "moment";
 import Swal from "sweetalert2";
-import { notifyCrewClockIn, notifyCrewClockOut, notifyLunchStart, notifyLunchEnd } from './pushoverNotificationService';
+import { sendClockInNotification, sendClockOutNotification } from './smsNotificationService';
 
 export default function TimeClock() {
   const { user, userRole } = useAuth();
@@ -32,12 +30,7 @@ export default function TimeClock() {
   const [currentEntry, setCurrentEntry] = useState(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [todayHours, setTodayHours] = useState(0);
-  const [employeeInfo, setEmployeeInfo] = useState(null);
-  
-  // 🍔 NEW: Lunch break state
-  const [onLunch, setOnLunch] = useState(false);
-  const [lunchStartTime, setLunchStartTime] = useState(null);
-  const [totalLunchTime, setTotalLunchTime] = useState(0); // in seconds
+  const [employeeInfo, setEmployeeInfo] = useState(null); // ✅ NEW: Store employee info
 
   useEffect(() => {
     loadData();
@@ -45,32 +38,23 @@ export default function TimeClock() {
 
   useEffect(() => {
     let interval;
-    if (clockedIn && currentEntry && !onLunch) {
-      // Update elapsed time (excluding lunch)
+    if (clockedIn && currentEntry) {
       interval = setInterval(() => {
         const start = moment(currentEntry.clockIn);
         const now = moment();
-        const totalSeconds = now.diff(start, 'seconds');
-        setElapsedTime(totalSeconds - totalLunchTime);
-      }, 1000);
-    } else if (onLunch && lunchStartTime) {
-      // Update lunch timer
-      interval = setInterval(() => {
-        const lunchStart = moment(lunchStartTime);
-        const now = moment();
-        const currentLunchSeconds = now.diff(lunchStart, 'seconds');
-        // Update total lunch time (including current lunch session)
-        setTotalLunchTime(currentEntry.lunchMinutes * 60 + currentLunchSeconds);
+        setElapsedTime(now.diff(start, 'seconds'));
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [clockedIn, currentEntry, onLunch, lunchStartTime, totalLunchTime]);
+  }, [clockedIn, currentEntry]);
 
+  // ✅ NEW: Load employee info from users collection
   const loadEmployeeInfo = async () => {
     try {
       const usersSnap = await getDocs(collection(db, 'users'));
       const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       
+      // Find employee by email
       const employee = users.find(u => u.email === user.email);
       
       if (employee) {
@@ -92,71 +76,157 @@ export default function TimeClock() {
     }
   };
 
+
   const loadData = async () => {
     try {
+      // ✅ CHANGE 1: Load employee info first
       await loadEmployeeInfo();
       
+      // Load jobs
       const jobsSnap = await getDocs(collection(db, "jobs"));
       const jobsData = jobsSnap.docs.map((d) => {
         const data = d.data();
+        
+        // Get client name (check multiple field names for compatibility)
         const clientName = data.clientName || data.customerName || "Unknown Client";
+        
+        // Build a short job type label from description/jobType
+        let shortType = "";
+        const desc = (data.description || data.jobDescription || data.jobType || "").toLowerCase();
+        if (desc.includes("weed")) shortType = "Weed";
+        else if (desc.includes("landscape") || desc.includes("landscaping")) shortType = "Landscape";
+        else if (desc.includes("maint")) shortType = "Maint.";
+        else if (desc.includes("clean")) shortType = "Cleanup";
+        else if (desc.includes("trim")) shortType = "Trimming";
+        else if (desc.includes("irrig")) shortType = "Irrigation";
+        else if (desc.includes("tree")) shortType = "Tree";
+        else if (desc.includes("rock") || desc.includes("gravel")) shortType = "Rock/Gravel";
+        else if (desc.includes("fence")) shortType = "Fence";
+        else if (desc.includes("haul")) shortType = "Hauling";
+        else if (data.jobType) shortType = data.jobType.substring(0, 12);
+        else if (data.description) shortType = data.description.substring(0, 12);
+        
+        // Get a short date from serviceDate, startDate, or createdAt
+        let shortDate = "";
+        const dateSource = data.serviceDate || data.startDate || data.createdAt;
+        if (dateSource) {
+          const d2 = dateSource.toDate ? dateSource.toDate() : new Date(dateSource);
+          if (!isNaN(d2.getTime())) {
+            shortDate = `${d2.getMonth() + 1}/${d2.getDate()}`;
+          }
+        }
+        
+        // Build display: "John Smith — Weed (2/10)"
+        let displayName = clientName;
+        if (shortType && shortDate) displayName += ` — ${shortType} (${shortDate})`;
+        else if (shortType) displayName += ` — ${shortType}`;
+        else if (shortDate) displayName += ` (${shortDate})`;
         
         return { 
           id: d.id, 
           ...data,
           clientName: clientName,
-          displayName: clientName
+          displayName: displayName
         };
       });
       
-      setJobs(jobsData);
-      await checkExistingEntry();
+      // Sort jobs alphabetically by client name for easy finding
+      jobsData.sort((a, b) => {
+        const nameA = (a.clientName || "").toUpperCase();
+        const nameB = (b.clientName || "").toUpperCase();
+        return nameA.localeCompare(nameB);
+      });
+      
+      // Add special service options at the top
+      const specialServices = [
+        {
+          id: "weed-service",
+          displayName: "Weed Extraction Service",
+          clientName: "Weed Extraction Service",
+          isSpecialService: true
+        },
+        {
+          id: "maintenance-service", 
+          displayName: "Maintenance Service",
+          clientName: "Maintenance Service",
+          isSpecialService: true
+        }
+      ];
+      
+      // Combine: special services first, then regular jobs
+      const allJobs = [...specialServices, ...jobsData];
+      
+      console.log("Loaded jobs:", allJobs); // DEBUG
+      setJobs(allJobs);
+
+      // ✅ CRITICAL FIX: Auto-close old zombie entries BEFORE checking current status
+      console.log("🔍 Checking for zombie entries...");
+      const timeEntriesRef = collection(db, "job_time_entries");
+      const openEntriesQuery = query(
+        timeEntriesRef,
+        where("crewId", "==", user.uid),
+        where("clockOut", "==", null)
+      );
+      const allOpenEntries = await getDocs(openEntriesQuery);
+      
+      // Find entries older than 12 hours
+      const twelveHoursAgo = Date.now() - (12 * 60 * 60 * 1000);
+      const zombieEntries = [];
+      let currentOpenEntry = null;
+      
+      allOpenEntries.docs.forEach((docSnap) => {
+        const entry = { id: docSnap.id, ...docSnap.data() };
+        const clockInTime = new Date(entry.clockIn).getTime();
+        
+        if (clockInTime < twelveHoursAgo) {
+          // Old zombie entry - needs auto-close
+          zombieEntries.push(entry);
+          console.log(`🧹 Found zombie entry from ${entry.clockIn} - will auto-close`);
+        } else {
+          // Recent entry (within last 12 hours) - this is the current one
+          currentOpenEntry = entry;
+        }
+      });
+      
+      // Auto-close zombie entries
+      if (zombieEntries.length > 0) {
+        console.log(`🧹 Auto-closing ${zombieEntries.length} zombie entries...`);
+        for (const zombie of zombieEntries) {
+          console.log(`🧹 Auto-closing zombie entry: ${zombie.id} from ${zombie.clockIn}`);
+          await updateDoc(doc(db, "job_time_entries", zombie.id), {
+            clockOut: zombie.clockIn, // Set to same time = 0 hours worked
+            hoursWorked: 0,
+            status: "auto_closed",
+            updatedAt: new Date().toISOString(),
+            autoClosedReason: "Entry older than 12 hours without clock out"
+          });
+        }
+        console.log("✅ Zombie cleanup complete!");
+      } else {
+        console.log("✅ No zombie entries found");
+      }
+      
+      // Now check for legitimate current entry
+      if (currentOpenEntry) {
+        console.log("✅ Found current open entry:", currentOpenEntry);
+        setCurrentEntry(currentOpenEntry);
+        setClockedIn(true);
+        setSelectedJob(currentOpenEntry.jobId);
+      } else {
+        console.log("✅ No open entries - user is clocked out");
+        setClockedIn(false);
+        setCurrentEntry(null);
+      }
+
+      // Load today's total hours
       await loadTodayHours();
+
+      setLoading(false);
     } catch (error) {
       console.error("Error loading data:", error);
-      Swal.fire("Error", "Failed to load data", "error");
-    } finally {
       setLoading(false);
     }
   };
-
-  const checkExistingEntry = async () => {
-    try {
-      const q = query(
-        collection(db, "job_time_entries"),
-        where("crewId", "==", user.uid),
-        where("clockOut", "==", null),
-        orderBy("clockIn", "desc")
-      );
-      
-      const snap = await getDocs(q);
-      
-      if (!snap.empty) {
-        const entry = { id: snap.docs[0].id, ...snap.docs[0].data() };
-        setCurrentEntry(entry);
-        setClockedIn(true);
-        setSelectedJob(entry.jobId);
-        
-        // 🍔 NEW: Restore lunch state if exists
-        if (entry.lunchStartTime && !entry.lunchEndTime) {
-          setOnLunch(true);
-          setLunchStartTime(entry.lunchStartTime);
-        }
-        if (entry.lunchMinutes) {
-          setTotalLunchTime(entry.lunchMinutes * 60);
-        }
-        
-        const start = moment(entry.clockIn);
-        const now = moment();
-        const totalSeconds = now.diff(start, 'seconds');
-        const lunchSeconds = entry.lunchMinutes ? entry.lunchMinutes * 60 : 0;
-        setElapsedTime(totalSeconds - lunchSeconds);
-      }
-    } catch (error) {
-      console.error("Error checking existing entry:", error);
-    }
-  };
-
   const loadTodayHours = async () => {
     try {
       const todayStart = moment().startOf('day').toISOString();
@@ -195,36 +265,39 @@ export default function TimeClock() {
     try {
       const job = jobs.find(j => j.id === selectedJob);
       const now = new Date().toISOString();
+
+      // ✅ CHANGE 2: Use employee name from users collection!
       const employeeName = employeeInfo?.name || user.displayName || user.email;
 
       const entryData = {
         crewId: user.uid,
-        crewName: employeeName,
-        crewEmail: user.email,
+        crewName: employeeName, // ✅ FIXED: Real employee name!
+        crewEmail: user.email, // ✅ NEW: Store email separately
         jobId: selectedJob,
         jobName: job?.displayName || "Unknown Job",
-        jobDescription: job?.displayName || "No description",
+        jobDescription: job?.description || job?.jobDescription || job?.jobType || job?.displayName || "No description",
+        clientName: job?.clientName || "",
         clockIn: now,
         clockOut: null,
         hoursWorked: null,
-        // 🍔 NEW: Lunch tracking fields
-        lunchStartTime: null,
-        lunchEndTime: null,
-        lunchMinutes: 0,
         status: "pending",
         createdAt: now,
       };
 
-      console.log("✅ Clocking in as:", employeeName);
+      console.log("✅ Clocking in as:", employeeName); // DEBUG
 
       const docRef = await addDoc(collection(db, "job_time_entries"), entryData);
       
       setCurrentEntry({ id: docRef.id, ...entryData });
       setClockedIn(true);
-      setTotalLunchTime(0);
 
+      // Send SMS notification
       try {
-        await notifyCrewClockIn(employeeName, job?.displayName || "Unknown Job");
+        await sendClockInNotification(
+          { id: user.uid, name: employeeName, email: user.email },
+          now,
+          { id: selectedJob, name: job?.displayName || "Unknown Job", clientName: job?.clientName || job?.displayName }
+        );
       } catch (smsError) {
         console.error('Error sending clock in notification:', smsError);
       }
@@ -242,86 +315,6 @@ export default function TimeClock() {
     }
   };
 
-  // 🍔 NEW: Start lunch break
-  const handleStartLunch = async () => {
-    if (!currentEntry) return;
-
-    try {
-      const now = new Date().toISOString();
-      
-      await updateDoc(doc(db, "job_time_entries", currentEntry.id), {
-        lunchStartTime: now,
-        updatedAt: now,
-      });
-
-      setOnLunch(true);
-      setLunchStartTime(now);
-      setCurrentEntry({ ...currentEntry, lunchStartTime: now });
-
-      // Notify admin via Pushover
-      try {
-        await notifyLunchStart(currentEntry.crewName || user.displayName || user.email, currentEntry.jobName || null);
-      } catch (e) { console.error("Pushover lunch start error:", e); }
-
-      Swal.fire({
-        icon: "info",
-        title: "Lunch Break Started",
-        text: "Enjoy your meal! 🍔",
-        timer: 2000,
-        showConfirmButton: false,
-      });
-    } catch (error) {
-      console.error("Error starting lunch:", error);
-      Swal.fire("Error", "Failed to start lunch break", "error");
-    }
-  };
-
-  // 🍔 NEW: End lunch break
-  const handleEndLunch = async () => {
-    if (!currentEntry || !lunchStartTime) return;
-
-    try {
-      const now = new Date().toISOString();
-      const lunchStart = moment(lunchStartTime);
-      const lunchEnd = moment(now);
-      const lunchMinutes = lunchEnd.diff(lunchStart, 'minutes');
-
-      // Add to existing lunch time
-      const totalLunchMinutes = (currentEntry.lunchMinutes || 0) + lunchMinutes;
-
-      await updateDoc(doc(db, "job_time_entries", currentEntry.id), {
-        lunchEndTime: now,
-        lunchMinutes: totalLunchMinutes,
-        updatedAt: now,
-      });
-
-      setOnLunch(false);
-      setLunchStartTime(null);
-      setTotalLunchTime(totalLunchMinutes * 60);
-      setCurrentEntry({ 
-        ...currentEntry, 
-        lunchEndTime: now,
-        lunchMinutes: totalLunchMinutes
-      });
-
-      // Notify admin via Pushover
-      try {
-        await notifyLunchEnd(currentEntry.crewName || user.displayName || user.email, lunchMinutes, currentEntry.jobName || null);
-      } catch (e) { console.error("Pushover lunch end error:", e); }
-
-      Swal.fire({
-        icon: "success",
-        title: "Back to Work!",
-        text: `Lunch: ${lunchMinutes} minutes`,
-        timer: 2000,
-        showConfirmButton: false,
-      });
-    } catch (error) {
-      console.error("Error ending lunch:", error);
-      Swal.fire("Error", "Failed to end lunch break", "error");
-    }
-  };
-
   const handleClockOut = async () => {
     if (!currentEntry) return;
 
@@ -329,15 +322,11 @@ export default function TimeClock() {
       const now = new Date().toISOString();
       const clockInTime = moment(currentEntry.clockIn);
       const clockOutTime = moment(now);
-      const totalHours = clockOutTime.diff(clockInTime, 'hours', true);
-      
-      // 🍔 UPDATED: Subtract lunch time from total hours
-      const lunchHours = (currentEntry.lunchMinutes || 0) / 60;
-      const workedHours = totalHours - lunchHours;
+      const hours = clockOutTime.diff(clockInTime, 'hours', true);
 
       await updateDoc(doc(db, "job_time_entries", currentEntry.id), {
         clockOut: now,
-        hoursWorked: parseFloat(workedHours.toFixed(2)),
+        hoursWorked: parseFloat(hours.toFixed(2)),
         updatedAt: now,
       });
 
@@ -345,15 +334,18 @@ export default function TimeClock() {
       setCurrentEntry(null);
       setElapsedTime(0);
       setSelectedJob("");
-      setOnLunch(false);
-      setLunchStartTime(null);
-      setTotalLunchTime(0);
       
       await loadTodayHours();
 
+      // Send SMS notification
       try {
         const employeeName = currentEntry.crewName || user.displayName || user.email;
-        await notifyCrewClockOut(employeeName, workedHours.toFixed(2));
+        await sendClockOutNotification(
+          { id: user.uid, name: employeeName, email: user.email },
+          currentEntry.clockIn,
+          now,
+          { id: currentEntry.jobId, name: currentEntry.jobName || "Unknown Job", clientName: currentEntry.jobName }
+        );
       } catch (smsError) {
         console.error('Error sending clock out notification:', smsError);
       }
@@ -362,12 +354,10 @@ export default function TimeClock() {
         icon: "success",
         title: "Clocked Out!",
         html: `
-          <p>Total time: <strong>${totalHours.toFixed(2)} hours</strong></p>
-          ${currentEntry.lunchMinutes ? `<p>Lunch break: <strong>${currentEntry.lunchMinutes} minutes</strong></p>` : ''}
-          <p>You worked: <strong>${workedHours.toFixed(2)} hours</strong></p>
+          <p>You worked <strong>${hours.toFixed(2)} hours</strong></p>
           <p>Your time is pending approval</p>
         `,
-        timer: 4000,
+        timer: 3000,
       });
     } catch (error) {
       console.error("Error clocking out:", error);
@@ -396,6 +386,7 @@ export default function TimeClock() {
         Time Clock
       </Typography>
 
+      {/* ✅ CHANGE 3: Show employee name */}
       <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mb: 2 }}>
         Welcome, {employeeInfo?.name || user.displayName || user.email}
       </Typography>
@@ -419,14 +410,7 @@ export default function TimeClock() {
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ textAlign: 'center' }}>
           <Typography variant="h6" gutterBottom>
-            {onLunch ? (
-              <Chip 
-                icon={<RestaurantIcon />} 
-                label="ON LUNCH BREAK" 
-                color="warning" 
-                sx={{ fontSize: '1rem', py: 2 }}
-              />
-            ) : clockedIn ? (
+            {clockedIn ? (
               <Chip 
                 icon={<AccessTimeIcon />} 
                 label="CLOCKED IN" 
@@ -447,31 +431,9 @@ export default function TimeClock() {
               <Typography variant="body2" color="text.secondary">
                 Clocked in at: {moment(currentEntry.clockIn).format('h:mm A')}
               </Typography>
-              {!onLunch && (
-                <>
-                  <Typography variant="h4" color="primary" sx={{ mt: 1 }}>
-                    {formatElapsedTime(elapsedTime)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    worked (excluding lunch)
-                  </Typography>
-                </>
-              )}
-              {onLunch && (
-                <>
-                  <Typography variant="h4" color="warning.main" sx={{ mt: 1 }}>
-                    {formatElapsedTime(totalLunchTime - (currentEntry.lunchMinutes || 0) * 60)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    on lunch break
-                  </Typography>
-                </>
-              )}
-              {totalLunchTime > 0 && !onLunch && (
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                  Total lunch: {Math.floor(totalLunchTime / 60)} minutes
-                </Typography>
-              )}
+              <Typography variant="h4" color="primary" sx={{ mt: 1 }}>
+                {formatElapsedTime(elapsedTime)}
+              </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 Working on: {currentEntry.jobName}
               </Typography>
@@ -523,56 +485,17 @@ export default function TimeClock() {
             </Button>
           </Box>
         ) : (
-          <Box>
-            {/* 🍔 NEW: Lunch break buttons */}
-            {!onLunch ? (
-              <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  color="warning"
-                  size="large"
-                  onClick={handleStartLunch}
-                  startIcon={<RestaurantIcon />}
-                  sx={{ py: 1.5 }}
-                >
-                  START LUNCH
-                </Button>
-              </Box>
-            ) : (
-              <Box sx={{ mb: 2 }}>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  color="warning"
-                  size="large"
-                  onClick={handleEndLunch}
-                  startIcon={<PlayArrowIcon />}
-                  sx={{ py: 1.5 }}
-                >
-                  END LUNCH
-                </Button>
-              </Box>
-            )}
-            
-            <Button
-              fullWidth
-              variant="contained"
-              color="error"
-              size="large"
-              onClick={handleClockOut}
-              startIcon={<CheckCircleIcon />}
-              sx={{ py: 2, fontSize: '1.1rem' }}
-              disabled={onLunch}
-            >
-              CLOCK OUT
-            </Button>
-            {onLunch && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>
-                End lunch before clocking out
-              </Typography>
-            )}
-          </Box>
+          <Button
+            fullWidth
+            variant="contained"
+            color="error"
+            size="large"
+            onClick={handleClockOut}
+            startIcon={<CheckCircleIcon />}
+            sx={{ py: 2, fontSize: '1.1rem' }}
+          >
+            CLOCK OUT
+          </Button>
         )}
       </Paper>
 
@@ -584,10 +507,8 @@ export default function TimeClock() {
         <Typography variant="body2">
           1. Select the job you're working on<br/>
           2. Click "CLOCK IN" when you start work<br/>
-          3. Click "START LUNCH" when taking a break 🍔<br/>
-          4. Click "END LUNCH" when returning to work<br/>
-          5. Click "CLOCK OUT" when you're done<br/>
-          6. Your hours will be sent for approval
+          3. Click "CLOCK OUT" when you're done<br/>
+          4. Your hours will be sent for approval
         </Typography>
       </Paper>
     </Container>

@@ -266,30 +266,6 @@ export default function ApproveTime() {
                     {moment(entry.clockIn).format('h:mm A')} - {moment(entry.clockOut).format('h:mm A')}
                   </Typography>
 
-                  {/* Lunch Break Info */}
-                  {entry.lunchMinutes > 0 ? (
-                    <Box sx={{ mt: 1, p: 1, backgroundColor: '#fff8e1', borderRadius: 1, border: '1px solid #ffe082' }}>
-                      <Typography variant="body2" color="warning.dark" fontWeight="bold">
-                        🍔 Lunch Break Taken
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Start: {entry.lunchStartTime ? moment(entry.lunchStartTime).format('h:mm A') : 'N/A'}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        End: {entry.lunchEndTime ? moment(entry.lunchEndTime).format('h:mm A') : 'N/A'}
-                      </Typography>
-                      <Typography variant="body2" color="warning.dark">
-                        Duration: {entry.lunchMinutes} min
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Box sx={{ mt: 1, p: 1, backgroundColor: '#f3e5f5', borderRadius: 1, border: '1px solid #ce93d8' }}>
-                      <Typography variant="body2" color="secondary.dark">
-                        🚫 No Lunch Break Recorded
-                      </Typography>
-                    </Box>
-                  )}
-
                   <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                     <Button
                       size="small"
@@ -337,7 +313,6 @@ export default function ApproveTime() {
                   <TableCell>Clock In</TableCell>
                   <TableCell>Clock Out</TableCell>
                   <TableCell>Hours</TableCell>
-                  <TableCell>Lunch Break</TableCell>
                   <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -353,22 +328,6 @@ export default function ApproveTime() {
                       <Typography fontWeight="bold" color="primary">
                         {entry.hoursWorked}h
                       </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {entry.lunchMinutes > 0 ? (
-                        <Box>
-                          <Typography variant="body2" color="warning.dark" fontWeight="bold">
-                            🍔 {entry.lunchMinutes} min
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            {entry.lunchStartTime ? moment(entry.lunchStartTime).format('h:mm A') : '?'} – {entry.lunchEndTime ? moment(entry.lunchEndTime).format('h:mm A') : '?'}
-                          </Typography>
-                        </Box>
-                      ) : (
-                        <Typography variant="body2" color="text.disabled">
-                          🚫 None
-                        </Typography>
-                      )}
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 0.5 }}>
