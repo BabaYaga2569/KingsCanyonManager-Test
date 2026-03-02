@@ -18,6 +18,7 @@ import {
   Select,
   MenuItem,
   FormControl,
+  Avatar,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -31,6 +32,8 @@ import {
   Assignment,
   Description,
   WorkOutline,
+  People,
+  AccessTime,
 } from '@mui/icons-material';
 import { collection, query, where, getDocs, orderBy, limit, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
@@ -78,8 +81,13 @@ const EnhancedDashboard = () => {
     annualGoal: 150000
   });
 
+  const [clockedInEmployees, setClockedInEmployees] = useState([]);
+
   useEffect(() => {
     fetchDashboardData();
+    fetchClockedInEmployees();
+    const interval = setInterval(fetchClockedInEmployees, 30000);
+    return () => clearInterval(interval);
   }, [selectedYear]); // Re-fetch when year changes
 
   const handleYearChange = (event) => {
@@ -88,8 +96,28 @@ const EnhancedDashboard = () => {
     setSearchParams({ year: newYear }); // Update URL
   };
 
+  const fetchClockedInEmployees = async () => {
+    try {
+      const q = query(collection(db, 'job_time_entries'), where('clockOut', '==', null));
+      const snap = await getDocs(q);
+      setClockedInEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (error) {
+      console.error('Error fetching clocked-in employees:', error);
+    }
+  };
+
+  const getElapsedTime = (clockIn) => {
+    if (!clockIn) return '—';
+    const start = new Date(clockIn);
+    const now = new Date();
+    const diffMs = now - start;
+    const hours = Math.floor(diffMs / 3600000);
+    const minutes = Math.floor((diffMs % 3600000) / 60000);
+    return `${hours}h ${minutes}m`;
+  };
+
   // Universal date parser helper function to handle all date formats
-  const parseDate = (doc, fieldNames = ['date', 'createdAt', 'paymentDate', 'invoiceDate', 'startDate', 'contractDate']) => {
+  const parseDate = (doc, fieldNames = ['date', 'createdAt', 'paymentDate', 'invoiceDate', 'startDate', 'contractDate', 'bidDate', 'jobDate', 'scheduledDate', 'createdDate', 'dateCreated', 'created', 'timestamp']) => {
     const data = doc.data ? doc.data() : doc;
     // Try multiple field names
     for (const field of fieldNames) {
@@ -255,9 +283,13 @@ const EnhancedDashboard = () => {
 
       // Fetch pipeline data for SELECTED YEAR with flexible date parsing
       const bidsSnapshot = await getDocs(collection(db, 'bids'));
+      if (bidsSnapshot.docs.length > 0) {
+        console.log('[Dashboard] First bid doc fields:', Object.keys(bidsSnapshot.docs[0].data()));
+      }
       const bidsForYear = bidsSnapshot.docs.filter(doc => {
         const bidDate = parseDate(doc);
-        return bidDate && bidDate.getFullYear() === selectedYear;
+        if (!bidDate) return true; // No date found — include it anyway
+        return bidDate.getFullYear() === selectedYear;
       });
       const bidsTotal = bidsForYear.length;
       const bidsPending = bidsForYear.filter(doc => {
@@ -269,9 +301,13 @@ const EnhancedDashboard = () => {
       }).length;
 
       const contractsSnapshot = await getDocs(collection(db, 'contracts'));
+      if (contractsSnapshot.docs.length > 0) {
+        console.log('[Dashboard] First contract doc fields:', Object.keys(contractsSnapshot.docs[0].data()));
+      }
       const contractsForYear = contractsSnapshot.docs.filter(doc => {
         const contractDate = parseDate(doc);
-        return contractDate && contractDate.getFullYear() === selectedYear;
+        if (!contractDate) return true; // No date found — include it anyway
+        return contractDate.getFullYear() === selectedYear;
       });
       const contractsTotal = contractsForYear.length;
       
@@ -295,9 +331,13 @@ const EnhancedDashboard = () => {
       }).length;
 
       const jobsSnapshot = await getDocs(collection(db, 'jobs'));
+      if (jobsSnapshot.docs.length > 0) {
+        console.log('[Dashboard] First job doc fields:', Object.keys(jobsSnapshot.docs[0].data()));
+      }
       const jobsForYear = jobsSnapshot.docs.filter(doc => {
         const jobDate = parseDate(doc);
-        return jobDate && jobDate.getFullYear() === selectedYear;
+        if (!jobDate) return true; // No date found — include it anyway
+        return jobDate.getFullYear() === selectedYear;
       });
       
       // Check for lowercase status values
@@ -676,7 +716,71 @@ const EnhancedDashboard = () => {
           </CardContent>
         </Card>
 
-{/* Continue with rest of cards... I'll include the remaining cards in the next message */}
+        {/* WHO IS WORKING CARD */}
+        <Card elevation={2} sx={{ mb: 3 }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <People sx={{ fontSize: 40, color: '#1976d2', mr: 1 }} />
+                <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                  Who Is Working
+                </Typography>
+                <Chip
+                  label={clockedInEmployees.length}
+                  size="small"
+                  color={clockedInEmployees.length > 0 ? 'success' : 'default'}
+                  sx={{ ml: 1 }}
+                />
+              </Box>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => navigate('/time-clock')}
+                endIcon={<ArrowForward />}
+              >
+                View Time Clock
+              </Button>
+            </Box>
+            {clockedInEmployees.length === 0 ? (
+              <Box sx={{ py: 3, textAlign: 'center' }}>
+                <Typography variant="body2" color="text.secondary">
+                  No one is currently clocked in
+                </Typography>
+              </Box>
+            ) : (
+              <Grid container spacing={2}>
+                {clockedInEmployees.map((entry) => (
+                  <Grid item xs={12} sm={6} md={4} key={entry.id}>
+                    <Box sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f9fbe7' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
+                          {(entry.crewName && entry.crewName[0] || '?').toUpperCase()}
+                        </Avatar>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography variant="subtitle2" fontWeight="bold" noWrap>
+                            {entry.crewName || 'Unknown'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {entry.jobName || '—'}
+                          </Typography>
+                        </Box>
+                        <Chip
+                          icon={<AccessTime sx={{ fontSize: 14 }} />}
+                          label={getElapsedTime(entry.clockIn)}
+                          size="small"
+                          color="success"
+                        />
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Clocked in: {entry.clockIn ? new Date(entry.clockIn).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </CardContent>
+        </Card>
 
         {/* MAIN CARDS ROW */}
         <Grid container spacing={3} sx={{ mb: 3 }}>
