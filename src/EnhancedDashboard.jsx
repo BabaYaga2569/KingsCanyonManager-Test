@@ -20,7 +20,6 @@ import {
   FormControl,
 } from '@mui/material';
 import {
-  TrendingUp,
   CalendarToday,
   Build,
   AttachMoney,
@@ -32,7 +31,7 @@ import {
   Description,
   WorkOutline,
 } from '@mui/icons-material';
-import { collection, query, where, getDocs, orderBy, limit, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import GoalsSettingsModal from './GoalsSettingsModal';
@@ -80,6 +79,7 @@ const EnhancedDashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedYear]); // Re-fetch when year changes
 
   const handleYearChange = (event) => {
@@ -216,8 +216,8 @@ const EnhancedDashboard = () => {
 
       // Fetch maintenance alerts (with flexible date parsing)
       const maintenanceQuery = query(
-        collection(db, 'maintenanceContracts'),
-        where('status', '==', 'Active')
+        collection(db, 'maintenance_contracts'),
+        where('status', 'in', ['Active', 'active'])
       );
       const maintenanceSnapshot = await getDocs(maintenanceQuery);
       
