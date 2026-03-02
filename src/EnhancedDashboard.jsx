@@ -35,6 +35,7 @@ import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firesto
 import { db } from './firebase';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import GoalsSettingsModal from './GoalsSettingsModal';
+import WhoIsWorking from './WhoIsWorking';
 
 const EnhancedDashboard = () => {
   const navigate = useNavigate();
@@ -863,6 +864,11 @@ const EnhancedDashboard = () => {
             </Card>
           </Grid>
         </Grid>
+
+        {/* WHO IS WORKING */}
+        <Box sx={{ mb: 3 }}>
+          <WhoIsWorking />
+        </Box>
 
         {/* MONEY STATUS CARD */}
         <Card elevation={2} sx={{ mb: 3 }}>
