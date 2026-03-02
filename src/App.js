@@ -12,6 +12,7 @@ import {
   Link,
   useLocation,
   useNavigate,
+  Navigate,
 } from "react-router-dom";
 import {
   AppBar,
@@ -627,16 +628,13 @@ function BidsList() {
 // ------------------------- HOME REDIRECT COMPONENT -------------------------
 function HomeRedirect() {
   const { userRole } = useAuth();
-  const navigate = useNavigate();
 
-  useEffect(() => {
-    if (userRole === 'crew' || userRole === 'user') {
-      navigate('/time-clock', { replace: true });
-    }
-  }, [userRole, navigate]);
+  // Still loading role
+  if (!userRole) return null;
 
+  // Crew members get instantly redirected to time clock
   if (userRole === 'crew' || userRole === 'user') {
-    return null;
+    return <Navigate to="/time-clock" replace />;
   }
 
   return <EnhancedDashboard />;
@@ -656,21 +654,19 @@ function HomeRedirect() {
  */
 function AdminRoute({ children }) {
   const { userRole } = useAuth();
-  const navigate = useNavigate();
-  
-  useEffect(() => {
-    if (userRole && userRole !== 'admin' && userRole !== 'god') {
-      navigate('/time-clock', { replace: true });
-    }
-  }, [userRole, navigate]);
-  
-  // Prevent rendering if user is not admin/god or role is not yet loaded
-  if (!userRole || (userRole !== 'admin' && userRole !== 'god')) {
-    return null;
+
+  // Still loading role
+  if (!userRole) return null;
+
+  // Non-admin gets instantly redirected
+  if (userRole !== 'admin' && userRole !== 'god') {
+    return <Navigate to="/time-clock" replace />;
   }
-  
+
   return children;
 }
+  
+  
 
 // ------------------------- APP CHROME -------------------------
 function AppContent() {
@@ -973,6 +969,7 @@ function AppContent() {
         
         {/* HOME ROUTE - REDIRECTS CREW/USER TO TIME CLOCK */}
         <Route path="/" element={<HomeRedirect />} />
+        <Route path="/dashboard" element={<HomeRedirect />} />
         
         {/* ADMIN/GOD ONLY ROUTES */}
         <Route path="/approve-time" element={<AdminRoute><ApproveTime /></AdminRoute>} />

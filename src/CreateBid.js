@@ -23,6 +23,7 @@ import {
 import Swal from "sweetalert2";
 import { useNavigate } from "react-router-dom";
 import DesignVisualizer from "./components/DesignVisualizer";
+import { checkDuplicateCustomer, showDuplicateDialog } from "./utils/checkDuplicateCustomer";
 import BrushIcon from "@mui/icons-material/Brush";
 
 export default function CreateBid() {
@@ -82,24 +83,33 @@ export default function CreateBid() {
     }
   };
 
-    const handleContinueToSave = () => {
-    // Phase 2C Fix 2: Require phone + address for new customers
-    const missing = [];
-    if (!customerName) missing.push("Customer Name");
-    if (!amount) missing.push("Amount");
+    const handleContinueToSave = async () => {
+  const missing = [];
+  if (!customerName) missing.push("Customer Name");
+  if (!amount) missing.push("Amount");
 
-    // If NOT an existing customer, require phone + address
-    if (!selectedCustomer) {
-      if (!customerPhone) missing.push("Phone");
-      if (!customerAddress) missing.push("Address");
-    }
+  if (!selectedCustomer) {
+    if (!customerPhone) missing.push("Phone");
+    if (!customerAddress) missing.push("Address");
+  }
 
-    if (missing.length > 0) {
-      Swal.fire("Missing Info", `Required: ${missing.join(", ")}`, "warning");
-      return;
-    }
-    setShowDesignDialog(true);
-  };
+  if (missing.length > 0) {
+    Swal.fire("Missing Info", `Required: ${missing.join(", ")}`, "warning");
+    return;
+  }
+
+  // Only check duplicates if entering a NEW customer (not selecting existing)
+  if (!selectedCustomer) {
+    const duplicates = await checkDuplicateCustomer(
+      db,
+      { name: customerName, phone: customerPhone, email: customerEmail, address: customerAddress }
+    );
+    const action = await showDuplicateDialog(duplicates, navigate);
+    if (action === "block" || action === "cancel") return;
+  }
+
+  setShowDesignDialog(true);
+};
 
   const handleSkipDesign = () => {
     setShowDesignDialog(false);
@@ -137,6 +147,8 @@ export default function CreateBid() {
           bidCount: 1,
           contractCount: 0,
           invoiceCount: 0,
+		  jobCount: 0,
+		  nameLower: customerName.toLowerCase(),   // ← add this
         };
         const customerRef = await addDoc(collection(db, "customers"), customerData);
         customerId = customerRef.id;
@@ -181,6 +193,8 @@ export default function CreateBid() {
           bidCount: 1,
           contractCount: 0,
           invoiceCount: 0,
+		  jobCount: 0,
+		  nameLower: customerName.toLowerCase(),   // ← add this
         };
         const customerRef = await addDoc(collection(db, "customers"), customerData);
         customerId = customerRef.id;
