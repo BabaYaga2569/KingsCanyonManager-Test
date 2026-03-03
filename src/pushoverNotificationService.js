@@ -264,6 +264,20 @@ export async function notifyBidDeclined(customerName, amount) {
     message: `${customerName} declined the bid\n💰 Amount: ${formattedAmount}`,
     priority: PRIORITY.LOW,
   });
+  }
+  export async function notifyBidAppointmentScheduled(customerName, address, date, time) {
+  const formattedDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric"
+  });
+  const formattedTime = new Date(`2000-01-01T${time}`).toLocaleTimeString("en-US", {
+    hour: "numeric", minute: "2-digit", hour12: true
+  });
+  return sendPushoverNotification({
+    type: "bid_appointment",
+    title: "📋 Bid Appointment Scheduled",
+    message: `${customerName}\n📅 ${formattedDate} at ${formattedTime}\n📍 ${address}`,
+    priority: PRIORITY.NORMAL,
+  });
 }
 
 // ============================================================
