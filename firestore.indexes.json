@@ -1,4 +1,13 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "job_time_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "crewId", "order": "ASCENDING" },
+        { "fieldPath": "clockIn", "order": "DESCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

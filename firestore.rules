@@ -26,13 +26,13 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
     
-    // 🔐 NEW: Helper to check if request has valid token for a document
-    function hasValidToken(docId, tokenField) {
-      let doc = get(/databases/$(database)/documents/$(request.path.parent())/$(docId));
-      return request.query.token != null && 
-             doc.data[tokenField] != null &&
-             doc.data[tokenField] == request.query.token;
-    }
+    // REPLACE WITH:
+function hasValidToken(tokenField) {
+  return request.auth == null &&
+         request.query.token != null &&
+         resource.data[tokenField] != null &&
+         resource.data[tokenField] == request.query.token;
+}
     
     // ============================================
     // USERS COLLECTION (Employee Account Manager)
@@ -83,16 +83,14 @@ service cloud.firestore {
     // 🔐 INVOICES COLLECTION - SECURE WITH TOKENS
     // ============================================
     match /invoices/{invoiceId} {
-      // Read: authenticated users OR valid payment token
-      allow read: if isGodOrAdmin() || hasValidToken(invoiceId, 'paymentToken');
+      // Read: public (invoice IDs are unguessable - needed for payment portal)
+      allow read: if true;
       
       // Write: only admin
       allow write: if isGodOrAdmin();
       
-      // Update: authenticated OR token holder (but only payment fields)
-      allow update: if isGodOrAdmin() || 
-        (hasValidToken(invoiceId, 'paymentToken') && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paidAt', 'paymentMethod', 'paymentNotes']));
+      // Update: admin only
+      allow update: if isGodOrAdmin();
     }
     
     // ============================================
@@ -107,7 +105,8 @@ service cloud.firestore {
     // CUSTOMERS COLLECTION - ADMIN ONLY
     // ============================================
     match /customers/{customerId} {
-      allow read, write: if isGodOrAdmin();
+      allow read: if isAuthenticated();        // crew needs this for GPS address lookup
+      allow write: if isGodOrAdmin();
     }
     
     // ============================================
@@ -121,7 +120,9 @@ service cloud.firestore {
     // PAYMENTS COLLECTION - ADMIN ONLY
     // ============================================
     match /payments/{paymentId} {
-      allow read, write: if isGodOrAdmin();
+      // Read: public (needed for payment history on payment portal)
+      allow read: if true;
+      allow write: if isGodOrAdmin();
     }
     
     // ============================================
@@ -255,6 +256,25 @@ service cloud.firestore {
     // NOTIFICATIONS LOG COLLECTION (SMS History)
     // ============================================
     match /notifications_log/{logId} {
+      allow read: if isGodOrAdmin();
+      allow create: if isAuthenticated();
+    }
+
+    // ============================================
+    // INVITES COLLECTION - Employee invite tokens
+    // Public read needed so InviteSignup page can
+    // validate the token without being logged in.
+    // All writes go through Cloud Functions (Admin SDK).
+    // ============================================
+    match /invites/{token} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ============================================
+    // EMAIL LOG COLLECTION
+    // ============================================
+    match /email_log/{logId} {
       allow read: if isGodOrAdmin();
       allow create: if isAuthenticated();
     }

@@ -84,34 +84,56 @@ export default function CustomerProfile() {
   }, [id, navigate]);
 
   const handleSave = async () => {
-    if (!customer.name || !customer.phone || !customer.address) {
-      const missing = [];
-      if (!customer.name) missing.push("Name");
-      if (!customer.phone) missing.push("Phone");
-      if (!customer.address) missing.push("Address");
-      Swal.fire(
-        "Missing Info",
-        `The following fields are required: ${missing.join(", ")}`,
-        "warning"
-      );
-      return;
-    }
+  if (!customer.name || !customer.phone || !customer.address) {
+    const missing = [];
+    if (!customer.name) missing.push("Name");
+    if (!customer.phone) missing.push("Phone");
+    if (!customer.address) missing.push("Address");
+    Swal.fire("Missing Info", `The following fields are required: ${missing.join(", ")}`, "warning");
+    return;
+  }
+
+  try {
+    // 📍 Geocode the address
+    let geoLat = null;
+    let geoLng = null;
+    const fullAddress = [customer.address, customer.city, customer.state, customer.zip]
+      .filter(Boolean).join(", ");
 
     try {
-      await updateDoc(doc(db, "customers", id), {
-        name: customer.name,
-        email: customer.email || "",
-        phone: customer.phone || "",
-        address: customer.address || "",
-        notes: customer.notes || "",
-        nameLower: customer.name.toLowerCase(),
-      });
-      Swal.fire("Saved!", "Customer updated successfully.", "success");
-      setEditing(false);
-    } catch (error) {
-      Swal.fire("Error", "Failed to save changes.", "error");
+      const encoded = encodeURIComponent(fullAddress);
+      const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`,
+        { headers: { "User-Agent": "KCLManager/1.0 (Kings Canyon Landscaping)" } }
+      );
+      const geoData = await geoRes.json();
+      if (geoData.length > 0) {
+        geoLat = parseFloat(geoData[0].lat);
+        geoLng = parseFloat(geoData[0].lon);
+        console.log(`📍 Geocoded: ${fullAddress} → ${geoLat}, ${geoLng}`);
+      } else {
+        console.warn("📍 Could not geocode address:", fullAddress);
+      }
+    } catch (geoErr) {
+      console.warn("📍 Geocoding error:", geoErr);
     }
-  };
+
+    await updateDoc(doc(db, "customers", id), {
+      name: customer.name,
+      email: customer.email || "",
+      phone: customer.phone || "",
+      address: customer.address || "",
+      notes: customer.notes || "",
+      nameLower: customer.name.toLowerCase(),
+      geoLat,
+      geoLng,
+    });
+    Swal.fire("Saved!", "Customer updated successfully.", "success");
+    setEditing(false);
+  } catch (error) {
+    Swal.fire("Error", "Failed to save changes.", "error");
+  }
+};
 
   const handleOpenScheduleDialog = () => {
     // Default to tomorrow at 9am

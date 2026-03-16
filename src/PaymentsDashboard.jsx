@@ -1,31 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { collection, getDocs, doc, getDoc, query, where } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, query, where, deleteDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import { useNavigate } from "react-router-dom";
 import {
-  Container,
-  Typography,
-  Box,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Chip,
-  Button,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  TextField,
-  Card,
-  CardContent,
-  Grid,
-  CircularProgress,
-  useMediaQuery,
-  useTheme,
+  Container, Typography, Box, Paper, Table, TableBody, TableCell,
+  TableContainer, TableHead, TableRow, Chip, Button, FormControl,
+  InputLabel, Select, MenuItem, TextField, Card, CardContent, Grid,
+  CircularProgress, useMediaQuery, useTheme, IconButton,
 } from "@mui/material";
 import moment from "moment";
 import PaymentIcon from "@mui/icons-material/Payment";
@@ -33,14 +14,18 @@ import FilterListIcon from "@mui/icons-material/FilterList";
 import DownloadIcon from "@mui/icons-material/Download";
 import SortIcon from "@mui/icons-material/Sort";
 import ReceiptIcon from "@mui/icons-material/Receipt";
+import DeleteIcon from "@mui/icons-material/Delete";
 import { markAsViewed } from './useNotificationCounts';
 import generatePaymentReceipt from './pdf/generatePaymentReceipt';
 import { viewPaymentReceiptPDF } from './utils/pdfViewerUtils';
+import { useAuth } from "./AuthProvider";
+import Swal from "sweetalert2";
 
 export default function PaymentsDashboard() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const { userRole } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
@@ -282,6 +267,31 @@ export default function PaymentsDashboard() {
     }
   };
 
+  const handleDeletePayment = async (payment) => {
+    const result = await Swal.fire({
+      title: 'Delete Payment?',
+      html: `
+        <p>Delete payment for <strong>${payment.clientName}</strong>?</p>
+        <p><strong>$${parseFloat(payment.amount).toFixed(2)}</strong> — ${moment(payment.paymentDate).format("MMM D, YYYY")}</p>
+        <p style="color:#d32f2f;font-size:0.9em;">⚠️ This cannot be undone.</p>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Delete',
+      confirmButtonColor: '#d33',
+      cancelButtonText: 'Cancel',
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await deleteDoc(doc(db, 'payments', payment.id));
+      setPayments(prev => prev.filter(p => p.id !== payment.id));
+      setSortedPayments(prev => prev.filter(p => p.id !== payment.id));
+      Swal.fire({ icon: 'success', title: 'Payment Deleted', timer: 1500, showConfirmButton: false });
+    } catch (err) {
+      Swal.fire('Error', 'Failed to delete payment: ' + err.message, 'error');
+    }
+  };
+
   if (loading) {
     return (
       <Container sx={{ mt: 4, textAlign: "center" }}>
@@ -512,7 +522,7 @@ export default function PaymentsDashboard() {
                     {payment.notes}
                   </Typography>
                 )}
-                <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
+                <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <Button
                     size="small"
                     onClick={() =>
@@ -529,6 +539,17 @@ export default function PaymentsDashboard() {
                   >
                     View Receipt
                   </Button>
+                  {userRole === 'god' && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      startIcon={<DeleteIcon />}
+                      onClick={() => handleDeletePayment(payment)}
+                    >
+                      Delete
+                    </Button>
+                  )}
                 </Box>
               </CardContent>
             </Card>
@@ -601,6 +622,16 @@ export default function PaymentsDashboard() {
                         >
                           Receipt
                         </Button>
+                        {userRole === 'god' && (
+                          <IconButton
+                            size="small"
+                            color="error"
+                            title="Delete Payment"
+                            onClick={() => handleDeletePayment(payment)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        )}
                       </Box>
                     </TableCell>
                   </TableRow>

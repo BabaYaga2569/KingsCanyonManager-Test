@@ -119,6 +119,7 @@ import TimeClock from "./TimeClock";
 import MyHours from "./MyHours";
 import ApproveTime from "./ApproveTime";
 import UserProfile from "./UserProfile"; // User profile and password change
+import InviteSignup from "./InviteSignup"; // Employee invite signup page
 
 
 // --------------------- BIDS LIST WITH SORTING ---------------------
@@ -966,6 +967,7 @@ function AppContent() {
         <Route path="/public/sign/:contractId" element={<ContractSigningPage />} />
         <Route path="/public/sign-bid/:bidId" element={<BidSigningPage />} />
         <Route path="/public/pay/:invoiceId" element={<PaymentPortal />} />
+		<Route path="/public/invite/:token" element={<InviteSignup />} />
         
         {/* HOME ROUTE - REDIRECTS CREW/USER TO TIME CLOCK */}
         <Route path="/" element={<HomeRedirect />} />

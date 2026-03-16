@@ -120,6 +120,45 @@ export default function CustomerEditor() {
 
     // action === 'proceed' — save the customer
     try {
+      // 📍 Geocode the address and store coordinates to enable GPS geofencing
+      let geoLat = null;
+      let geoLng = null;
+      const fullAddress = [customer.address, customer.city, customer.state, customer.zip]
+        .filter(Boolean).join(", ");
+
+      try {
+        const encoded = encodeURIComponent(fullAddress);
+        const geoRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`,
+          { headers: { "User-Agent": "KCLManager/1.0 (Kings Canyon Landscaping)" } }
+        );
+        const geoData = await geoRes.json();
+        if (geoData.length > 0) {
+          geoLat = parseFloat(geoData[0].lat);
+          geoLng = parseFloat(geoData[0].lon);
+          console.log(`📍 Geocoded: ${fullAddress} → ${geoLat}, ${geoLng}`);
+        } else {
+          console.warn("📍 Could not geocode address:", fullAddress);
+          // Warn admin — address won't work for GPS geofencing
+          const { value: continueAnyway } = await Swal.fire({
+            icon: "warning",
+            title: "Address Not Found",
+            html: `The address <strong>${fullAddress}</strong> could not be verified on the map.<br/><br/>
+                   Crew members will <strong>not be GPS-blocked</strong> for this customer's jobs until a valid address is saved.<br/><br/>
+                   Continue saving anyway?`,
+            showCancelButton: true,
+            confirmButtonText: "Save Anyway",
+            cancelButtonText: "Go Back & Fix Address",
+          });
+          if (!continueAnyway) {
+            setSaving(false);
+            return;
+          }
+        }
+      } catch (geoErr) {
+        console.warn("📍 Geocoding error:", geoErr);
+      }
+
       const customerData = {
         name: customer.name,
         phone: customer.phone,
@@ -131,7 +170,10 @@ export default function CustomerEditor() {
         notes: customer.notes || "",
         tags: customer.tags || [],
         updatedAt: new Date().toISOString(),
-		nameLower: customer.name.toLowerCase(),   // ← add this
+        nameLower: customer.name.toLowerCase(),
+        // 📍 Stored coordinates for GPS geofencing — null if address unverifiable
+        geoLat,
+        geoLng,
       };
 
       if (isNewCustomer) {
