@@ -380,17 +380,6 @@ export default function BidEditor() {
       return;
     }
 
-    if (!bid.description || !bid.description.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "Description Required",
-        html: `Please describe the work to be done.<br/><br/>
-               <small>This appears on the bid document and helps your crew know what the job is.</small>`,
-        confirmButtonText: "OK",
-      });
-      return;
-    }
-
     setSaving(true);
     try {
       const docRef = doc(db, "bids", id);

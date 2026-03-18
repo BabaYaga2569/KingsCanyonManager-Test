@@ -12,7 +12,6 @@ import {
   Link,
   useLocation,
   useNavigate,
-  Navigate,
 } from "react-router-dom";
 import {
   AppBar,
@@ -119,7 +118,6 @@ import TimeClock from "./TimeClock";
 import MyHours from "./MyHours";
 import ApproveTime from "./ApproveTime";
 import UserProfile from "./UserProfile"; // User profile and password change
-import InviteSignup from "./InviteSignup"; // Employee invite signup page
 
 
 // --------------------- BIDS LIST WITH SORTING ---------------------
@@ -629,13 +627,16 @@ function BidsList() {
 // ------------------------- HOME REDIRECT COMPONENT -------------------------
 function HomeRedirect() {
   const { userRole } = useAuth();
+  const navigate = useNavigate();
 
-  // Still loading role
-  if (!userRole) return null;
+  useEffect(() => {
+    if (userRole === 'crew' || userRole === 'user') {
+      navigate('/time-clock', { replace: true });
+    }
+  }, [userRole, navigate]);
 
-  // Crew members get instantly redirected to time clock
   if (userRole === 'crew' || userRole === 'user') {
-    return <Navigate to="/time-clock" replace />;
+    return null;
   }
 
   return <EnhancedDashboard />;
@@ -655,19 +656,21 @@ function HomeRedirect() {
  */
 function AdminRoute({ children }) {
   const { userRole } = useAuth();
-
-  // Still loading role
-  if (!userRole) return null;
-
-  // Non-admin gets instantly redirected
-  if (userRole !== 'admin' && userRole !== 'god') {
-    return <Navigate to="/time-clock" replace />;
+  const navigate = useNavigate();
+  
+  useEffect(() => {
+    if (userRole && userRole !== 'admin' && userRole !== 'god') {
+      navigate('/time-clock', { replace: true });
+    }
+  }, [userRole, navigate]);
+  
+  // Prevent rendering if user is not admin/god or role is not yet loaded
+  if (!userRole || (userRole !== 'admin' && userRole !== 'god')) {
+    return null;
   }
-
+  
   return children;
 }
-  
-  
 
 // ------------------------- APP CHROME -------------------------
 function AppContent() {
@@ -942,6 +945,49 @@ function AppContent() {
         <Route path="/time-clock" element={<TimeClock />} />
         <Route path="/my-hours" element={<MyHours />} />
         <Route path="/profile" element={<UserProfile />} />
+        
+        {/* ADMIN/GOD ROUTES */}
+        <Route path="/approve-time" element={<ApproveTime />} />
+        
+        {/* HOME ROUTE - REDIRECTS CREW TO TIME CLOCK */}
+        <Route path="/" element={<HomeRedirect />} />
+        
+        {/* EXISTING ROUTES */}
+        <Route path="/bids" element={<BidsList />} />
+        <Route path="/bid/:id" element={<BidEditor />} />
+        <Route path="/create-bid" element={<CreateBid />} />
+        <Route path="/contracts" element={<ContractsDashboard />} />
+        <Route path="/contract/:id" element={<ContractEditor />} />
+        <Route path="/invoices" element={<InvoicesDashboard />} />
+        <Route path="/invoice/:id" element={<InvoiceEditor />} />
+		{/* OLD migration page - disabled */}
+        {/* <Route path="/migration" element={<MigrationPage />} /> */}
+
+        {/* NEW migration dashboard */}
+        <Route path="/migration" element={<MigrationDashboard />} />
+        <Route path="/jobs" element={<JobsManager />} />
+        <Route path="/notes" element={<NotesManager />} /> {/* â† ADDED: Notes route */}
+        <Route path="/customers" element={<CustomersDashboard />} />
+        <Route path="/customer-edit/:id" element={<CustomerEditor />} />
+        <Route path="/customer/:id" element={<CustomerProfile />} />
+        <Route path="/schedule-job" element={<ScheduleJob />} />
+        <Route path="/migrate-tokens" element={<MigrationPage />} />
+        <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
+        <Route path="/calendar-view" element={<CalendarView />} />
+        {/* 🔒 CRITICAL: Maintenance routes - DO NOT REMOVE */}
+        <Route path="/maintenance" element={<MaintenanceDashboard />} />
+        <Route path="/maintenance/:id" element={<MaintenanceEditor />} />
+        <Route path="/notification-settings" element={<NotificationSettings />} /> {/* NEW: SMS Settings */}
+        {/* ========================================= */}
+        <Route path="/payment-tracker/:id" element={<PaymentTracker />} />
+        <Route path="/payments-dashboard" element={<PaymentsDashboard />} />
+        <Route path="/crew-manager" element={<CrewManager />} />
+        <Route path="/equipment-manager" element={<EquipmentManager />} />
+		<Route path="/employees" element={<EmployeeAccountManager currentUser={user} currentUserRole={userRole} />} />
+        <Route path="/nda/:crewId" element={<NDAEditor />} />
+        <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
+        
+        {/* NEW: Employee First-Login NDA Signing */}
         <Route 
           path="/nda-signing" 
           element={
@@ -967,11 +1013,9 @@ function AppContent() {
         <Route path="/public/sign/:contractId" element={<ContractSigningPage />} />
         <Route path="/public/sign-bid/:bidId" element={<BidSigningPage />} />
         <Route path="/public/pay/:invoiceId" element={<PaymentPortal />} />
-		<Route path="/public/invite/:token" element={<InviteSignup />} />
         
         {/* HOME ROUTE - REDIRECTS CREW/USER TO TIME CLOCK */}
         <Route path="/" element={<HomeRedirect />} />
-        <Route path="/dashboard" element={<HomeRedirect />} />
         
         {/* ADMIN/GOD ONLY ROUTES */}
         <Route path="/approve-time" element={<AdminRoute><ApproveTime /></AdminRoute>} />

@@ -21,12 +21,16 @@ import Swal from "sweetalert2";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import SortIcon from "@mui/icons-material/Sort";
+import DownloadIcon from "@mui/icons-material/Download";
+import GpsFixedIcon from "@mui/icons-material/GpsFixed";
 import { markAsViewed } from './useNotificationCounts';
+import { exportCustomersToExcel, exportCustomersToCSV } from './utils/kclExportUtils';
 
 export default function CustomersDashboard() {
   const [customers, setCustomers] = useState([]);
   const [sortedCustomers, setSortedCustomers] = useState([]);
   const [sortOrder, setSortOrder] = useState("value-high");
+  const [gpsFilter, setGpsFilter] = useState("all"); // all | ready | missing
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -74,8 +78,14 @@ export default function CustomersDashboard() {
           return 0;
       }
     });
-    setSortedCustomers(sorted);
-  }, [customers, sortOrder]);
+    // Apply GPS filter
+    const filtered = gpsFilter === "ready"
+      ? sorted.filter(c => c.geoLat && c.geoLng)
+      : gpsFilter === "missing"
+      ? sorted.filter(c => !c.geoLat || !c.geoLng)
+      : sorted;
+    setSortedCustomers(filtered);
+  }, [customers, sortOrder, gpsFilter]);
 
   const handleDelete = async (id, name) => {
     const confirm = await Swal.fire({
@@ -140,6 +150,31 @@ export default function CustomersDashboard() {
             </Select>
           </FormControl>
 
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<GpsFixedIcon />}
+            onClick={() => setGpsFilter(f => f === "missing" ? "all" : "missing")}
+            color={gpsFilter === "missing" ? "error" : "default"}
+          >
+            {gpsFilter === "missing" ? "Showing: No GPS" : "No GPS Only"}
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={() => exportCustomersToExcel(sortedCustomers)}
+          >
+            Excel
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<DownloadIcon />}
+            onClick={() => exportCustomersToCSV(sortedCustomers)}
+          >
+            CSV
+          </Button>
           <Button
             variant="contained"
             startIcon={<PersonAddIcon />}
@@ -220,6 +255,21 @@ export default function CustomersDashboard() {
                   <Chip label={`${customer.bidCount || 0} Bids`} size="small" variant="outlined" />
                   <Chip label={`${customer.contractCount || 0} Contracts`} size="small" variant="outlined" />
                   <Chip label={`${customer.invoiceCount || 0} Invoices`} size="small" variant="outlined" />
+                  {customer.geoLat && customer.geoLng ? (
+                    <Chip
+                      icon={<GpsFixedIcon />}
+                      label="GPS Ready"
+                      size="small"
+                      sx={{ bgcolor: "#e8f5e9", color: "#2e7d32", fontWeight: 700, "& .MuiChip-icon": { color: "#2e7d32" } }}
+                    />
+                  ) : (
+                    <Chip
+                      icon={<GpsFixedIcon />}
+                      label="No GPS"
+                      size="small"
+                      sx={{ bgcolor: "#ffebee", color: "#c62828", fontWeight: 700, "& .MuiChip-icon": { color: "#c62828" } }}
+                    />
+                  )}
                 </Box>
               </CardContent>
 

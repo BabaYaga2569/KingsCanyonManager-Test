@@ -42,7 +42,6 @@ import {
   List,
   ListItem,
   ListItemText,
-  Autocomplete,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import AddIcon from "@mui/icons-material/Add";
@@ -189,7 +188,6 @@ export default function ExpensesManager() {
   const [scannedData, setScannedData] = useState(null);
   const [showItemizedView, setShowItemizedView] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
-  const [expandedExpenseId, setExpandedExpenseId] = useState(null);
 
   const [expenseForm, setExpenseForm] = useState({
     type: "material",
@@ -300,23 +298,6 @@ export default function ExpensesManager() {
         receiptFileName: file.name,
       });
     }
-  };
-
-  // ── HELPER: Get display description for an expense ──────────────────────
-  const getDisplayDescription = (expense) => {
-    if (expense.description && expense.description.trim()) return expense.description.trim();
-    if (expense.lineItems && expense.lineItems.length > 0) {
-      return expense.lineItems
-        .slice(0, 4)
-        .map(i => i.item || i.description || String(i))
-        .filter(Boolean)
-        .join(', ');
-    }
-    return null;
-  };
-
-  const toggleExpanded = (id) => {
-    setExpandedExpenseId(prev => prev === id ? null : id);
   };
 
   // Receipt Scanner Handler
@@ -687,19 +668,14 @@ export default function ExpensesManager() {
         const expense = expenses.find((e) => e.id === id);
         
         if (expense.jobId) {
-          try {
-            const jobRef = doc(db, "jobs", expense.jobId);
-            const job = jobs.find((j) => j.id === expense.jobId);
-            const currentExpenses = job?.totalExpenses || 0;
-            const newTotal = Math.max(0, currentExpenses - parseFloat(expense.amount));
-            await updateDoc(jobRef, {
-              totalExpenses: newTotal,
-              expenseCount: Math.max(0, (job?.expenseCount || 1) - 1),
-            });
-          } catch (jobErr) {
-            // Job may have been deleted already — log and continue
-            console.warn("Could not update job totals (job may be deleted):", jobErr.message);
-          }
+          const jobRef = doc(db, "jobs", expense.jobId);
+          const job = jobs.find((j) => j.id === expense.jobId);
+          const currentExpenses = job?.totalExpenses || 0;
+          const newTotal = Math.max(0, currentExpenses - parseFloat(expense.amount));
+          await updateDoc(jobRef, {
+            totalExpenses: newTotal,
+            expenseCount: Math.max(0, (job?.expenseCount || 1) - 1),
+          });
         }
 
         await deleteDoc(doc(db, "expenses", id));
@@ -1070,52 +1046,14 @@ export default function ExpensesManager() {
                         <Chip icon={<ReceiptIcon />} label="Receipt" size="small" />
                       )}
                       {expense.lineItems && expense.lineItems.length > 0 && (
-                        <Chip
-                          label={`${expense.lineItems.length} items`}
-                          color="primary"
-                          size="small"
-                          onClick={() => toggleExpanded(expense.id)}
-                          sx={{ cursor: "pointer" }}
-                        />
+                        <Chip label={`${expense.lineItems.length} items`} color="primary" size="small" />
                       )}
                     </Box>
-
-                    {/* Description — shows auto-generated from items if no manual description */}
-                    {getDisplayDescription(expense) && (
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        sx={{ mt: 1, fontStyle: "italic", fontSize: "0.78rem" }}
-                      >
-                        {getDisplayDescription(expense)}
+                    {expense.description && (
+                      <Typography variant="body2" sx={{ mt: 1 }}>
+                        {expense.description}
                       </Typography>
                     )}
-
-                    {/* Expandable line items */}
-                    {expandedExpenseId === expense.id && expense.lineItems && expense.lineItems.length > 0 && (
-                      <Box sx={{ mt: 1.5, bgcolor: "#f5f5f5", borderRadius: 1, p: 1.5 }}>
-                        <Typography variant="caption" sx={{ fontWeight: 700, display: "block", mb: 0.5 }}>
-                          Line Items ({expense.lineItems.length}):
-                        </Typography>
-                        {expense.lineItems.map((item, idx) => (
-                          <Box key={idx} sx={{ display: "flex", justifyContent: "space-between", py: 0.25 }}>
-                            <Typography variant="caption" sx={{ flex: 1, pr: 1 }}>
-                              {item.item || item.description || "Item"}
-                            </Typography>
-                            <Typography variant="caption" sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>
-                              ${parseFloat(item.price || 0).toFixed(2)}
-                            </Typography>
-                          </Box>
-                        ))}
-                        <Box sx={{ borderTop: "1px solid #ddd", mt: 0.5, pt: 0.5, display: "flex", justifyContent: "space-between" }}>
-                          <Typography variant="caption" sx={{ fontWeight: 700 }}>Total</Typography>
-                          <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                            ${expense.lineItems.reduce((s, i) => s + parseFloat(i.price || 0), 0).toFixed(2)}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    )}
-
                     <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
                       {expense.jobName}
                     </Typography>
@@ -1155,8 +1093,8 @@ export default function ExpensesManager() {
                 <TableCell>Category</TableCell>
                 <TableCell>Job</TableCell>
                 <TableCell align="right">Amount</TableCell>
-                <TableCell>What Was Purchased</TableCell>
-                <TableCell>Tax Ded.</TableCell>
+                <TableCell>Items</TableCell>
+                <TableCell>Tax Deductible</TableCell>
                 <TableCell>Receipt</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -1172,120 +1110,53 @@ export default function ExpensesManager() {
                 filteredExpenses
                   .sort((a, b) => new Date(b.date) - new Date(a.date))
                   .map((expense) => (
-                    <React.Fragment key={expense.id}>
-                      <TableRow
-                        sx={{
-                          cursor: expense.lineItems?.length > 0 ? "pointer" : "default",
-                          bgcolor: expandedExpenseId === expense.id ? "#f3f8ff" : "inherit",
-                          "&:hover": { bgcolor: "#fafafa" },
-                        }}
-                        onClick={() => expense.lineItems?.length > 0 && toggleExpanded(expense.id)}
-                      >
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          {moment(expense.date).format("MMM DD, YYYY")}
-                        </TableCell>
-                        <TableCell sx={{ fontWeight: 600 }}>{expense.vendor}</TableCell>
-                        <TableCell>
-                          <Chip label={expense.category} size="small" />
-                        </TableCell>
-                        <TableCell sx={{ maxWidth: 140 }}>
-                          <Typography variant="body2" noWrap title={expense.jobName}>
-                            {expense.jobName || "—"}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700 }}>
-                          ${parseFloat(expense.amount).toFixed(2)}
-                        </TableCell>
-                        <TableCell sx={{ maxWidth: 260 }}>
-                          {/* Description line — auto-generated from items if blank */}
-                          {getDisplayDescription(expense) ? (
-                            <Box>
-                              <Typography
-                                variant="body2"
-                                color="text.secondary"
-                                sx={{ fontSize: "0.78rem", fontStyle: "italic" }}
-                                noWrap
-                                title={getDisplayDescription(expense)}
-                              >
-                                {getDisplayDescription(expense)}
-                              </Typography>
-                              {expense.lineItems?.length > 0 && (
-                                <Typography variant="caption" color="primary" sx={{ cursor: "pointer" }}>
-                                  {expandedExpenseId === expense.id ? "▲ hide" : `▼ ${expense.lineItems.length} items`}
-                                </Typography>
-                              )}
-                            </Box>
-                          ) : (
-                            <Typography variant="body2" color="text.disabled">—</Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {expense.taxDeductible ? (
-                            <Chip label="Yes" color="success" size="small" />
-                          ) : (
-                            <Chip label="No" size="small" />
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {expense.receiptUrl && (
-                            <IconButton
-                              size="small"
-                              onClick={(e) => { e.stopPropagation(); window.open(expense.receiptUrl, "_blank"); }}
-                            >
-                              <VisibilityIcon />
-                            </IconButton>
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
-                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleEdit(expense); }}>
-                            <EditIcon />
-                          </IconButton>
+                    <TableRow key={expense.id}>
+                      <TableCell>{moment(expense.date).format("MMM DD, YYYY")}</TableCell>
+                      <TableCell>{expense.vendor}</TableCell>
+                      <TableCell>
+                        <Chip label={expense.category} size="small" />
+                      </TableCell>
+                      <TableCell>{expense.jobName}</TableCell>
+                      <TableCell align="right">
+                        ${parseFloat(expense.amount).toFixed(2)}
+                      </TableCell>
+                      <TableCell>
+                        {expense.lineItems && expense.lineItems.length > 0 ? (
+                          <Chip label={`${expense.lineItems.length} items`} size="small" color="primary" />
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {expense.taxDeductible ? (
+                          <Chip label="Yes" color="success" size="small" />
+                        ) : (
+                          <Chip label="No" size="small" />
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {expense.receiptUrl && (
                           <IconButton
                             size="small"
-                            color="error"
-                            onClick={(e) => { e.stopPropagation(); handleDelete(expense.id); }}
+                            onClick={() => window.open(expense.receiptUrl, "_blank")}
                           >
-                            <DeleteIcon />
+                            <VisibilityIcon />
                           </IconButton>
-                        </TableCell>
-                      </TableRow>
-
-                      {/* Expandable line items row */}
-                      {expandedExpenseId === expense.id && expense.lineItems?.length > 0 && (
-                        <TableRow sx={{ bgcolor: "#f3f8ff" }}>
-                          <TableCell colSpan={9} sx={{ py: 0, px: 4 }}>
-                            <Box sx={{ py: 1.5 }}>
-                              <Typography variant="caption" sx={{ fontWeight: 700, display: "block", mb: 1, color: "primary.main" }}>
-                                📋 {expense.vendor} — Full Item Breakdown ({expense.lineItems.length} items):
-                              </Typography>
-                              <Box sx={{
-                                display: "grid",
-                                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                                gap: 0.5,
-                              }}>
-                                {expense.lineItems.map((item, idx) => (
-                                  <Box key={idx} sx={{ display: "flex", justifyContent: "space-between", px: 1, py: 0.25, bgcolor: "white", borderRadius: 1 }}>
-                                    <Typography variant="caption" sx={{ flex: 1, pr: 2 }}>
-                                      {item.item || item.description || "Item"}
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-                                      ${parseFloat(item.price || 0).toFixed(2)}
-                                    </Typography>
-                                  </Box>
-                                ))}
-                              </Box>
-                              <Box sx={{ mt: 1, textAlign: "right" }}>
-                                <Typography variant="caption" color="text.secondary">
-                                  Items subtotal: ${expense.lineItems.reduce((s, i) => s + parseFloat(i.price || 0), 0).toFixed(2)}
-                                  {" · "}
-                                  Recorded total: ${parseFloat(expense.amount).toFixed(2)}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </React.Fragment>
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
+                        <IconButton size="small" onClick={() => handleEdit(expense)}>
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleDelete(expense.id)}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
                   ))
               )}
             </TableBody>
@@ -1525,26 +1396,36 @@ export default function ExpensesManager() {
             </Grid>
 
             <Grid item xs={12}>
-              <Autocomplete
-                options={[{ id: '', clientName: 'General Business Expense' }, ...jobs]}
-                getOptionLabel={(option) => option.clientName || ''}
-                value={
-                  expenseForm.jobId
-                    ? jobs.find((j) => j.id === expenseForm.jobId) || null
-                    : { id: '', clientName: 'General Business Expense' }
-                }
-                onChange={(e, selected) => {
+              <TextField
+                select
+                label="Link to Job (Optional)"
+                value={expenseForm.jobId}
+                onChange={(e) => {
+                  const selectedJob = jobs.find((j) => j.id === e.target.value);
                   setExpenseForm({
                     ...expenseForm,
-                    jobId: selected?.id || '',
-                    jobName: selected?.clientName || '',
+                    jobId: e.target.value,
+                    jobName: selectedJob ? selectedJob.clientName : "",
                   });
                 }}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-                renderInput={(params) => (
-                  <TextField {...params} label="Link to Job (Optional)" fullWidth />
-                )}
-              />
+                fullWidth
+                SelectProps={{
+                  MenuProps: {
+                    PaperProps: {
+                      style: {
+                        maxHeight: 300,
+                      },
+                    },
+                  },
+                }}
+              >
+                <MenuItem value="">General Business Expense</MenuItem>
+                {jobs.map((job) => (
+                  <MenuItem key={job.id} value={job.id}>
+                    {job.clientName}
+                  </MenuItem>
+                ))}
+              </TextField>
             </Grid>
 
             <Grid item xs={12}>
