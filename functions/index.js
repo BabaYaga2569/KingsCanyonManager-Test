@@ -1008,7 +1008,9 @@ RULES — follow these strictly:
   "reasoning": "How you arrived at the numbers and any assumptions made"
 }
 
-Only respond in plain text if the user asks a general non-job question. Otherwise always return JSON.`;
+Only respond in plain text if the user asks a general non-job question. Otherwise always return JSON.
+
+If the user asks to adjust the margin (e.g. "bump up the margin 10%", "add 20% profit", "increase the bid"), recalculate recommendedAmount accordingly and return updated JSON with the new amount and updated reasoning explaining the margin change.`;
 
   // Build image blocks once — inject into every user message so AI always has context
   const imageBlocks = (photos && photos.length > 0) ? photos.map(base64 => {

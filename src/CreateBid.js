@@ -173,8 +173,34 @@ export default function CreateBid() {
     setDescription(s.description);
     setMaterials(s.materials);
     setAmount(String(s.recommendedAmount));
+
+    // Build profit breakdown for notes
+    const revenue = parseFloat(s.recommendedAmount) || 0;
+    const laborCost = parseFloat(s.laborCost) || 0;
+    const materialsCost = parseFloat(s.materialsCost) || 0;
+    const totalCost = laborCost + materialsCost;
+    const profit = revenue - totalCost;
+    const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : 0;
+    const crewCost = (parseFloat(s.estimatedHours) || 0) * 15.15;
+    const netProfit = revenue - materialsCost - crewCost;
+    const netMargin = revenue > 0 ? ((netProfit / revenue) * 100).toFixed(1) : 0;
+
+    const notesLines = [
+      "--- AI Estimate Breakdown ---",
+      "Est. Hours: " + s.estimatedHours + "h @ $60/hr billing rate",
+      "Labor Cost (billing): $" + laborCost,
+      "Materials Cost: ~$" + materialsCost,
+      "Total Cost: $" + totalCost,
+      "Bid Amount: $" + revenue,
+      "Gross Profit: $" + profit.toFixed(0) + " (" + margin + "% margin)",
+      "Net Profit (crew @ $15.15/hr): $" + netProfit.toFixed(0) + " (" + netMargin + "% net margin)",
+      s.reasoning ? "AI Notes: " + s.reasoning : "",
+    ].filter(Boolean);
+    const notesBreakdown = notesLines.join("\n");
+
+    setNotes(notesBreakdown);
     setAiOpen(false);
-    Swal.fire({ icon: "success", title: "Applied to Bid!", text: "Description, materials, and amount have been filled in. Review and adjust as needed.", timer: 2500, showConfirmButton: false });
+    Swal.fire({ icon: "success", title: "Applied to Bid!", text: "Description, materials, amount, and profit breakdown have been filled in.", timer: 2500, showConfirmButton: false });
   };
 
   // Fetch customers for dropdown — only show customers with email AND address
