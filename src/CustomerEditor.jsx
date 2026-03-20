@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, addDoc, updateDoc, collection, getDocs, query, where, or } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  addDoc,
+  updateDoc,
+  collection,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
 import { db } from "./firebase";
 import {
   Box,
@@ -15,6 +24,7 @@ import {
   Chip,
   OutlinedInput,
   CircularProgress,
+  Alert,
 } from "@mui/material";
 import SaveIcon from "@mui/icons-material/Save";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -22,12 +32,37 @@ import Swal from "sweetalert2";
 
 const TAG_OPTIONS = ["VIP", "weekly-mowing", "commercial", "residential", "priority"];
 
+function splitFullName(fullName = "") {
+  const trimmed = (fullName || "").trim();
+  if (!trimmed) {
+    return { firstName: "", lastName: "" };
+  }
+
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) {
+    return { firstName: parts[0], lastName: "" };
+  }
+
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
+function isValidEmail(email = "") {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
 export default function CustomerEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
   const [customer, setCustomer] = useState({
+    firstName: "",
+    lastName: "",
     name: "",
     phone: "",
     email: "",
@@ -54,7 +89,31 @@ export default function CustomerEditor() {
       const docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
-        setCustomer({ id: docSnap.id, ...docSnap.data() });
+        const data = docSnap.data();
+
+        let firstName = data.firstName || "";
+        let lastName = data.lastName || "";
+
+        if (!firstName || !lastName) {
+          const split = splitFullName(data.name || "");
+          firstName = firstName || split.firstName;
+          lastName = lastName || split.lastName;
+        }
+
+        setCustomer({
+          id: docSnap.id,
+          firstName,
+          lastName,
+          name: data.name || `${firstName} ${lastName}`.trim(),
+          phone: data.phone || "",
+          email: data.email || "",
+          address: data.address || "",
+          city: data.city || "",
+          state: data.state || "AZ",
+          zip: data.zip || "",
+          notes: data.notes || "",
+          tags: data.tags || [],
+        });
       } else {
         Swal.fire("Not Found", "Customer not found", "error");
         navigate("/customers");
@@ -70,55 +129,113 @@ export default function CustomerEditor() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setCustomer({ ...customer, [name]: value });
+    setCustomer((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   };
 
   const handleTagsChange = (event) => {
     const {
       target: { value },
     } = event;
-    setCustomer({
-      ...customer,
+
+    setCustomer((prev) => ({
+      ...prev,
       tags: typeof value === "string" ? value.split(",") : value,
-    });
+    }));
   };
 
   const checkForDuplicates = async () => {
     try {
       const customersRef = collection(db, "customers");
-      
-      // Check for exact name match or phone match
-      const nameQuery = query(customersRef, where("name", "==", customer.name.trim()));
-      const phoneQuery = query(customersRef, where("phone", "==", customer.phone.trim()));
-      
-      const [nameResults, phoneResults] = await Promise.all([
-        getDocs(nameQuery),
-        getDocs(phoneQuery)
-      ]);
-      
-      const duplicates = [];
+
+      const normalizedEmail = customer.email.trim().toLowerCase();
+      const normalizedPhone = customer.phone.trim();
+      const normalizedFirstName = customer.firstName.trim().toLowerCase();
+      const normalizedLastName = customer.lastName.trim().toLowerCase();
+      const normalizedAddress = customer.address.trim().toLowerCase();
+
+      const duplicateMatches = [];
       const seenIds = new Set();
-      
-      // Collect unique duplicates
-      nameResults.forEach(doc => {
-        if (!seenIds.has(doc.id)) {
-          seenIds.add(doc.id);
-          duplicates.push({ id: doc.id, ...doc.data(), matchType: 'name' });
+
+      // Check email duplicates
+      if (normalizedEmail) {
+        const emailQuery = query(customersRef, where("email", "==", normalizedEmail));
+        const emailResults = await getDocs(emailQuery);
+
+        emailResults.forEach((snap) => {
+          if (snap.id === id) return;
+          if (!seenIds.has(snap.id)) {
+            seenIds.add(snap.id);
+            duplicateMatches.push({
+              id: snap.id,
+              ...snap.data(),
+              matchType: "email",
+            });
+          }
+        });
+      }
+
+      // Check phone duplicates
+      if (normalizedPhone) {
+        const phoneQuery = query(customersRef, where("phone", "==", normalizedPhone));
+        const phoneResults = await getDocs(phoneQuery);
+
+        phoneResults.forEach((snap) => {
+          if (snap.id === id) return;
+          const existing = duplicateMatches.find((d) => d.id === snap.id);
+
+          if (existing) {
+            existing.matchType = existing.matchType.includes("phone")
+              ? existing.matchType
+              : `${existing.matchType} + phone`;
+          } else if (!seenIds.has(snap.id)) {
+            seenIds.add(snap.id);
+            duplicateMatches.push({
+              id: snap.id,
+              ...snap.data(),
+              matchType: "phone",
+            });
+          }
+        });
+      }
+
+      // Check same name + same address duplicates
+      const nameQuery = query(customersRef, where("name", "==", `${customer.firstName.trim()} ${customer.lastName.trim()}`.trim()));
+      const nameResults = await getDocs(nameQuery);
+
+      nameResults.forEach((snap) => {
+        if (snap.id === id) return;
+
+        const data = snap.data();
+        const snapAddress = (data.address || "").trim().toLowerCase();
+
+        const sameName =
+          ((data.firstName || splitFullName(data.name || "").firstName).trim().toLowerCase() === normalizedFirstName) &&
+          ((data.lastName || splitFullName(data.name || "").lastName).trim().toLowerCase() === normalizedLastName);
+
+        const sameAddress = snapAddress && normalizedAddress && snapAddress === normalizedAddress;
+
+        if (sameName && sameAddress) {
+          const existing = duplicateMatches.find((d) => d.id === snap.id);
+
+          if (existing) {
+            existing.matchType = existing.matchType.includes("same name + address")
+              ? existing.matchType
+              : `${existing.matchType} + same name + address`;
+          } else if (!seenIds.has(snap.id)) {
+            seenIds.add(snap.id);
+            duplicateMatches.push({
+              id: snap.id,
+              ...data,
+              matchType: "same name + address",
+            });
+          }
         }
       });
-      
-      phoneResults.forEach(doc => {
-        if (!seenIds.has(doc.id)) {
-          seenIds.add(doc.id);
-          duplicates.push({ id: doc.id, ...doc.data(), matchType: 'phone' });
-        } else {
-          // If already added by name, mark as both
-          const existing = duplicates.find(d => d.id === doc.id);
-          if (existing) existing.matchType = 'both';
-        }
-      });
-      
-      return duplicates;
+
+      return duplicateMatches;
     } catch (error) {
       console.error("Error checking for duplicates:", error);
       return [];
@@ -126,83 +243,84 @@ export default function CustomerEditor() {
   };
 
   const handleSave = async () => {
-        // Validation - Phase 2A: address is now required
-    if (!customer.name || !customer.phone || !customer.address) {
-      const missing = [];
-      if (!customer.name) missing.push("Name");
-      if (!customer.phone) missing.push("Phone");
-      if (!customer.address) missing.push("Address");
+    const missing = [];
+
+    if (!customer.firstName.trim()) missing.push("First Name");
+    if (!customer.lastName.trim()) missing.push("Last Name");
+    if (!customer.phone.trim()) missing.push("Phone Number");
+    if (!customer.email.trim()) missing.push("Email Address");
+    if (!customer.address.trim()) missing.push("Street Address");
+    if (!customer.city.trim()) missing.push("City");
+    if (!customer.state.trim()) missing.push("State");
+    if (!customer.zip.trim()) missing.push("ZIP Code");
+
+    if (missing.length > 0) {
       Swal.fire(
-        "Missing Info",
+        "Missing Required Information",
         `The following fields are required: ${missing.join(", ")}`,
         "warning"
       );
       return;
     }
 
+    if (!isValidEmail(customer.email)) {
+      Swal.fire(
+        "Invalid Email",
+        "Please enter a valid email address. Email is required for bids, contracts, invoices, and payment requests.",
+        "warning"
+      );
+      return;
+    }
+
     setSaving(true);
+
     try {
-      // Check for duplicates BEFORE creating a new customer
-      if (isNewCustomer) {
-        const duplicates = await checkForDuplicates();
-        
-        if (duplicates.length > 0) {
-          setSaving(false);
-          
-          // Build HTML for duplicate info
-          const duplicate = duplicates[0]; // Show first match
-          const matchInfo = duplicate.matchType === 'both' 
-            ? 'name and phone number'
-            : duplicate.matchType === 'name' 
-            ? 'name' 
-            : 'phone number';
-          
-          const result = await Swal.fire({
-            icon: "warning",
-            title: "Possible Duplicate Found!",
-            html: `
-              <div style="text-align: left;">
-                <p>A customer with the same <strong>${matchInfo}</strong> already exists:</p>
-                <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 15px 0;">
-                  <p style="margin: 5px 0;"><strong>Name:</strong> ${duplicate.name}</p>
-                  ${duplicate.phone ? `<p style="margin: 5px 0;"><strong>Phone:</strong> ${duplicate.phone}</p>` : ''}
-                  ${duplicate.email ? `<p style="margin: 5px 0;"><strong>Email:</strong> ${duplicate.email}</p>` : ''}
-                  ${duplicate.address ? `<p style="margin: 5px 0;"><strong>Address:</strong> ${duplicate.address}</p>` : ''}
-                </div>
-                <p>What would you like to do?</p>
+      const duplicates = await checkForDuplicates();
+
+      if (duplicates.length > 0) {
+        setSaving(false);
+
+        const duplicate = duplicates[0];
+        const displayName =
+          duplicate.name ||
+          `${duplicate.firstName || ""} ${duplicate.lastName || ""}`.trim();
+
+        await Swal.fire({
+          icon: "error",
+          title: "Duplicate Customer Blocked",
+          html: `
+            <div style="text-align:left;">
+              <p>This customer cannot be saved because a duplicate already exists.</p>
+              <div style="background:#f5f5f5; padding:15px; border-radius:8px; margin:15px 0;">
+                <p style="margin:5px 0;"><strong>Existing Customer:</strong> ${displayName || "Unknown"}</p>
+                ${duplicate.phone ? `<p style="margin:5px 0;"><strong>Phone:</strong> ${duplicate.phone}</p>` : ""}
+                ${duplicate.email ? `<p style="margin:5px 0;"><strong>Email:</strong> ${duplicate.email}</p>` : ""}
+                ${duplicate.address ? `<p style="margin:5px 0;"><strong>Address:</strong> ${duplicate.address}</p>` : ""}
+                <p style="margin:5px 0;"><strong>Duplicate Match Type:</strong> ${duplicate.matchType}</p>
               </div>
-            `,
-            showCancelButton: true,
-            showDenyButton: true,
-            confirmButtonText: 'View Existing Customer',
-            denyButtonText: 'Create Anyway',
-            cancelButtonText: 'Cancel',
-            confirmButtonColor: '#2196f3',
-            denyButtonColor: '#ff9800',
-          });
-          
-          if (result.isConfirmed) {
-            // Navigate to existing customer
-            navigate(`/customer/${duplicate.id}`);
-            return;
-          } else if (result.isDenied) {
-            // User wants to create anyway, continue with save
-            setSaving(true);
-          } else {
-            // User cancelled
-            return;
-          }
-        }
+              <p>Use the existing customer record instead of creating a duplicate.</p>
+            </div>
+          `,
+          confirmButtonText: "Open Existing Customer",
+          confirmButtonColor: "#1976d2",
+        });
+
+        navigate(`/customer/${duplicate.id}`);
+        return;
       }
-      
+
+      const fullName = `${customer.firstName.trim()} ${customer.lastName.trim()}`.trim();
+
       const customerData = {
-        name: customer.name,
-        phone: customer.phone,
-        email: customer.email || "",
-        address: customer.address || "",
-        city: customer.city || "",
-        state: customer.state || "AZ",
-        zip: customer.zip || "",
+        firstName: customer.firstName.trim(),
+        lastName: customer.lastName.trim(),
+        name: fullName,
+        phone: customer.phone.trim(),
+        email: customer.email.trim().toLowerCase(),
+        address: customer.address.trim(),
+        city: customer.city.trim(),
+        state: customer.state.trim(),
+        zip: customer.zip.trim(),
         notes: customer.notes || "",
         tags: customer.tags || [],
         updatedAt: new Date().toISOString(),
@@ -215,29 +333,29 @@ export default function CustomerEditor() {
         customerData.contractCount = 0;
         customerData.invoiceCount = 0;
         customerData.jobCount = 0;
-        
-        const docRef = await addDoc(collection(db, "customers"), customerData);
-        
+
+        await addDoc(collection(db, "customers"), customerData);
+
         await Swal.fire({
           icon: "success",
           title: "Customer Added!",
-          text: `${customer.name} has been added to your customers.`,
+          text: `${fullName} has been added to your customers.`,
           timer: 2000,
           showConfirmButton: false,
         });
-        
+
         navigate("/customers");
       } else {
         await updateDoc(doc(db, "customers", id), customerData);
-        
+
         await Swal.fire({
           icon: "success",
           title: "Customer Updated!",
-          text: `${customer.name}'s information has been updated.`,
+          text: `${fullName}'s information has been updated.`,
           timer: 2000,
           showConfirmButton: false,
         });
-        
+
         navigate("/customers");
       }
     } catch (error) {
@@ -258,60 +376,95 @@ export default function CustomerEditor() {
   }
 
   return (
-    <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 800, mx: "auto" }}>
-      {/* Header */}
-      <Box sx={{ display: "flex", gap: 2, mb: 3, alignItems: "center" }}>
-        <Button
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate("/customers")}
-          variant="outlined"
-        >
-          Back
-        </Button>
-        <Typography variant="h5" sx={{ fontWeight: 700 }}>
-          {isNewCustomer ? "Add New Customer" : "Edit Customer"}
-        </Typography>
+    <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 900, mx: "auto" }}>
+      <Box
+        sx={{
+          display: "flex",
+          gap: 2,
+          mb: 3,
+          alignItems: "center",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+        }}
+      >
+        <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+          <Button
+            startIcon={<ArrowBackIcon />}
+            onClick={() => navigate("/customers")}
+            variant="outlined"
+          >
+            Back
+          </Button>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>
+            {isNewCustomer ? "Add New Customer" : "Edit Customer"}
+          </Typography>
+        </Box>
       </Box>
 
-      {/* Form */}
+      <Alert severity="info" sx={{ mb: 3 }}>
+        Customers must have first name, last name, phone number, email, street address, city, state, and ZIP code before saving.
+        Email is required for bids, contracts, invoices, and payment requests. Address is required for scheduling and geofencing.
+      </Alert>
+
       <Paper sx={{ p: { xs: 2, sm: 3 } }}>
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {/* Name */}
-          <TextField
-            label="Customer Name"
-            name="name"
-            value={customer.name}
-            onChange={handleChange}
-            required
-            fullWidth
-            placeholder="e.g., Mrs. Sarah Smith"
-          />
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+              gap: 2,
+            }}
+          >
+            <TextField
+              label="First Name"
+              name="firstName"
+              value={customer.firstName}
+              onChange={handleChange}
+              required
+              fullWidth
+              placeholder="e.g., John"
+            />
+            <TextField
+              label="Last Name"
+              name="lastName"
+              value={customer.lastName}
+              onChange={handleChange}
+              required
+              fullWidth
+              placeholder="e.g., Wayne"
+            />
+          </Box>
 
-          {/* Phone */}
-          <TextField
-            label="Phone Number"
-            name="phone"
-            value={customer.phone}
-            onChange={handleChange}
-            required
-            fullWidth
-            placeholder="e.g., 928-555-1234"
-            type="tel"
-          />
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+              gap: 2,
+            }}
+          >
+            <TextField
+              label="Phone Number"
+              name="phone"
+              value={customer.phone}
+              onChange={handleChange}
+              required
+              fullWidth
+              placeholder="e.g., 928-555-1234"
+              type="tel"
+            />
+            <TextField
+              label="Email Address"
+              name="email"
+              value={customer.email}
+              onChange={handleChange}
+              required
+              fullWidth
+              placeholder="e.g., john.wayne@email.com"
+              type="email"
+            />
+          </Box>
 
-          {/* Email */}
           <TextField
-            label="Email Address"
-            name="email"
-            value={customer.email}
-            onChange={handleChange}
-            fullWidth
-            placeholder="e.g., sarah.smith@email.com"
-            type="email"
-          />
-
-          {/* Address */}
-                    <TextField
             label="Street Address"
             name="address"
             value={customer.address}
@@ -319,10 +472,9 @@ export default function CustomerEditor() {
             required
             fullWidth
             placeholder="e.g., 123 Desert View Dr"
-            helperText="Required – needed for scheduling and GPS navigation"
+            helperText="Required for scheduling, job-site records, and geofencing"
           />
 
-          {/* City, State, Zip */}
           <Box
             sx={{
               display: "grid",
@@ -335,6 +487,7 @@ export default function CustomerEditor() {
               name="city"
               value={customer.city}
               onChange={handleChange}
+              required
               fullWidth
               placeholder="e.g., Bullhead City"
             />
@@ -343,6 +496,7 @@ export default function CustomerEditor() {
               name="state"
               value={customer.state}
               onChange={handleChange}
+              required
               fullWidth
               placeholder="AZ"
             />
@@ -351,12 +505,12 @@ export default function CustomerEditor() {
               name="zip"
               value={customer.zip}
               onChange={handleChange}
+              required
               fullWidth
               placeholder="86442"
             />
           </Box>
 
-          {/* Tags */}
           <FormControl fullWidth>
             <InputLabel>Tags</InputLabel>
             <Select
@@ -384,7 +538,6 @@ export default function CustomerEditor() {
             </Select>
           </FormControl>
 
-          {/* Notes */}
           <TextField
             label="Notes / Special Instructions"
             name="notes"
@@ -393,23 +546,22 @@ export default function CustomerEditor() {
             fullWidth
             multiline
             rows={4}
-            placeholder="e.g., Gate code: 1234, Dog in backyard, Prefers text communication"
-            helperText="Add gate codes, preferences, special instructions, etc."
+            placeholder="e.g., Gate code, dog in backyard, preferred communication, crew notes"
+            helperText="Use this for gate codes, property notes, pet warnings, and service instructions."
           />
 
-          {/* Action Buttons */}
-          <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+          <Box sx={{ display: "flex", gap: 2, mt: 2, flexWrap: "wrap" }}>
             <Button
               variant="contained"
               color="primary"
               startIcon={<SaveIcon />}
               onClick={handleSave}
               disabled={saving}
-              fullWidth
               size="large"
             >
               {saving ? <CircularProgress size={24} /> : isNewCustomer ? "Add Customer" : "Save Changes"}
             </Button>
+
             <Button
               variant="outlined"
               onClick={() => navigate("/customers")}
@@ -421,20 +573,20 @@ export default function CustomerEditor() {
         </Box>
       </Paper>
 
-      {/* Quick Tips */}
       <Paper sx={{ p: 2, mt: 3, bgcolor: "#f5f5f5" }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-          ðŸ’¡ Pro Tips:
+          Pro Tips
         </Typography>
         <Typography variant="body2" component="div">
-          â€¢ Add gate codes and special instructions in Notes
+          • No duplicate customers are allowed
           <br />
-          â€¢ Use VIP tag for your best customers
+          • Use the existing customer record for multiple bids, jobs, invoices, and payments
           <br />
-          â€¢ Use weekly-mowing tag for recurring customers
+          • Full address is required for scheduling and geofencing
           <br />
-          â€¢ Full address helps with GPS navigation
-          <br />â€¢ Phone number is required for calling/texting
+          • Email is required for digital sends and payment workflows
+          <br />
+          • Use Notes for gate codes, dog warnings, and property instructions
         </Typography>
       </Paper>
     </Box>
