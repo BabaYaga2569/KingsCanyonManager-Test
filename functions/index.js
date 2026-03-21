@@ -1,6 +1,7 @@
 const functions = require('firebase-functions');
 const nodemailer = require('nodemailer');
 const admin = require('firebase-admin');
+const fetch = require('node-fetch');
 
 admin.initializeApp();
 
@@ -114,6 +115,43 @@ async function getSettings() {
   const snap = await admin.firestore().collection('notification_settings').limit(1).get();
   if (snap.empty) return null;
   return snap.docs[0].data();
+}
+
+/**
+ * Send a Pushover notification using settings from Firestore
+ */
+async function sendPushoverNotification(title, message) {
+  const settings = await getSettings();
+  if (!settings?.pushoverEnabled || !settings?.pushoverApiKey || !settings?.pushoverUserKey) {
+    return { success: false, reason: 'pushover_not_configured' };
+  }
+
+  try {
+    const response = await fetch('https://api.pushover.net/1/messages.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: settings.pushoverApiKey,
+        user: settings.pushoverUserKey,
+        title,
+        message,
+        priority: 0,
+        sound: 'pushover',
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error('Pushover API error:', result);
+      return { success: false, reason: 'pushover_api_error', error: result };
+    }
+
+    return { success: true, result };
+  } catch (error) {
+    console.error('Pushover send failed:', error);
+    return { success: false, reason: 'pushover_exception', error: error.message };
+  }
 }
 
 // ========================= RECEIPT SCANNER (Claude Vision) =========================
@@ -827,27 +865,56 @@ exports.notifySignature = functions.https.onCall(async (data) => {
       throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
     }
 
+    const isBid = docType === 'bid';
+    const typeLabel = isBid ? 'BID ACCEPTED' : 'CONTRACT SIGNED';
+    const pushoverTitle = isBid ? 'KCL Bid Signed' : 'KCL Contract Signed';
+    const amountLine = amount ? `\n$${parseFloat(amount).toFixed(2)}` : '';
+    const smsMessage = `${typeLabel}\n${customerName}${amountLine}\nCheck the app for details`;
+    const pushoverMessage = `${customerName}${amountLine}\nCheck the app for details`;
+
     const settings = await getSettings();
-    if (!settings || !settings.adminPhones?.length) {
-      return { success: true, message: 'No admins to notify' };
+    if (!settings) {
+      throw new functions.https.HttpsError('failed-precondition', 'Notification settings not found');
     }
 
-    const typeLabel = docType === 'bid' ? 'BID ACCEPTED' : 'CONTRACT SIGNED';
-    const amountStr = amount ? `\n$${parseFloat(amount).toFixed(2)}` : '';
-    const message = `${typeLabel}\n${customerName}${amountStr}\nCheck the app for details`;
+    // Send Pushover first
+    const pushoverResult = await sendPushoverNotification(
+      pushoverTitle,
+      pushoverMessage
+    );
 
-    await sendToAllAdmins(settings, message, 'signature_received', { docType, docId, customerName });
+    // Optional SMS fallback only if Pushover is not configured
+    let smsSent = false;
+    if (!pushoverResult.success &&
+        settings.adminPhones?.length > 0 &&
+        settings.gmailConfigured &&
+        settings.gmailEmail &&
+        settings.gmailAppPassword) {
+      await sendToAllAdmins(settings, smsMessage, 'signature_received', {
+        docType,
+        docId,
+        customerName,
+        amount: amount || null,
+        fallback: 'sms_gateway',
+      });
+      smsSent = true;
+    }
 
     await admin.firestore().collection('notifications_log').add({
       type: 'signature_received',
       docType,
       docId,
       customerName,
-      message,
+      message: smsMessage,
+      pushover: pushoverResult.success,
       sentAt: new Date().toISOString(),
     });
 
-    return { success: true };
+    return {
+      success: true,
+      pushover: pushoverResult.success,
+      fallbackSms: smsSent,
+    };
   } catch (error) {
     console.error('>>> notifySignature error:', error);
     throw new functions.https.HttpsError('internal', error.message);
@@ -882,7 +949,6 @@ exports.autoBidArchive = functions.pubsub
       const sendPushover = async (message) => {
         if (!settings || !settings.pushoverEnabled || !settings.pushoverApiKey || !settings.pushoverUserKey) return;
         try {
-          const fetch = require('node-fetch');
           await fetch('https://api.pushover.net/1/messages.json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -972,8 +1038,6 @@ exports.bidAssistant = functions.runWith({ secrets: ['ANTHROPIC_API_KEY'] }).htt
   if (!messages || !Array.isArray(messages)) {
     throw new functions.https.HttpsError('invalid-argument', 'Messages array required');
   }
-
-  const fetch = require('node-fetch');
 
   const SYSTEM_PROMPT = `You are an expert bid assistant for Kings Canyon Landscaping LLC, a full-service contractor based in Bullhead City, Arizona serving Bullhead City, Fort Mohave, Mohave Valley, and Laughlin NV.
 
