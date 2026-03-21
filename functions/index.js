@@ -921,6 +921,90 @@ exports.notifySignature = functions.https.onCall(async (data) => {
   }
 });
 
+// ========================= BID SIGNING =========================
+
+exports.signPublicBid = functions.https.onCall(async (data) => {
+  console.log('>>> signPublicBid called');
+
+  const { bidId } = data;
+  if (!bidId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing bidId');
+  }
+
+  const bidRef = admin.firestore().collection('bids').doc(bidId);
+  const bidSnap = await bidRef.get();
+  if (!bidSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Bid not found');
+  }
+  const bid = bidSnap.data();
+
+  // Mark bid as accepted
+  const timestamp = new Date().toISOString();
+  await bidRef.update({
+    status: 'Accepted',
+    clientSignedAt: timestamp,
+    lastUpdated: timestamp,
+  });
+  console.log('>>> Bid accepted by client:', bidId);
+
+  // Auto-create job package (non-blocking)
+  try {
+    await admin.firestore().collection('jobs').add({
+      bidId,
+      customerName: bid.customerName || '',
+      amount: bid.amount || 0,
+      status: 'Pending',
+      createdAt: timestamp,
+      source: 'bid_signed',
+    });
+    console.log('>>> Auto-created job package for bid:', bidId);
+  } catch (pkgError) {
+    console.error('>>> Job package creation failed (non-blocking):', pkgError.message);
+  }
+
+  // Notification block (non-blocking)
+  try {
+    const amountStr = bid.amount ? `\n$${parseFloat(bid.amount).toFixed(2)}` : '';
+    const pushoverMessage = `${bid.customerName || 'Customer'} signed bid ${bidId}${amountStr}`;
+    const smsMessage = `BID ACCEPTED\n${bid.customerName || 'Customer'}${amountStr}\nCheck the app for details`;
+
+    const pushoverResult = await sendPushoverNotification('KCL Bid Signed', pushoverMessage);
+
+    let delivery = 'pushover';
+    if (!pushoverResult.success && pushoverResult.reason === 'pushover_not_configured') {
+      const settings = await getSettings();
+      if (settings?.adminPhones?.length > 0 &&
+          settings?.gmailConfigured &&
+          settings?.gmailEmail &&
+          settings?.gmailAppPassword) {
+        await sendToAllAdmins(settings, smsMessage, 'bid_signed', {
+          bidId,
+          customerName: bid.customerName || null,
+          amount: bid.amount || null,
+          fallback: 'sms_gateway',
+        });
+        delivery = 'sms_fallback';
+      } else {
+        delivery = 'skipped';
+      }
+    }
+
+    await admin.firestore().collection('notifications_log').add({
+      type: 'bid_signed',
+      bidId,
+      customerName: bid.customerName || null,
+      amount: bid.amount || null,
+      delivery,
+      pushover: pushoverResult.success,
+      sentAt: new Date().toISOString(),
+    });
+  } catch (notifyError) {
+    console.error('>>> signPublicBid notify error (non-blocking):', notifyError.message);
+  }
+
+  return { success: true, bidId };
+});
+
 // ========================= BID AUTO-ARCHIVE =========================
 // Runs daily at 9 AM Arizona time
 // - Archives bids not edited in 30+ days (if not signed)
