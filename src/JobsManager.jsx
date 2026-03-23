@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   collection,
   getDocs,
+  getDoc,
   updateDoc,
   deleteDoc,
   doc,
@@ -45,6 +46,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PersonIcon from "@mui/icons-material/Person";
 import DownloadIcon from "@mui/icons-material/Download";
 import SearchIcon from "@mui/icons-material/Search";
+import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import { exportJobsToExcel, exportJobsToCSV } from "./utils/kclExportUtils";
 import Swal from "sweetalert2";
 import { markAsViewed } from "./useNotificationCounts";
@@ -585,6 +587,112 @@ export default function JobsManager() {
     );
   }
 
+  const handleScheduleJob = async (job) => {
+    const jobType = job.jobType || "General Service";
+
+    // ── Quick Weed Service ───────────────────────────────────────────────────
+    // Small recurring job — no bid or contract required, schedule immediately
+    if (jobType === "Quick Weed Service") {
+      navigate(`/schedule${job.contractId ? `?contractId=${job.contractId}` : ""}`);
+      return;
+    }
+
+    // ── Emergency ────────────────────────────────────────────────────────────
+    // Bypass full flow — schedule immediately
+    if (jobType === "Emergency") {
+      navigate(`/schedule${job.contractId ? `?contractId=${job.contractId}` : ""}`);
+      return;
+    }
+
+    // ── Maintenance ──────────────────────────────────────────────────────────
+    // Customer must have a signed standing contract on file (matched by clientName)
+    if (jobType === "Maintenance") {
+      try {
+        const contractsSnap = await getDocs(collection(db, "contracts"));
+        const standingContract = contractsSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .find(
+            (c) =>
+              (c.clientName || "").toLowerCase() === (job.clientName || "").toLowerCase() &&
+              c.clientSignature &&
+              c.status !== "cancelled"
+          );
+
+        if (!standingContract) {
+          Swal.fire({
+            icon: "warning",
+            title: "No Signed Contract on File",
+            html: `<p><strong>${job.clientName}</strong> does not have a signed standing contract on file.</p>
+                   <p style="margin-top:12px; color:#555;">
+                     <strong>Required for Maintenance jobs:</strong><br/>
+                     A signed service contract must exist before scheduling recurring visits.
+                   </p>
+                   <p style="margin-top:12px; color:#1565c0;">
+                     Create a maintenance contract, have the customer sign it,<br/>
+                     then come back to schedule their visits.
+                   </p>`,
+            confirmButtonText: "OK, Got It",
+            confirmButtonColor: "#1565c0",
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn("Could not check standing contract:", err.message);
+      }
+      navigate(`/schedule${job.contractId ? `?contractId=${job.contractId}` : ""}`);
+      return;
+    }
+
+    // ── General Service (standard flow) ─────────────────────────────────────
+    // Hard block: job must have a linked contract AND customer must have signed it
+    if (!job.contractId) {
+      Swal.fire({
+        icon: "warning",
+        title: "No Contract Linked",
+        html: `<p>This job has no linked contract.</p>
+               <p style="margin-top:12px; color:#555;">
+                 <strong>Required flow:</strong><br/>
+                 Bid Accepted → Customer Signs Contract → Schedule Job
+               </p>
+               <p style="margin-top:12px; color:#1565c0;">
+                 Create and send a contract to the customer first.
+               </p>`,
+        confirmButtonText: "OK, Got It",
+        confirmButtonColor: "#1565c0",
+      });
+      return;
+    }
+
+    try {
+      const contractSnap = await getDoc(doc(db, "contracts", job.contractId));
+      if (!contractSnap.exists() || !contractSnap.data().clientSignature) {
+        const clientName = contractSnap.exists()
+          ? contractSnap.data().clientName
+          : job.clientName;
+        Swal.fire({
+          icon: "warning",
+          title: "Contract Not Signed Yet",
+          html: `<p><strong>${clientName}</strong> has not signed the contract yet.</p>
+                 <p style="margin-top:12px; color:#555;">
+                   <strong>Required flow:</strong><br/>
+                   Bid Accepted → Customer Signs Contract → Schedule Job
+                 </p>
+                 <p style="margin-top:12px; color:#1565c0;">
+                   Send the contract signing link to the customer first,<br/>
+                   then come back to schedule once they've signed.
+                 </p>`,
+          confirmButtonText: "OK, Got It",
+          confirmButtonColor: "#1565c0",
+        });
+        return;
+      }
+    } catch (err) {
+      console.warn("Could not load contract for schedule check:", err.message);
+    }
+
+    navigate(`/schedule?contractId=${job.contractId}`);
+  };
+
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
@@ -623,6 +731,7 @@ export default function JobsManager() {
               <MenuItem value="Quick Weed Service">Quick Weed Service</MenuItem>
               <MenuItem value="Maintenance">Maintenance</MenuItem>
               <MenuItem value="General Service">General Service</MenuItem>
+              <MenuItem value="Emergency">Emergency</MenuItem>
             </Select>
           </FormControl>
 
@@ -832,6 +941,7 @@ export default function JobsManager() {
                                 <MenuItem value="Quick Weed Service">Quick Weed Service</MenuItem>
                                 <MenuItem value="Maintenance">Maintenance</MenuItem>
                                 <MenuItem value="General Service">General Service</MenuItem>
+                                <MenuItem value="Emergency">Emergency</MenuItem>
                               </Select>
                             </FormControl>
 
@@ -871,6 +981,16 @@ export default function JobsManager() {
                             </Button>
                             <Button variant="contained" color="primary" onClick={() => navigate(`/job-expenses/${job.id}`)} fullWidth size="small">
                               View Expenses & Profit
+                            </Button>
+                            <Button
+                              variant="contained"
+                              color="success"
+                              startIcon={<CalendarTodayIcon />}
+                              onClick={() => handleScheduleJob(job)}
+                              fullWidth
+                              size="small"
+                            >
+                              Schedule Job
                             </Button>
                             <Button variant="outlined" color="error" onClick={() => handleDeleteJob(job.id, job.clientName)} fullWidth size="small">
                               Delete Job

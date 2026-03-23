@@ -8,6 +8,55 @@ const COMPANY = {
 };
 
 /**
+ * Detect image type from a data URL for jsPDF
+ */
+function getImageTypeFromDataUrl(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== "string") return null;
+  if (dataUrl.startsWith("data:image/png")) return "PNG";
+  if (dataUrl.startsWith("data:image/jpeg")) return "JPEG";
+  if (dataUrl.startsWith("data:image/jpg")) return "JPEG";
+  if (dataUrl.startsWith("data:image/webp")) return "WEBP";
+  if (dataUrl.startsWith("data:image/svg+xml")) return "SVG";
+  return null;
+}
+
+/**
+ * Safely add a signature image to the PDF.
+ * Handles PNG/JPEG/WEBP and skips unsupported/invalid formats gracefully.
+ */
+function addSignatureImage(doc, dataUrl, x, y, w, h, label) {
+  if (!dataUrl) return;
+
+  try {
+    const imageType = getImageTypeFromDataUrl(dataUrl);
+
+    if (!imageType) {
+      console.warn(`Unknown ${label} signature image format`);
+      return;
+    }
+
+    // jsPDF support for inline SVG data URLs can be inconsistent depending on version/build.
+    // If SVG is passed, try it first; if it fails, fall back to showing a text signature label.
+    if (imageType === "SVG") {
+      try {
+        doc.addImage(dataUrl, "SVG", x, y, w, h);
+        return;
+      } catch (svgErr) {
+        console.warn(`SVG ${label} signature could not be rendered by jsPDF, using text fallback:`, svgErr);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(24);
+        doc.text("Darren Bennett", x + 10, y + h / 2);
+        return;
+      }
+    }
+
+    doc.addImage(dataUrl, imageType, x, y, w, h);
+  } catch (e) {
+    console.error(`Error adding ${label} signature:`, e);
+  }
+}
+
+/**
  * Generate a professional bid PDF with automatic page breaks
  * @param {object} bid - The bid object from Firestore
  * @param {string} logoDataUrl - Base64 encoded logo image
@@ -70,7 +119,7 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
     // Bid meta
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
-    const bidNumber = bid.id ? bid.id.slice(-8).toUpperCase() : 'DRAFT';
+    const bidNumber = bid.id ? bid.id.slice(-8).toUpperCase() : "DRAFT";
     doc.text(`Bid No.: ${bidNumber}`, W - 40, 84, { align: "right" });
     
     const bidDate = bid.createdAt 
@@ -138,7 +187,6 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
   if (bid.description) {
     const descLines = doc.splitTextToSize(bid.description, W - 80);
     
-    // Write description lines with page break checking
     for (let i = 0; i < descLines.length; i++) {
       checkPageBreak(14);
       doc.text(descLines[i], MARGIN, y);
@@ -161,7 +209,6 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
   if (bid.materials) {
     const materialLines = doc.splitTextToSize(bid.materials, W - 80);
     
-    // Write material lines with page break checking
     for (let i = 0; i < materialLines.length; i++) {
       checkPageBreak(14);
       doc.text(materialLines[i], MARGIN, y);
@@ -184,7 +231,6 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
     
     const notesLines = doc.splitTextToSize(bid.notes, W - 80);
     
-    // Write notes lines with page break checking
     for (let i = 0; i < notesLines.length; i++) {
       checkPageBreak(14);
       doc.text(notesLines[i], MARGIN, y);
@@ -212,11 +258,8 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
     "All work will be completed in a professional and timely manner.",
   ];
 
-  // Write each term with page break checking
   terms.forEach((term) => {
     const termLines = doc.splitTextToSize(`• ${term}`, W - 80);
-    
-    // Check if entire term fits, otherwise break
     const termHeight = termLines.length * 12 + 4;
     checkPageBreak(termHeight);
     
@@ -227,11 +270,9 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
   // ============================================
   // SIGNATURES SECTION - ALWAYS SHOW
   // ============================================
-  
   y += 30;
-  checkPageBreak(180); // Need space for signature boxes
+  checkPageBreak(180);
   
-  // Section title
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(0);
@@ -247,57 +288,42 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
   doc.text(acceptanceText, MARGIN, y);
   y += acceptanceText.length * 12 + 20;
   
-  // Check if we need a page break for signature boxes
   checkPageBreak(140);
   
-  // Define signature box dimensions
   const sigBoxH = 80;
-  const sigBoxW = (W - 100) / 2; // Two columns with gap
+  const sigBoxW = (W - 100) / 2;
   const col1X = MARGIN;
   const col2X = W / 2 + 10;
   
-  // Draw signature boxes
   doc.setDrawColor(120);
   doc.setLineWidth(1);
   doc.rect(col1X, y, sigBoxW, sigBoxH);
   doc.rect(col2X, y, sigBoxW, sigBoxH);
   
-    // CLIENT SIGNATURE (left box)
-  if (bid.clientSignature) {
-    try {
-      doc.addImage(
-        bid.clientSignature, 
-        "PNG", 
-        col1X + 6, 
-        y + 6, 
-        sigBoxW - 12, 
-        sigBoxH - 12
-      );
-    } catch (e) {
-      console.error("Error adding client signature:", e);
-    }
-  }
+  // CLIENT SIGNATURE (left box)
+  addSignatureImage(
+    doc,
+    bid.clientSignature,
+    col1X + 6,
+    y + 6,
+    sigBoxW - 12,
+    sigBoxH - 12,
+    "client"
+  );
   
   // CONTRACTOR SIGNATURE (right box)
-  if (bid.contractorSignature) {
-    try {
-      doc.addImage(
-        bid.contractorSignature, 
-        "PNG", 
-        col2X + 6, 
-        y + 6, 
-        sigBoxW - 12, 
-        sigBoxH - 12
-      );
-    } catch (e) {
-      console.error("Error adding contractor signature:", e);
-    }
-  }
+  addSignatureImage(
+    doc,
+    bid.contractorSignature,
+    col2X + 6,
+    y + 6,
+    sigBoxW - 12,
+    sigBoxH - 12,
+    "contractor"
+  );
   
-  // Move y down past the boxes
   y += sigBoxH + 16;
   
-  // Signature labels
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.setTextColor(0);
@@ -305,14 +331,12 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
   doc.text("Contractor Signature", col2X, y);
   y += 14;
   
-  // Names
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.text(`Customer: ${bid.customerName || "N/A"}`, col1X, y);
   doc.text(`Company: ${COMPANY.name}`, col2X, y);
   y += 12;
   
-  // Timestamps or blank lines
   const clientSignedText = bid.clientSignedAt 
     ? `Signed: ${new Date(bid.clientSignedAt).toLocaleDateString()}` 
     : "Date: _______________";
@@ -325,7 +349,6 @@ export default async function generateBidPDF(bid, logoDataUrl = null) {
   
   y += 20;
 
-  // Add footer to final page
   addFooter();
 
   return doc;

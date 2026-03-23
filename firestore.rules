@@ -7,14 +7,14 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-    // Helper function to check if user has god or admin role (FIXED: handles null)
+    // Helper function to check if user has god or admin role
     function isGodOrAdmin() {
       return isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['god', 'admin'];
     }
     
-    // Helper function to check if user is god (owner) (FIXED: handles null)
+    // Helper function to check if user is god (owner)
     function isGod() {
       return isAuthenticated() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
@@ -25,14 +25,6 @@ service cloud.firestore {
     function isOwnData(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
-    
-    // REPLACE WITH:
-function hasValidToken(tokenField) {
-  return request.auth == null &&
-         request.query.token != null &&
-         resource.data[tokenField] != null &&
-         resource.data[tokenField] == request.query.token;
-}
     
     // ============================================
     // USERS COLLECTION (Employee Account Manager)
@@ -48,39 +40,42 @@ function hasValidToken(tokenField) {
     }
     
     // ============================================
-    // 🔐 BIDS COLLECTION - SECURE WITH TOKENS
+    // 🔐 BIDS COLLECTION
+    // Public bid signing now goes through secure Cloud Functions.
+    // Direct Firestore access is admin-only.
     // ============================================
     match /bids/{bidId} {
-      // Read: authenticated users OR valid signing token
-      allow read: if isGodOrAdmin() || hasValidToken(bidId, 'signingToken');
-      
-      // Write: only admin
-      allow write: if isGodOrAdmin();
-      
-      // Update: authenticated OR token holder (but only signature fields)
-      allow update: if isGodOrAdmin() || 
-        (hasValidToken(bidId, 'signingToken') && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['customerSignature', 'customerSignedAt', 'status', 'signedBy']));
+      allow read, write: if isGodOrAdmin();
     }
     
     // ============================================
-    // 🔐 CONTRACTS COLLECTION - SECURE WITH TOKENS
+    // 🔐 CONTRACTS COLLECTION
+    // Admins have full access.
+    // Public customers can read/sign contracts that have a signingToken
+    // (meaning Darren intentionally sent them a signing link).
+    // Write is restricted to signature fields only for unauthenticated users.
     // ============================================
     match /contracts/{contractId} {
-      // Read: authenticated users OR valid signing token
-      allow read: if isGodOrAdmin() || hasValidToken(contractId, 'signingToken');
-      
-      // Write: only admin
-      allow write: if isGodOrAdmin();
-      
-      // Update: authenticated OR token holder (but only signature fields)
-      allow update: if isGodOrAdmin() || 
-        (hasValidToken(contractId, 'signingToken') && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['customerSignature', 'customerSignedAt', 'status', 'signedBy']));
+      // Admins: full access
+      allow read, write: if isGodOrAdmin();
+
+      // Public read: only if the contract has a signingToken set
+      // (unguessable contractId + token = safe for public signing page)
+      allow read: if resource.data.signingToken != null
+                  && resource.data.signingToken.size() > 0;
+
+      // Public update: only allowed on signature fields
+      // Prevents customers from modifying amount, clientName, etc.
+      allow update: if resource.data.signingToken != null
+                    && resource.data.signingToken.size() > 0
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['clientSignature', 'clientSignedAt',
+                                   'contractorSignature', 'contractorSignedAt',
+                                   'status', 'lastUpdated']);
     }
     
     // ============================================
-    // 🔐 INVOICES COLLECTION - SECURE WITH TOKENS
+    // 🔐 INVOICES COLLECTION
     // ============================================
     match /invoices/{invoiceId} {
       // Read: public (invoice IDs are unguessable - needed for payment portal)

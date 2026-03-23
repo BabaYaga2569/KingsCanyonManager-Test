@@ -45,6 +45,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { markAsViewed } from "./useNotificationCounts";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import SortIcon from "@mui/icons-material/Sort";
@@ -113,6 +114,7 @@ export default function ContractsDashboard() {
 
   useEffect(() => {
     fetchContracts();
+    markAsViewed('contracts');
   }, []);
   useEffect(() => {
    
@@ -515,6 +517,18 @@ export default function ContractsDashboard() {
     return !!contract.scheduleId || !!contract.scheduledDate;
   };
 
+  const getContractTypeLabel = (contract) => {
+    if (contract.type === 'maintenance_agreement') return 'Maintenance Agreement';
+    if (contract.type === 'maintenance') return 'Maintenance';
+    if (contract.source === 'bid_signed') return 'General Service';
+    return 'General Service';
+  };
+
+  const getContractTypeColor = (contract) => {
+    if (contract.type === 'maintenance_agreement') return '#7b1fa2';
+    return '#1565c0';
+  };
+
   const canCancelContract = (contract) => {
     return contract.status !== "cancelled" && contract.status !== "completed";
   };
@@ -888,6 +902,12 @@ export default function ContractsDashboard() {
                 </Typography>
                 <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                   <Chip label={getStatusLabel(contract)} color={getStatusColor(contract)} sx={{ mt: 1 }} />
+                  <Chip
+                    label={getContractTypeLabel(contract)}
+                    size="small"
+                    variant="outlined"
+                    sx={{ mt: 1, borderColor: getContractTypeColor(contract), color: getContractTypeColor(contract), fontWeight: 600 }}
+                  />
                   {isScheduled(contract) && (
                     <Chip label={`📅 ${contract.scheduledDate || "Scheduled"}`} color="info" variant="outlined" sx={{ mt: 1 }} />
                   )}
@@ -908,7 +928,7 @@ export default function ContractsDashboard() {
                 <Button variant="outlined" fullWidth startIcon={<EditIcon />} onClick={() => handleViewEdit(contract.id)}>
                   View / Edit
                 </Button>
-                {isFullySigned(contract) && !isScheduled(contract) && (
+                {isFullySigned(contract) && !isScheduled(contract) && contract.type !== 'maintenance_agreement' && (
                   <Button variant="contained" color="success" fullWidth startIcon={<CalendarTodayIcon />} onClick={() => handleOpenScheduleDialog(contract)}>
                     Schedule Job
                   </Button>
@@ -980,6 +1000,12 @@ export default function ContractsDashboard() {
                 <TableCell>
                   <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                     <Chip label={getStatusLabel(contract)} color={getStatusColor(contract)} size="small" />
+                    <Chip
+                      label={getContractTypeLabel(contract)}
+                      size="small"
+                      variant="outlined"
+                      sx={{ borderColor: getContractTypeColor(contract), color: getContractTypeColor(contract), fontWeight: 600 }}
+                    />
                     {isScheduled(contract) && (
                       <Chip label={`📅 ${contract.scheduledDate || "Scheduled"}`} color="info" variant="outlined" size="small" />
                     )}
@@ -1000,7 +1026,7 @@ export default function ContractsDashboard() {
                   <Button variant="outlined" size="small" startIcon={<EditIcon />} onClick={() => handleViewEdit(contract.id)} sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}>
                     View / Edit
                   </Button>
-                  {isFullySigned(contract) && !isScheduled(contract) && (
+                  {isFullySigned(contract) && !isScheduled(contract) && contract.type !== 'maintenance_agreement' && (
                     <Button variant="contained" color="success" size="small" startIcon={<CalendarTodayIcon />} onClick={() => handleOpenScheduleDialog(contract)} sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}>
                       Schedule
                     </Button>

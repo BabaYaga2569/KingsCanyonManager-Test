@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
-import moment from 'moment';
 
 /**
  * Custom hook to track notification counts for different sections
  * Compares item creation dates with "last viewed" timestamps
  * ✅ FIXED: Now gracefully handles missing or inaccessible collections
+ * ✅ FIXED: Excludes maintenance_agreement type from contracts badge count
  */
 export function useNotificationCounts() {
   const [counts, setCounts] = useState({
@@ -26,53 +26,49 @@ export function useNotificationCounts() {
   useEffect(() => {
     const fetchCounts = async () => {
       try {
-        // Get last viewed timestamps from localStorage
         const lastViewed = {
-          bids: localStorage.getItem('lastViewed_bids'),
+          bids:      localStorage.getItem('lastViewed_bids'),
           contracts: localStorage.getItem('lastViewed_contracts'),
-          invoices: localStorage.getItem('lastViewed_invoices'),
-          jobs: localStorage.getItem('lastViewed_jobs'),
+          invoices:  localStorage.getItem('lastViewed_invoices'),
+          jobs:      localStorage.getItem('lastViewed_jobs'),
           customers: localStorage.getItem('lastViewed_customers'),
           schedules: localStorage.getItem('lastViewed_schedule'),
-          payments: localStorage.getItem('lastViewed_payments'),
-          expenses: localStorage.getItem('lastViewed_expenses'),
-          notes: localStorage.getItem('lastViewed_notes'),
+          payments:  localStorage.getItem('lastViewed_payments'),
+          expenses:  localStorage.getItem('lastViewed_expenses'),
+          notes:     localStorage.getItem('lastViewed_notes'),
         };
 
         const newCounts = {};
 
-        // Fetch counts for each collection
         for (const [section, timestamp] of Object.entries(lastViewed)) {
           try {
+            const collectionName = section === 'schedules' ? 'schedules' : section;
+            const snapshot = await getDocs(collection(db, collectionName));
+
+            // Filter out maintenance agreements from contracts badge —
+            // they are auto-created by the maintenance flow and don't
+            // need Darren's attention the same way a new client contract does.
+            const docs = section === 'contracts'
+              ? snapshot.docs.filter(d => d.data().type !== 'maintenance_agreement')
+              : snapshot.docs;
+
             if (!timestamp) {
-              // Never viewed - count all items
-              const collectionName = section === 'schedules' ? 'schedules' : section;
-              const snapshot = await getDocs(collection(db, collectionName));
-              newCounts[section] = snapshot.size;
+              newCounts[section] = docs.length;
             } else {
-              // Count items created after last viewed
-              const collectionName = section === 'schedules' ? 'schedules' : section;
               const lastViewedDate = new Date(timestamp);
-              
-              const snapshot = await getDocs(collection(db, collectionName));
-              const count = snapshot.docs.filter(doc => {
+              newCounts[section] = docs.filter(doc => {
                 const data = doc.data();
-                // Check if item was created after last viewed
                 if (data.createdAt) {
-                  // Handle both Firestore Timestamp and ISO string
-                  const createdDate = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+                  const createdDate = data.createdAt.toDate
+                    ? data.createdAt.toDate()
+                    : new Date(data.createdAt);
                   return createdDate > lastViewedDate;
                 }
                 return false;
               }).length;
-              
-              newCounts[section] = count;
             }
           } catch (collectionError) {
-            // ✅ FIXED: Gracefully handle missing or inaccessible collections
-            // This prevents console errors when collections don't exist yet
             newCounts[section] = 0;
-            // Only log if it's NOT a missing permissions error
             if (!collectionError.message?.includes('Missing or insufficient permissions')) {
               console.warn(`Could not fetch count for ${section}:`, collectionError.message);
             }
@@ -89,13 +85,10 @@ export function useNotificationCounts() {
 
     fetchCounts();
 
-    // Refresh counts every 60 seconds
     const interval = setInterval(fetchCounts, 60000);
-    
-    // Listen for manual refresh events
     const handleRefresh = () => fetchCounts();
     window.addEventListener('refreshBadges', handleRefresh);
-    
+
     return () => {
       clearInterval(interval);
       window.removeEventListener('refreshBadges', handleRefresh);

@@ -1,7 +1,6 @@
 const functions = require('firebase-functions');
 const nodemailer = require('nodemailer');
 const admin = require('firebase-admin');
-const fetch = require('node-fetch');
 
 admin.initializeApp();
 
@@ -11,13 +10,16 @@ const CARRIER_GATEWAYS = {
   att: '@txt.att.net',
   verizon: '@vtext.com',
   cricket: '@sms.cricketwireless.net',
-  mint: '@tmomail.net',
-  metro: '@mymetropcs.com',
+  mint: '@tmomail.net',       // Mint runs on T-Mobile
+  metro: '@mymetropcs.com',   // Metro by T-Mobile
   boost: '@sms.myboostmobile.com',
   uscellular: '@email.uscc.net',
-  visible: '@vtext.com',
+  visible: '@vtext.com',      // Visible runs on Verizon
 };
 
+/**
+ * Get SMS gateway email address for a phone number + carrier
+ */
 function getSMSGateway(phone, carrier) {
   const digits = (phone || '').replace(/\D/g, '');
   const number = digits.length > 10 ? digits.slice(-10) : digits;
@@ -25,6 +27,9 @@ function getSMSGateway(phone, carrier) {
   return `${number}${gateway}`;
 }
 
+/**
+ * Create a Nodemailer transporter from settings
+ */
 function createTransporter(gmailEmail, gmailAppPassword) {
   return nodemailer.createTransport({
     service: 'gmail',
@@ -32,6 +37,9 @@ function createTransporter(gmailEmail, gmailAppPassword) {
   });
 }
 
+/**
+ * Send email-to-SMS to a single recipient
+ */
 async function sendEmailToSMS(transporter, fromEmail, toGateway, message) {
   const mailOptions = {
     from: fromEmail,
@@ -43,14 +51,10 @@ async function sendEmailToSMS(transporter, fromEmail, toGateway, message) {
   return await transporter.sendMail(mailOptions);
 }
 
+/**
+ * Helper: Send notification to ALL admin phones
+ */
 async function sendToAllAdmins(settings, message, type, metadata = {}) {
-  // SMS gateway is disabled by default now that Pushover handles admin alerts.
-  // To re-enable, set smsGatewayEnabled: true in the notification_settings doc.
-  if (!settings?.smsGatewayEnabled) {
-    console.log(`>>> sendToAllAdmins: SMS gateway disabled, skipping type="${type}"`);
-    return { success: false, reason: 'sms_gateway_disabled' };
-  }
-
   const adminPhones = settings.adminPhones || [];
 
   if (adminPhones.length === 0) {
@@ -103,83 +107,58 @@ async function sendToAllAdmins(settings, message, type, metadata = {}) {
   return { success: true, results };
 }
 
+/**
+ * Get notification settings from Firestore
+ */
 async function getSettings() {
   const snap = await admin.firestore().collection('notification_settings').limit(1).get();
   if (snap.empty) return null;
   return snap.docs[0].data();
 }
-
-// Fallback Pushover credentials — used when Firestore notification_settings
-// does not have pushoverApiKey / pushoverUserKey populated.
-// These match the values in src/pushoverNotificationService.js.
-const PUSHOVER_TOKEN_FALLBACK = 'aka88i2ehjtm4r47d3zuqz7bhionvu'; // KCL Manager API Token
-const PUSHOVER_USER_FALLBACK  = 'gnh1nvir8hovia25ohsdoq2ys8x1n3'; // KCL Alerts Group Key
-
-async function sendPushoverNotification(title, message, priority = 0, sound = 'pushover') {
-  let settings;
+/**
+ * Send a Pushover notification if enabled in notification_settings
+ */
+async function sendPushoverNotification(title, message, priority = 0) {
   try {
-    settings = await getSettings();
-  } catch (e) {
-    console.warn('>>> sendPushoverNotification: could not load settings, using fallback credentials');
-  }
+    const settings = await getSettings();
 
-  // If Pushover is explicitly disabled in Firestore, respect that and skip.
-  // Missing / undefined = not explicitly disabled, so we proceed.
-  if (settings?.pushoverEnabled === false) {
-    console.log('>>> sendPushoverNotification: Pushover disabled in settings, skipping');
-    return { success: false, reason: 'pushover_disabled' };
-  }
-
-  // Prefer Firestore-configured keys; fall back to hardcoded constants so the
-  // function works even before the admin has populated notification_settings.
-  const apiToken = settings?.pushoverApiKey  || PUSHOVER_TOKEN_FALLBACK;
-  const userKey  = settings?.pushoverUserKey || PUSHOVER_USER_FALLBACK;
-
-  if (!apiToken || !userKey) {
-    console.warn('>>> sendPushoverNotification: no credentials available');
-    return { success: false, reason: 'pushover_not_configured' };
-  }
-
-  try {
-    // Pushover requires application/x-www-form-urlencoded — NOT JSON.
-    const formData = new URLSearchParams();
-    formData.append('token',    apiToken);
-    formData.append('user',     userKey);
-    formData.append('title',    title);
-    formData.append('message',  message);
-    formData.append('priority', priority);
-    formData.append('sound',    sound);
-
-    const response = await fetch('https://api.pushover.net/1/messages.json', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body:    formData.toString(),
-    });
-
-    const result = await response.json();
-
-    if (result.status !== 1) {
-      console.error('>>> Pushover API error:', result.errors);
-      return { success: false, reason: 'pushover_api_error', error: result };
+    if (!settings || !settings.pushoverEnabled || !settings.pushoverApiKey || !settings.pushoverUserKey) {
+      return { success: false, reason: 'pushover_not_configured' };
     }
 
-    console.log(`>>> Pushover sent OK: "${title}"`);
+    const fetch = require('node-fetch');
+    await fetch('https://api.pushover.net/1/messages.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: settings.pushoverApiKey,
+        user: settings.pushoverUserKey,
+        title,
+        message,
+        priority,
+      }),
+    });
+
     return { success: true };
   } catch (error) {
-    console.error('>>> Pushover fetch exception:', error.message);
-    return { success: false, reason: 'pushover_exception', error: error.message };
+    console.error('Pushover notification error:', error.message);
+    return { success: false, error: error.message };
   }
 }
 
 // ========================= RECEIPT SCANNER (Claude Vision) =========================
 
+/**
+ * Detect image media type from base64 prefix bytes.
+ * Defaults to image/jpeg if unrecognized.
+ */
 function detectMediaType(base64String) {
   const prefix = base64String.substring(0, 16);
-  if (prefix.startsWith('/9j/')) return 'image/jpeg';
+  if (prefix.startsWith('/9j/'))        return 'image/jpeg';
   if (prefix.startsWith('iVBORw0KGgo')) return 'image/png';
-  if (prefix.startsWith('UklGR')) return 'image/webp';
-  if (prefix.startsWith('R0lGOD')) return 'image/gif';
-  return 'image/jpeg';
+  if (prefix.startsWith('UklGR'))       return 'image/webp';
+  if (prefix.startsWith('R0lGOD'))      return 'image/gif';
+  return 'image/jpeg'; // safe default for phone camera shots
 }
 
 exports.scanReceipt = functions.runWith({ secrets: ['ANTHROPIC_API_KEY'] }).https.onCall(async (data, context) => {
@@ -283,6 +262,7 @@ Rules:
     try {
       parsed = JSON.parse(rawOutput.trim());
     } catch (parseErr) {
+      // If Claude wrapped the JSON in anything, extract it
       const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[0]);
@@ -292,13 +272,15 @@ Rules:
       }
     }
 
-    parsed.amount = parseFloat(parsed.amount) || 0;
+    // Ensure numeric fields are actually numbers (defensive)
+    parsed.amount   = parseFloat(parsed.amount)   || 0;
     parsed.subtotal = parseFloat(parsed.subtotal) || 0;
-    parsed.tax = parseFloat(parsed.tax) || 0;
+    parsed.tax      = parseFloat(parsed.tax)      || 0;
     parsed.lineItems = Array.isArray(parsed.lineItems) ? parsed.lineItems : [];
 
     console.log(`>>> SUCCESS: vendor=${parsed.vendor}, total=${parsed.amount}, items=${parsed.lineItems.length}`);
     return { success: true, ...parsed };
+
   } catch (error) {
     console.error('>>> SCAN FAILED:', error.message);
     if (error instanceof functions.https.HttpsError) throw error;
@@ -312,6 +294,9 @@ exports.testFunction = functions.https.onCall(async () => {
 
 // ========================= EMPLOYEE INVITE SYSTEM =========================
 
+/**
+ * Generate a cryptographically random token
+ */
 function generateInviteToken() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let token = '';
@@ -321,10 +306,16 @@ function generateInviteToken() {
   return token;
 }
 
+/**
+ * sendEmployeeInvite
+ * Creates an invite token in Firestore and emails the employee a signup link.
+ * Called by admin from EmployeeAccountManager.
+ */
 exports.sendEmployeeInvite = functions.https.onCall(async (data, context) => {
   console.log('>>> sendEmployeeInvite called for:', data.email);
 
   try {
+    // Must be called by an authenticated admin or god
     if (!context.auth) {
       throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
     }
@@ -339,6 +330,7 @@ exports.sendEmployeeInvite = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('invalid-argument', 'Name and email are required');
     }
 
+    // Check if user already exists in Firebase Auth
     try {
       const existing = await admin.auth().getUserByEmail(email.toLowerCase());
       if (existing && !resend) {
@@ -349,11 +341,14 @@ exports.sendEmployeeInvite = functions.https.onCall(async (data, context) => {
       }
     } catch (authErr) {
       if (authErr.code === 'auth/user-not-found') {
+        // Good — no account yet, proceed
       } else if (authErr instanceof functions.https.HttpsError) {
         throw authErr;
       }
+      // Other errors — proceed anyway
     }
 
+    // Invalidate any existing unused invites for this email
     const existingInvites = await admin.firestore()
       .collection('invites')
       .where('email', '==', email.toLowerCase())
@@ -364,8 +359,9 @@ exports.sendEmployeeInvite = functions.https.onCall(async (data, context) => {
       await inviteDoc.ref.update({ used: true, invalidatedAt: new Date().toISOString() });
     }
 
+    // Create new invite token
     const token = generateInviteToken();
-    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(); // 72 hours
 
     await admin.firestore().collection('invites').doc(token).set({
       token,
@@ -387,10 +383,12 @@ exports.sendEmployeeInvite = functions.https.onCall(async (data, context) => {
 
     console.log('>>> Invite token created:', token.substring(0, 8) + '...');
 
+    // Get company settings for the email
     const settings = await getSettings();
-    const appUrl = 'https://kcl-manager-test.web.app';
+    const appUrl = 'https://kcl-manager-test.web.app'; // Update for production
     const inviteUrl = `${appUrl}/public/invite/${token}`;
 
+    // Send invite email
     if (settings?.gmailConfigured && settings?.gmailEmail && settings?.gmailAppPassword) {
       const transporter = createTransporter(settings.gmailEmail, settings.gmailAppPassword);
 
@@ -456,6 +454,7 @@ exports.sendEmployeeInvite = functions.https.onCall(async (data, context) => {
       console.warn('>>> Gmail not configured — invite token created but email not sent');
     }
 
+    // Log the invite
     await admin.firestore().collection('notifications_log').add({
       type: 'employee_invite',
       to: email,
@@ -479,6 +478,12 @@ exports.sendEmployeeInvite = functions.https.onCall(async (data, context) => {
   }
 });
 
+/**
+ * acceptEmployeeInvite
+ * Validates the invite token, creates the Firebase Auth user (via Admin SDK),
+ * creates the Firestore user document, and marks the invite as used.
+ * Called from the public InviteSignup page.
+ */
 exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
   console.log('>>> acceptEmployeeInvite called');
 
@@ -493,6 +498,7 @@ exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
       throw new functions.https.HttpsError('invalid-argument', 'Password must be at least 8 characters');
     }
 
+    // Load and validate the invite
     const inviteRef = admin.firestore().collection('invites').doc(token);
     const inviteSnap = await inviteRef.get();
 
@@ -512,6 +518,7 @@ exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
 
     console.log('>>> Creating Firebase Auth user for:', invite.email);
 
+    // Create Firebase Auth user using Admin SDK (no re-auth issue)
     let userRecord;
     try {
       userRecord = await admin.auth().createUser({
@@ -521,6 +528,7 @@ exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
       });
     } catch (authErr) {
       if (authErr.code === 'auth/email-already-exists') {
+        // Account exists — just update password and get the record
         userRecord = await admin.auth().getUserByEmail(invite.email);
         await admin.auth().updateUser(userRecord.uid, { password });
         console.log('>>> Updated password for existing user:', invite.email);
@@ -531,6 +539,7 @@ exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
 
     console.log('>>> Firebase Auth user created/updated:', userRecord.uid);
 
+    // Create Firestore user document
     await admin.firestore().collection('users').doc(userRecord.uid).set({
       name: invite.name,
       email: invite.email,
@@ -549,10 +558,11 @@ exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
       invitedBy: invite.invitedBy || null,
       createdAt: new Date().toISOString(),
       createdViaInvite: true,
-    }, { merge: true });
+    }, { merge: true }); // merge:true so re-invites don't wipe existing data
 
     console.log('>>> Firestore user document created for UID:', userRecord.uid);
 
+    // Mark invite as used
     await inviteRef.update({
       used: true,
       usedAt: new Date().toISOString(),
@@ -809,6 +819,12 @@ exports.sendCustomerEmail = functions.https.onCall(async (data, context) => {
       metadata: metadata || {},
     });
 
+    if (settings.adminPhones?.length > 0) {
+      const adminMsg = `EMAIL SENT\n${docType?.toUpperCase() || 'Doc'} => ${customerName}\n${customerEmail}`;
+      sendToAllAdmins(settings, adminMsg, 'email_sent', { docType, docId, customerEmail })
+        .catch(err => console.error('Admin notify error:', err));
+    }
+
     return { success: true, message: `Email sent to ${customerEmail}` };
   } catch (error) {
     console.error('>>> sendCustomerEmail error:', error);
@@ -841,327 +857,42 @@ exports.notifySignature = functions.https.onCall(async (data) => {
       throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
     }
 
-    const isBid = docType === 'bid';
-    const typeLabel = isBid ? 'BID ACCEPTED' : 'CONTRACT SIGNED';
-    const pushoverTitle = isBid ? 'KCL Bid Signed' : 'KCL Contract Signed';
-    const amountLine = amount ? `\n$${parseFloat(amount).toFixed(2)}` : '';
-    const smsMessage = `${typeLabel}\n${customerName}${amountLine}\nCheck the app for details`;
-    const pushoverMessage = `${customerName}${amountLine}\nCheck the app for details`;
-
     const settings = await getSettings();
-    if (!settings) {
-      throw new functions.https.HttpsError('failed-precondition', 'Notification settings not found');
+    if (!settings || !settings.adminPhones?.length) {
+      return { success: true, message: 'No admins to notify' };
     }
 
-    const pushoverResult = await sendPushoverNotification(
-      pushoverTitle,
-      pushoverMessage
-    );
+    const typeLabel = docType === 'bid' ? 'BID ACCEPTED' : 'CONTRACT SIGNED';
+    const amountStr = amount ? `\n$${parseFloat(amount).toFixed(2)}` : '';
+    const message = `${typeLabel}\n${customerName}${amountStr}\nCheck the app for details`;
 
-    let smsSent = false;
-    if (!pushoverResult.success &&
-        settings.adminPhones?.length > 0 &&
-        settings.gmailConfigured &&
-        settings.gmailEmail &&
-        settings.gmailAppPassword) {
-      await sendToAllAdmins(settings, smsMessage, 'signature_received', {
-        docType,
-        docId,
-        customerName,
-        amount: amount || null,
-        fallback: 'sms_gateway',
-      });
-      smsSent = true;
-    }
+    await sendToAllAdmins(settings, message, 'signature_received', { docType, docId, customerName });
 
     await admin.firestore().collection('notifications_log').add({
       type: 'signature_received',
       docType,
       docId,
       customerName,
-      message: smsMessage,
-      pushover: pushoverResult.success,
+      message,
       sentAt: new Date().toISOString(),
     });
 
-    return {
-      success: true,
-      pushover: pushoverResult.success,
-      fallbackSms: smsSent,
-    };
+    return { success: true };
   } catch (error) {
     console.error('>>> notifySignature error:', error);
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
 
-// ========================= BID SIGNING =========================
-
-exports.getPublicBid = functions.https.onCall(async (data) => {
-  console.log('>>> getPublicBid called');
-
-  try {
-    const { bidId, signingToken } = data || {};
-
-    if (!bidId) {
-      throw new functions.https.HttpsError('invalid-argument', 'Missing bidId');
-    }
-
-    if (!signingToken) {
-      throw new functions.https.HttpsError('invalid-argument', 'Missing signingToken');
-    }
-
-    const bidRef = admin.firestore().collection('bids').doc(bidId);
-    const bidSnap = await bidRef.get();
-
-    if (!bidSnap.exists) {
-      throw new functions.https.HttpsError('not-found', 'Bid not found');
-    }
-
-    const bid = bidSnap.data() || {};
-
-    if (!bid.signingToken || bid.signingToken !== signingToken) {
-      throw new functions.https.HttpsError('permission-denied', 'Invalid or expired signing link');
-    }
-
-    return {
-      success: true,
-      bid: {
-        customerName: bid.customerName || '',
-        amount: bid.amount || 0,
-        description: bid.description || '',
-        materials: bid.materials || '',
-        status: bid.status || '',
-        clientSignedAt: bid.clientSignedAt || null,
-        clientSignature: bid.clientSignature || null,
-      },
-    };
-  } catch (error) {
-    console.error('>>> getPublicBid error:', error);
-    if (error instanceof functions.https.HttpsError) throw error;
-    throw new functions.https.HttpsError('internal', error.message);
-  }
-});
-
-exports.signPublicBid = functions.https.onCall(async (data) => {
-  console.log('>>> signPublicBid called');
-
-  const { bidId, signatureData, signingToken } = data || {};
-
-  if (!bidId) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing bidId');
-  }
-
-  if (!signatureData) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing signatureData');
-  }
-
-  const bidRef = admin.firestore().collection('bids').doc(bidId);
-  const bidSnap = await bidRef.get();
-
-  if (!bidSnap.exists) {
-    throw new functions.https.HttpsError('not-found', 'Bid not found');
-  }
-
-  const bid = bidSnap.data() || {};
-
-  console.log('>>> signPublicBid loaded bid:', JSON.stringify({
-    bidId,
-    status: bid.status || null,
-    hasClientSignedAt: !!bid.clientSignedAt,
-    hasClientSignature: !!bid.clientSignature,
-    hasSigningToken: !!bid.signingToken,
-  }));
-
-  if (bid.signingToken && signingToken && bid.signingToken !== signingToken) {
-    console.error('>>> signPublicBid token mismatch', JSON.stringify({ bidId }));
-    throw new functions.https.HttpsError('permission-denied', 'Invalid or expired signing link');
-  }
-
-  if (bid.signingToken && !signingToken) {
-    console.error('>>> signPublicBid missing signing token', JSON.stringify({ bidId }));
-    throw new functions.https.HttpsError('permission-denied', 'Missing signing token');
-  }
-
-  const alreadySigned = !!(
-    bid.clientSignedAt ||
-    bid.clientSignature ||
-    bid.status === 'Accepted' ||
-    bid.status === 'Fully Signed'
-  );
-
-  if (alreadySigned) {
-    console.log('>>> signPublicBid already signed:', JSON.stringify({
-      bidId,
-      clientSignedAt: bid.clientSignedAt || null,
-      status: bid.status || null,
-    }));
-
-    return {
-      success: true,
-      alreadySigned: true,
-      bidId,
-      signedAt: bid.clientSignedAt || null,
-      status: bid.status || 'Accepted',
-    };
-  }
-
-  const timestamp = new Date().toISOString();
-
-  await bidRef.update({
-    clientSignature: signatureData,
-    clientSignedAt: timestamp,
-    contractorSignedAt: timestamp,
-    status: 'Accepted',
-    lastUpdated: timestamp,
-  });
-
-  console.log('>>> Bid accepted by client:', bidId);
-
-  // Auto-create Contract + Invoice + Job when bid is accepted
-  try {
-    // Generate a signing token so Darren can send the contract link immediately
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let signingToken = '';
-    for (let i = 0; i < 48; i++) {
-      signingToken += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-
-    // Shared base fields used by all three documents
-    const packageBase = {
-      bidId,
-      clientName: bid.customerName || '',
-      customerName: bid.customerName || '',
-      customerId: bid.customerId || null,
-      amount: bid.amount || 0,
-      description: bid.description || '',
-      materials: bid.materials || '',
-      notes: bid.notes || '',
-      status: 'Pending',
-      createdAt: timestamp,
-      source: 'bid_signed',
-    };
-
-    // 1. Contract — signingToken lets Darren send the link right away
-    const contractRef = await admin.firestore().collection('contracts').add({
-      ...packageBase,
-      type: 'contract',
-      signingToken,
-      clientEmail: bid.clientEmail || bid.customerEmail || '',
-    });
-
-    // 2. Invoice
-    const invoiceRef = await admin.firestore().collection('invoices').add({
-      ...packageBase,
-      type: 'invoice',
-      subtotal: bid.amount || 0,
-      tax: 0,
-      total: bid.amount || 0,
-      dueDate: null,
-    });
-
-    // 3. Job folder
-    const jobRef = await admin.firestore().collection('jobs').add({
-      ...packageBase,
-      type: 'job',
-      contractId: contractRef.id,
-      invoiceId: invoiceRef.id,
-      photos: [],
-    });
-
-    // Back-link all three documents to each other
-    await contractRef.update({ invoiceId: invoiceRef.id, jobId: jobRef.id });
-    await invoiceRef.update({ contractId: contractRef.id, jobId: jobRef.id });
-
-    console.log('>>> Auto-created job package for bid:', bidId, JSON.stringify({
-      contractId: contractRef.id,
-      invoiceId: invoiceRef.id,
-      jobId: jobRef.id,
-    }));
-  } catch (pkgError) {
-    console.error('>>> Job package creation failed (non-blocking):', pkgError.message);
-  }
-
-  try {
-    const amountStr = bid.amount ? `\n$${parseFloat(bid.amount).toFixed(2)}` : '';
-    const pushoverMessage = `${bid.customerName || 'Customer'} signed bid ${bidId}${amountStr}`;
-    const smsMessage = `BID ACCEPTED\n${bid.customerName || 'Customer'}${amountStr}\nCheck the app for details`;
-
-    const pushoverResult = await sendPushoverNotification('KCL Bid Signed', pushoverMessage);
-
-    let delivery = 'pushover';
-    if (!pushoverResult.success && pushoverResult.reason !== 'pushover_disabled') {
-      const settings = await getSettings();
-      if (
-        settings?.adminPhones?.length > 0 &&
-        settings?.gmailConfigured &&
-        settings?.gmailEmail &&
-        settings?.gmailAppPassword
-      ) {
-        await sendToAllAdmins(settings, smsMessage, 'bid_signed', {
-          bidId,
-          customerName: bid.customerName || null,
-          amount: bid.amount || null,
-          fallback: 'sms_gateway',
-        });
-        delivery = 'sms_fallback';
-      } else {
-        delivery = 'skipped';
-      }
-    }
-
-    await admin.firestore().collection('notifications_log').add({
-      type: 'bid_signed',
-      bidId,
-      docId: bidId,
-      customerName: bid.customerName || null,
-      amount: bid.amount || null,
-      delivery,
-      pushover: pushoverResult.success,
-      pushoverReason: pushoverResult.success ? null : (pushoverResult.reason || 'unknown'),
-      sentAt: new Date().toISOString(),
-    });
-
-    console.log('>>> signPublicBid notification complete:', JSON.stringify({
-      bidId,
-      delivery,
-      pushover: pushoverResult.success,
-    }));
-  } catch (notifyError) {
-    console.error('>>> signPublicBid notify error (non-blocking):', notifyError.message);
-
-    try {
-      await admin.firestore().collection('notifications_log').add({
-        type: 'bid_signed',
-        bidId,
-        docId: bidId,
-        customerName: bid.customerName || null,
-        amount: bid.amount || null,
-        delivery: 'error',
-        pushover: false,
-        error: notifyError.message || 'Unknown notification error',
-        sentAt: new Date().toISOString(),
-      });
-    } catch (logError) {
-      console.error('>>> signPublicBid failed to write notifications_log error row:', logError.message);
-    }
-  }
-
-  return {
-    success: true,
-    alreadySigned: false,
-    bidId,
-    signedAt: timestamp,
-    status: 'Accepted',
-  };
-});
-
 // ========================= BID AUTO-ARCHIVE =========================
+// Runs daily at 9 AM Arizona time
+// - Archives bids not edited in 30+ days (if not signed)
+// - Sends Pushover warning at 23 days (7 days before auto-archive)
 
 exports.autoBidArchive = functions.pubsub
   .schedule('0 9 * * *')
   .timeZone('America/Phoenix')
-  .onRun(async () => {
+  .onRun(async (context) => {
     console.log('>>> autoBidArchive running');
 
     try {
@@ -1173,6 +904,7 @@ exports.autoBidArchive = functions.pubsub
       let archived = 0;
       let warned = 0;
 
+      // Load Pushover settings
       const settingsSnap = await admin.firestore()
         .collection('notification_settings').limit(1).get();
       const settings = settingsSnap.empty ? null : settingsSnap.docs[0].data();
@@ -1180,6 +912,7 @@ exports.autoBidArchive = functions.pubsub
       const sendPushover = async (message) => {
         if (!settings || !settings.pushoverEnabled || !settings.pushoverApiKey || !settings.pushoverUserKey) return;
         try {
+          const fetch = require('node-fetch');
           await fetch('https://api.pushover.net/1/messages.json', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1199,10 +932,12 @@ exports.autoBidArchive = functions.pubsub
       for (const bidDoc of bidsSnap.docs) {
         const bid = bidDoc.data();
 
+        // Skip already archived, signed, or cancelled bids
         if (bid.status === 'archived' || bid.status === 'cancelled') continue;
         if (bid.clientSignature && bid.contractorSignature) continue;
-        if (bid.warningSent30) continue;
+        if (bid.warningSent30) continue; // already warned, waiting for archive
 
+        // Determine reference date (last edited or created)
         const refDate = bid.updatedAt
           ? new Date(bid.updatedAt)
           : bid.createdAt
@@ -1211,6 +946,7 @@ exports.autoBidArchive = functions.pubsub
 
         if (!refDate) continue;
 
+        // Archive at 30 days
         if (refDate <= thirtyDaysAgo) {
           await bidDoc.ref.update({
             status: 'archived',
@@ -1224,6 +960,7 @@ exports.autoBidArchive = functions.pubsub
             `📁 Bid AUTO-ARCHIVED\n${bid.customerName} — $${parseFloat(bid.amount || 0).toFixed(2)}\nNot edited in 30 days. View archive in the Bids page.`
           );
 
+          // Log to notifications
           await admin.firestore().collection('notifications_log').add({
             type: 'bid_archived',
             bidId: bidDoc.id,
@@ -1231,6 +968,8 @@ exports.autoBidArchive = functions.pubsub
             message: `Bid for ${bid.customerName} auto-archived after 30 days`,
             sentAt: now.toISOString(),
           });
+
+        // Warn at 23 days (7 days before archive)
         } else if (refDate <= twentyThreeDaysAgo && !bid.warningSent30) {
           const daysLeft = Math.ceil((refDate.getTime() + 30 * 86400000 - now.getTime()) / 86400000);
 
@@ -1238,6 +977,7 @@ exports.autoBidArchive = functions.pubsub
             `⚠️ Bid Expiring Soon\n${bid.customerName} — $${parseFloat(bid.amount || 0).toFixed(2)}\nArchives in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} if not accepted or edited.`
           );
 
+          // Mark warning sent so we don't spam daily
           await bidDoc.ref.update({ warningSent30: true });
           warned++;
           console.log(`Warning sent for ${bid.customerName} (${daysLeft} days left)`);
@@ -1252,14 +992,18 @@ exports.autoBidArchive = functions.pubsub
     }
   });
 
-// ========================= AI BID ASSISTANT PROXY =========================
-
-exports.bidAssistant = functions.runWith({ secrets: ['ANTHROPIC_API_KEY'] }).https.onCall(async (data) => {
+// ─────────────────────────────────────────────────────────────
+// AI BID ASSISTANT PROXY
+// Proxies Claude API calls from the browser (avoids CORS)
+// ─────────────────────────────────────────────────────────────
+exports.bidAssistant = functions.runWith({ secrets: ['ANTHROPIC_API_KEY'] }).https.onCall(async (data, context) => {
   const { messages, photos } = data;
 
   if (!messages || !Array.isArray(messages)) {
     throw new functions.https.HttpsError('invalid-argument', 'Messages array required');
   }
+
+  const fetch = require('node-fetch');
 
   const SYSTEM_PROMPT = `You are an expert bid assistant for Kings Canyon Landscaping LLC, a full-service contractor based in Bullhead City, Arizona serving Bullhead City, Fort Mohave, Mohave Valley, and Laughlin NV.
 
@@ -1298,6 +1042,7 @@ Only respond in plain text if the user asks a general non-job question. Otherwis
 
 If the user asks to adjust the margin (e.g. "bump up the margin 10%", "add 20% profit", "increase the bid"), recalculate recommendedAmount accordingly and return updated JSON with the new amount and updated reasoning explaining the margin change.`;
 
+  // Build image blocks once — inject into every user message so AI always has context
   const imageBlocks = (photos && photos.length > 0) ? photos.map(base64 => {
     let mediaType = 'image/jpeg';
     if (base64.startsWith('iVBORw0KGgo')) mediaType = 'image/png';
@@ -1308,8 +1053,9 @@ If the user asks to adjust the margin (e.g. "bump up the margin 10%", "add 20% p
     };
   }) : [];
 
-  const apiMessages = messages.map((msg) => {
+  let apiMessages = messages.map((msg) => {
     if (msg.role === 'user' && imageBlocks.length > 0) {
+      // Attach photos to every user message so AI never loses sight of them
       const textContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
       return {
         role: 'user',
@@ -1319,6 +1065,7 @@ If the user asks to adjust the margin (e.g. "bump up the margin 10%", "add 20% p
         ],
       };
     }
+    // For assistant messages, ensure content is a string
     if (msg.role === 'assistant') {
       return { role: 'assistant', content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) };
     }
@@ -1352,5 +1099,252 @@ If the user asks to adjust the margin (e.g. "bump up the margin 10%", "add 20% p
   } catch (error) {
     console.error('bidAssistant error:', error);
     throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+// ========================= PUBLIC BID SIGNING (SECURE) =========================
+
+/**
+ * Generate Darren's signature image as a simple SVG data URL.
+ * This avoids browser-only canvas usage inside Cloud Functions.
+ */
+function generateDarrenSignatureBase64() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="400" height="100">
+      <rect width="100%" height="100%" fill="white"/>
+      <text x="50" y="60" font-size="32" fill="black" font-family="cursive">Darren Bennett</text>
+    </svg>
+  `;
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
+/**
+ * Public callable function:
+ * Validates bidId + token and returns only safe public signing fields.
+ */
+exports.getPublicBidForSigning = functions.https.onCall(async (data) => {
+  console.log('>>> getPublicBidForSigning called');
+
+  try {
+    const { bidId, token } = data || {};
+
+    if (!bidId || !token) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'bidId and token are required'
+      );
+    }
+
+    const bidRef = admin.firestore().collection('bids').doc(bidId);
+    const bidSnap = await bidRef.get();
+
+    if (!bidSnap.exists) {
+      throw new functions.https.HttpsError(
+        'not-found',
+        'This bid link is invalid or expired.'
+      );
+    }
+
+    const bid = bidSnap.data();
+
+    if (!bid.signingToken || bid.signingToken !== token) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'This signing link is invalid or expired.'
+      );
+    }
+
+    return {
+      success: true,
+      bid: {
+        id: bidSnap.id,
+        customerName: bid.customerName || '',
+        amount: bid.amount || 0,
+        description: bid.description || '',
+        materials: bid.materials || '',
+        status: bid.status || 'Pending',
+        clientSignature: bid.clientSignature || '',
+        clientSignedAt: bid.clientSignedAt || '',
+        contractorSignature: bid.contractorSignature || '',
+        contractorSignedAt: bid.contractorSignedAt || '',
+      },
+    };
+  } catch (error) {
+    console.error('>>> getPublicBidForSigning error:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Failed to load bid');
+  }
+});
+
+/**
+ * Public callable function:
+ * Validates bidId + token and signs the bid securely server-side.
+ */
+exports.signPublicBid = functions.https.onCall(async (data) => {
+  console.log('>>> signPublicBid called');
+
+  try {
+    const { bidId, token, clientSignature } = data || {};
+
+    if (!bidId || !token || !clientSignature) {
+      throw new functions.https.HttpsError(
+        'invalid-argument',
+        'bidId, token, and clientSignature are required'
+      );
+    }
+
+    const bidRef = admin.firestore().collection('bids').doc(bidId);
+    const bidSnap = await bidRef.get();
+
+    if (!bidSnap.exists) {
+      throw new functions.https.HttpsError(
+        'not-found',
+        'This bid link is invalid or expired.'
+      );
+    }
+
+    const bid = bidSnap.data();
+
+    if (!bid.signingToken || bid.signingToken !== token) {
+      throw new functions.https.HttpsError(
+        'permission-denied',
+        'This signing link is invalid or expired.'
+      );
+    }
+
+    // Already signed: return success without re-writing
+    if (bid.clientSignature && bid.clientSignedAt) {
+      return {
+        success: true,
+        alreadySigned: true,
+        clientSignedAt: bid.clientSignedAt || '',
+        contractorSignedAt: bid.contractorSignedAt || '',
+        contractorSignature: bid.contractorSignature || '',
+        status: bid.status || 'Accepted',
+        lastUpdated: bid.lastUpdated || '',
+      };
+    }
+
+    const timestamp = new Date().toISOString();
+    const contractorSignature = generateDarrenSignatureBase64();
+
+    await bidRef.update({
+      clientSignature,
+      clientSignedAt: timestamp,
+      contractorSignature,
+      contractorSignedAt: timestamp,
+      status: 'Accepted',
+      lastUpdated: timestamp,
+    });
+
+    console.log(`>>> Bid accepted by client: ${bidId}`);
+
+        // Notify admins (non-blocking)
+    try {
+      const settings = await getSettings();
+      const amountStr = bid.amount ? `\n$${parseFloat(bid.amount).toFixed(2)}` : '';
+      const message = `BID ACCEPTED\n${bid.customerName || 'Customer'}${amountStr}\nCheck the app for details`;
+
+      if (settings && settings.adminPhones && settings.adminPhones.length > 0) {
+        await sendToAllAdmins(settings, message, 'signature_received', {
+          docType: 'bid',
+          docId: bidId,
+          customerName: bid.customerName || '',
+        });
+      }
+
+      await admin.firestore().collection('notifications_log').add({
+        type: 'signature_received',
+        docType: 'bid',
+        docId: bidId,
+        customerName: bid.customerName || '',
+        message,
+        sentAt: new Date().toISOString(),
+      });
+
+      await sendPushoverNotification(
+        'KCL Bid Signed',
+        `${bid.customerName || 'Customer'} signed bid ${bidId}${amountStr}`
+      );
+    } catch (notifyError) {
+      console.error('>>> Non-blocking bid acceptance notification error:', notifyError);
+    }
+
+    // Auto-create contract + invoice + job package if none exists yet
+    try {
+      const existingContracts = await admin.firestore()
+        .collection('contracts')
+        .where('bidId', '==', bidId)
+        .limit(1)
+        .get();
+
+      if (existingContracts.empty) {
+        const customerId = bid.customerId || null;
+
+        if (customerId) {
+          const jobId = admin.firestore().collection('_tmp').doc().id;
+
+          const base = {
+            jobId,
+            customerId,
+            bidId,
+            clientName: bid.customerName || '',
+            customerEmail: bid.customerEmail || '',
+            customerPhone: bid.customerPhone || '',
+            customerAddress: bid.customerAddress || '',
+            amount: bid.amount || 0,
+            description: bid.description || '',
+            materials: bid.materials || '',
+            notes: bid.notes || '',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            status: 'Pending',
+          };
+
+          const contractToken = generateInviteToken().substring(0, 32);
+          const invoiceToken = generateInviteToken().substring(0, 32);
+
+          await admin.firestore().collection('contracts').add({
+            ...base,
+            type: 'contract',
+            signingToken: contractToken,
+          });
+
+          await admin.firestore().collection('invoices').add({
+            ...base,
+            type: 'invoice',
+            subtotal: bid.amount || 0,
+            tax: 0,
+            total: bid.amount || 0,
+            paymentToken: invoiceToken,
+          });
+
+          await admin.firestore().collection('jobs').add({
+            ...base,
+            type: 'job',
+            photos: [],
+          });
+
+          console.log(`>>> Auto-created job package for bid: ${bidId}`);
+        } else {
+          console.warn(`>>> Bid ${bidId} has no customerId; skipping auto-create package`);
+        }
+      }
+    } catch (pkgError) {
+      console.error('>>> Non-blocking auto-create package error:', pkgError);
+    }
+
+    return {
+      success: true,
+      alreadySigned: false,
+      clientSignedAt: timestamp,
+      contractorSignedAt: timestamp,
+      contractorSignature,
+      status: 'Accepted',
+      lastUpdated: timestamp,
+    };
+  } catch (error) {
+    console.error('>>> signPublicBid error:', error);
+    if (error instanceof functions.https.HttpsError) throw error;
+    throw new functions.https.HttpsError('internal', error.message || 'Failed to sign bid');
   }
 });

@@ -7,6 +7,23 @@
         { "fieldPath": "crewId", "order": "ASCENDING" },
         { "fieldPath": "clockIn", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "job_time_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clockOut", "order": "ASCENDING" },
+        { "fieldPath": "crewId", "order": "ASCENDING" },
+        { "fieldPath": "clockIn", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "job_time_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "crewId", "order": "ASCENDING" },
+        { "fieldPath": "clockIn", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

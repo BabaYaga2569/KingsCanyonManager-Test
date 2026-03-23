@@ -47,7 +47,7 @@ export default function WhoIsWorking() {
       title: "Clock Out Crew Member?",
       html: `
         <p>Clock out <strong>${entry.crewName}</strong>?</p>
-        <p>Working on: ${entry.jobName}</p>
+        <p>Working on: ${entry.clientName || entry.customerName || entry.jobName}</p>
         <p>Started: ${moment(entry.clockIn).format('h:mm A')}</p>
       `,
       icon: "question",
@@ -139,8 +139,8 @@ export default function WhoIsWorking() {
                   <Typography variant="subtitle1" fontWeight="bold">
                     {entry.crewName}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {entry.jobName}
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {entry.clientName || entry.customerName || 'Unknown Client'}
                   </Typography>
                 </Box>
                 <Chip 

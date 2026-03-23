@@ -213,8 +213,26 @@ export default function MaintenanceDashboard() {
         }
       }
 
+      // Find the current month's job card for this maintenance contract
+      const currentMonthYear = moment().format('YYYY-MM');
+      let monthlyJobId = null;
+      try {
+        const jobsQuery = query(
+          collection(db, 'jobs'),
+          where('maintenanceContractId', '==', contract.id),
+          where('monthYear', '==', currentMonthYear)
+        );
+        const jobsSnap = await getDocs(jobsQuery);
+        if (!jobsSnap.empty) {
+          monthlyJobId = jobsSnap.docs[0].id;
+        }
+      } catch (err) {
+        console.warn('Could not find monthly job card:', err);
+      }
+
       // Build service description
-      const description = `Monthly Maintenance - ${getFrequencyDisplay(contract.frequency)}\n${contract.servicesIncluded || 'Standard maintenance service'}`;
+      const monthLabel = moment().format('MMMM YYYY');
+      const description = `Monthly Maintenance - ${monthLabel}\n${contract.servicesIncluded || 'Standard maintenance service'}`;
 
       const invoiceData = {
         customerId: customerId,
@@ -233,19 +251,35 @@ export default function MaintenanceDashboard() {
         tax: 0,
         status: 'Sent',
         invoiceDate: moment().format('YYYY-MM-DD'),
+        dueDate: moment().endOf('month').format('YYYY-MM-DD'),
         createdAt: new Date().toISOString(),
         maintenanceContractId: contract.id,
+        monthlyJobId: monthlyJobId,   // links invoice to the monthly job card
+        monthYear: currentMonthYear,
         type: 'maintenance',
         paymentToken: generateSecureToken(),
       };
 
       const invoiceRef = await addDoc(collection(db, 'invoices'), invoiceData);
 
+      // Back-link the invoice to the monthly job card so profitability tracking works
+      if (monthlyJobId) {
+        try {
+          await updateDoc(doc(db, 'jobs', monthlyJobId), {
+            invoiceId: invoiceRef.id,
+            invoicedAt: new Date().toISOString(),
+            invoiceStatus: 'Sent',
+          });
+        } catch (err) {
+          console.warn('Could not link invoice to monthly job:', err);
+        }
+      }
+
       Swal.fire({
         icon: 'success',
         title: 'Invoice Created!',
-        text: `$${contract.monthlyRate} invoice for ${contract.customerName}`,
-        timer: 2000,
+        html: `$${contract.monthlyRate} invoice for ${contract.customerName}<br><small style="color:#555">${monthLabel}</small>`,
+        timer: 2500,
         showConfirmButton: false,
       });
 

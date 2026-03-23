@@ -171,11 +171,12 @@ export default function TimeClock() {
       return { passed: true, gpsData: {} };
     }
 
-    // Skip GPS for weed/maintenance service jobs
+    // Skip GPS for quick weed service only
+    // Maintenance jobs require GPS so Darren can verify crew is on site
     const jobType = (job?.jobType || "").toLowerCase();
     const jobNameStr = (job?.displayName || job?.clientName || "").toLowerCase();
-    if (jobType.includes("weed") || jobNameStr.includes("weed-service") || jobNameStr.includes("weed service") || jobType.includes("maintenance")) {
-      console.log("GPS check skipped for special service job");
+    if (jobType.includes("weed") || jobNameStr.includes("weed-service") || jobNameStr.includes("weed service")) {
+      console.log("GPS check skipped for weed service job");
       return { passed: true, gpsData: {} };
     }
 
@@ -334,6 +335,7 @@ export default function TimeClock() {
         crewEmail: user.email,
         jobId: selectedJob,
         jobName: job?.displayName || "Unknown Job",
+        clientName: job?.clientName || job?.customerName || "Unknown Client",
         jobDescription: job?.displayName || "No description",
         clockIn: now,
         clockOut: null,
@@ -351,7 +353,10 @@ export default function TimeClock() {
       setClockedIn(true);
 
       try {
-        await notifyCrewClockIn(employeeName, job?.displayName || "Unknown Job", gpsData);
+        const clockInLocation = gpsData?.jobAddress
+          ? `${job?.clientName || job?.customerName || "Unknown"} — ${gpsData.jobAddress}`
+          : job?.clientName || job?.customerName || job?.displayName || "Unknown Job";
+        await notifyCrewClockIn(employeeName, clockInLocation);
       } catch (e) { console.error("Clock in notification error:", e); }
 
       Swal.fire({ icon: "success", title: "Clocked In!", text: `Started work on ${job?.displayName || "job"}`, timer: 2000, showConfirmButton: false });

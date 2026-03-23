@@ -126,12 +126,12 @@ export default function LiveCrewWidget() {
                   }}
                 >
                   {/* Left: Name + Job */}
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box sx={{ flex: 1, minWidth: 0, mr: 1 }}>
                     <Typography variant="body1" fontWeight="bold" noWrap sx={{ color: '#212121' }}>
                       {entry.crewName}
                     </Typography>
                     <Typography variant="caption" noWrap sx={{ color: '#424242', fontWeight: 500 }}>
-                      {entry.jobName} · {getElapsed(entry.clockIn)}
+                      {entry.clientName || entry.customerName || 'Unknown Client'} · {getElapsed(entry.clockIn)}
                     </Typography>
                     {gps?.address && (
                       <Typography variant="caption" display="block" noWrap sx={{ color: '#616161' }}>

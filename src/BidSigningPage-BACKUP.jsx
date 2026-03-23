@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { db } from "./firebase";
 import { getFunctions, httpsCallable } from "firebase/functions";
-import { getTokenFromUrl } from "./utils/tokenUtils";
+import { createFullJobPackage } from "./utils/createFullJobPackage";
+import { getTokenFromUrl } from './utils/tokenUtils';
 import {
   Container,
   Typography,
@@ -21,13 +24,14 @@ import SignatureCanvas from "react-signature-canvas";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import Swal from "sweetalert2";
 
+// Create a simple theme for public pages
 const publicTheme = createTheme({
   palette: {
     primary: {
-      main: "#1565c0",
+      main: '#1565c0',
     },
     success: {
-      main: "#2e7d32",
+      main: '#2e7d32',
     },
   },
 });
@@ -41,115 +45,67 @@ const COMPANY = {
   logoPath: "/logo-kcl.png",
 };
 
+// This is a PUBLIC page - customers access without logging in
 function BidSigningPageContent() {
   const { bidId } = useParams();
-
   const [loading, setLoading] = useState(true);
   const [bid, setBid] = useState(null);
   const [agreed, setAgreed] = useState(false);
   const [signing, setSigning] = useState(false);
   const [alreadySigned, setAlreadySigned] = useState(false);
-  const [debugInfo, setDebugInfo] = useState({
-    href: "",
-    bidId: "",
-    token: "",
-    loadedFromCallable: false,
-    errorMessage: "",
-    userAgent: "",
-  });
-
+  
   const sigPadRef = useRef(null);
-  const signingRef = useRef(false);
-
-  const isBidAlreadySigned = useCallback((data) => {
-    if (!data) return false;
-    return Boolean(
-      data.clientSignedAt ||
-      data.clientSignature ||
-      data.status === "Accepted" ||
-      data.status === "Fully Signed"
-    );
-  }, []);
-
-  const loadBid = useCallback(async () => {
-    const href = window.location.href;
-    const token = getTokenFromUrl();
-
-    setDebugInfo((prev) => ({
-      ...prev,
-      href,
-      bidId: bidId || "",
-      token: token || "",
-      userAgent: navigator.userAgent || "",
-      loadedFromCallable: false,
-      errorMessage: "",
-    }));
-
-    try {
-      const functions = getFunctions();
-      const getPublicBid = httpsCallable(functions, "getPublicBid");
-
-      const result = await getPublicBid({
-        bidId,
-        signingToken: token,
-      });
-
-      const response = result?.data || {};
-      const publicBid = response?.bid || null;
-
-      if (!publicBid) {
-        throw new Error("Public bid payload was empty");
-      }
-
-      setBid(publicBid);
-      setAlreadySigned(isBidAlreadySigned(publicBid));
-
-      setDebugInfo((prev) => ({
-        ...prev,
-        loadedFromCallable: true,
-        errorMessage: "",
-      }));
-
-      setLoading(false);
-    } catch (error) {
-      console.error("Error loading bid:", error);
-
-      const message =
-        error?.message ||
-        error?.details ||
-        "Failed to load bid. Please try again.";
-
-      setDebugInfo((prev) => ({
-        ...prev,
-        loadedFromCallable: false,
-        errorMessage: message,
-      }));
-
-      setBid(null);
-      setAlreadySigned(false);
-      setLoading(false);
-
-      Swal.fire("Error", "Failed to load bid. Please try again.", "error");
-    }
-  }, [bidId, isBidAlreadySigned]);
 
   useEffect(() => {
     loadBid();
-  }, [loadBid]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bidId]);
+
+  const loadBid = async () => {
+    try {
+      // Get token from URL
+      const token = getTokenFromUrl();
+      
+      const docRef = doc(db, "bids", bidId);
+      const snap = await getDoc(docRef);
+      
+      if (!snap.exists()) {
+        Swal.fire("Not Found", "This bid link is invalid or expired.", "error");
+        setLoading(false);
+        return;
+      }
+
+      const data = snap.data();
+      
+      // Verify token matches (Firestore rules will also check this)
+      if (data.signingToken && data.signingToken !== token) {
+        Swal.fire("Access Denied", "Invalid or expired link. Please request a new signing link.", "error");
+        setLoading(false);
+        return;
+      }
+      
+      setBid(data);
+      
+      // Check if already signed by client
+      if (data.clientSignature && data.clientSignedAt) {
+        setAlreadySigned(true);
+      }
+      
+      setLoading(false);
+    } catch (error) {
+      console.error("Error loading bid:", error);
+      Swal.fire("Error", "Failed to load bid. Please try again.", "error");
+      setLoading(false);
+    }
+  };
 
   const handleClearSignature = () => {
     sigPadRef.current?.clear();
   };
 
   const handleSign = async () => {
-    if (signingRef.current || signing) return;
-
     if (!agreed) {
-      Swal.fire(
-        "Agreement Required",
-        "Please check the box to accept this bid.",
-        "warning"
-      );
+      Swal.fire("Agreement Required", "Please check the box to accept this bid.", "warning");
       return;
     }
 
@@ -158,48 +114,52 @@ function BidSigningPageContent() {
       return;
     }
 
-    signingRef.current = true;
     setSigning(true);
 
     try {
       const signatureData = sigPadRef.current.toDataURL();
-      const functions = getFunctions();
-      const signPublicBid = httpsCallable(functions, "signPublicBid");
+      const timestamp = new Date().toISOString();
+      
+      // Auto-generate Darren's signature
+      const darrenSig = generateDarrenSignature();
 
-      const result = await signPublicBid({
-        bidId,
-        signatureData,
-        signingToken: getTokenFromUrl(),
+      await updateDoc(doc(db, "bids", bidId), {
+        clientSignature: signatureData,
+        clientSignedAt: timestamp,
+        contractorSignature: darrenSig,
+        contractorSignedAt: timestamp,
+        status: "Accepted", // Bid is now accepted
+        lastUpdated: timestamp,
       });
 
-      const response = result?.data || {};
-      console.log("signPublicBid response:", response);
+      console.log("Bid accepted by client:", bidId);
 
-      await loadBid();
-
-      if (response.alreadySigned) {
-        await Swal.fire({
-          icon: "info",
-          title: "Bid Already Accepted",
-          html: `
-            <p>This bid has already been accepted.</p>
-            <p>
-              Accepted on
-              <strong>
-                ${
-                  response.signedAt
-                    ? new Date(response.signedAt).toLocaleString()
-                    : " a previous date"
-                }
-              </strong>
-            </p>
-          `,
-          confirmButtonText: "OK",
+      // Phase 3: Notify admins via text
+      try {
+        const functions = getFunctions();
+        const notifySignature = httpsCallable(functions, 'notifySignature');
+        await notifySignature({
+          docType: 'bid',
+          docId: bidId,
+          customerName: bid.customerName,
+          amount: bid.amount,
         });
-        return;
+        console.log("Admin notification sent for bid signing");
+      } catch (notifyError) {
+        console.error("Admin notification failed (non-blocking):", notifyError);
       }
 
-      await Swal.fire({
+	        // Phase 2C Fix 3: Auto-create contract + invoice + job package
+      try {
+        const bidData = { ...bid, id: bidId };
+         await createFullJobPackage(bidData, true);
+        console.log("Job package auto-created for bid:", bidId);
+      } catch (pkgError) {
+        console.error("Auto-create package failed (will need manual creation):", pkgError);
+        // Don't block the signing success - package can be created manually from Bids list
+      }
+
+      Swal.fire({
         icon: "success",
         title: "Bid Accepted!",
         html: `
@@ -208,78 +168,40 @@ function BidSigningPageContent() {
           <ul style="text-align: left;">
             <li>We'll contact you to schedule the work</li>
             <li>A deposit of 50% will be required to begin</li>
-            <li>Estimated amount: <strong>$${(bid?.amount || 0).toFixed(2)}</strong></li>
+            <li>Estimated amount: <strong>$${(bid.amount || 0).toFixed(2)}</strong></li>
           </ul>
           <p>Questions? Call us at ${COMPANY.phone}</p>
         `,
         confirmButtonText: "Close",
       });
+
+      setAlreadySigned(true);
     } catch (error) {
-      console.error("Error signing bid:", error);
-
-      const message =
-        error?.message ||
-        error?.details ||
-        "Failed to accept bid. Please try again.";
-
-      try {
-        await loadBid();
-
-        if (bid && isBidAlreadySigned(bid)) {
-          await Swal.fire({
-            icon: "success",
-            title: "Bid Accepted!",
-            html: `
-              <p>This bid has already been accepted.</p>
-              <p>We'll contact you to schedule the work.</p>
-            `,
-            confirmButtonText: "OK",
-          });
-          return;
-        }
-      } catch (reloadError) {
-        console.error("Error reloading bid after sign error:", reloadError);
-      }
-
-      Swal.fire("Error", message, "error");
+      console.error("Error saving signature:", error);
+      Swal.fire("Error", "Failed to save signature. Please try again.", "error");
     } finally {
-      signingRef.current = false;
       setSigning(false);
     }
   };
 
-  const renderDebugPanel = () => (
-    <Paper
-      sx={{
-        p: 2,
-        mt: 3,
-        backgroundColor: "#fff8e1",
-        border: "1px solid #ffcc80",
-      }}
-    >
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Debug Info
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>URL:</strong> {debugInfo.href || "N/A"}
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>bidId:</strong> {debugInfo.bidId || "N/A"}
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>token:</strong> {debugInfo.token || "N/A"}
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>loadedFromCallable:</strong> {String(debugInfo.loadedFromCallable)}
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>error:</strong> {debugInfo.errorMessage || "None"}
-      </Typography>
-      <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-        <strong>User Agent:</strong> {debugInfo.userAgent || "N/A"}
-      </Typography>
-    </Paper>
-  );
+  // Generate Darren's auto-signature
+  const generateDarrenSignature = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 100;
+    const ctx = canvas.getContext('2d');
+    
+    // White background
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, 400, 100);
+    
+    // Signature text in cursive style
+    ctx.font = '32px "Brush Script MT", cursive';
+    ctx.fillStyle = 'black';
+    ctx.fillText('Darren Bennett', 50, 60);
+    
+    return canvas.toDataURL('image/png');
+  };
 
   if (loading) {
     return (
@@ -288,7 +210,6 @@ function BidSigningPageContent() {
         <Typography variant="h6" sx={{ mt: 2 }}>
           Loading bid...
         </Typography>
-        {renderDebugPanel()}
       </Container>
     );
   }
@@ -300,7 +221,6 @@ function BidSigningPageContent() {
           <Typography variant="h6">Bid Not Found</Typography>
           <Typography>This bid link is invalid or has expired.</Typography>
         </Alert>
-        {renderDebugPanel()}
       </Container>
     );
   }
@@ -311,50 +231,41 @@ function BidSigningPageContent() {
         <Paper sx={{ p: 4, textAlign: "center" }}>
           <CheckCircleIcon sx={{ fontSize: 80, color: "success.main", mb: 2 }} />
           <Typography variant="h4" gutterBottom>
-            Bid Already Accepted
+            Bid Already Accepted!
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-            You accepted this bid on{" "}
-            {bid.clientSignedAt
-              ? new Date(bid.clientSignedAt).toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })
-              : "a previous date"}
+            You accepted this bid on {bid.clientSignedAt ? new Date(bid.clientSignedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'a previous date'}
           </Typography>
           <Divider sx={{ my: 3 }} />
           <Typography variant="h6" gutterBottom>
             Next Steps:
           </Typography>
           <Typography variant="body1" sx={{ mb: 2 }}>
-            • We'll contact you to schedule the work
-            <br />
-            • A deposit of 50% will be required to begin
-            <br />• Estimated amount: <strong>${(bid.amount || 0).toFixed(2)}</strong>
+            • We'll contact you to schedule the work<br />
+            • A deposit of 50% will be required to begin<br />
+            • Estimated amount: <strong>${(bid.amount || 0).toFixed(2)}</strong>
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Questions? Call us at {COMPANY.phone}
           </Typography>
         </Paper>
-        {renderDebugPanel()}
       </Container>
     );
   }
 
   const depositAmount = (bid.amount || 0) * 0.5;
+  const finalAmount = (bid.amount || 0) - depositAmount;
 
   return (
     <Container maxWidth="md" sx={{ mt: 4, mb: 6 }}>
       <Paper sx={{ p: { xs: 2, sm: 4 } }}>
+        {/* Header */}
         <Box sx={{ textAlign: "center", mb: 4 }}>
-          <img
-            src={COMPANY.logoPath}
-            alt="Kings Canyon Landscaping"
+          <img 
+            src={COMPANY.logoPath} 
+            alt="Kings Canyon Landscaping" 
             style={{ height: 80, marginBottom: 16 }}
-            onError={(e) => {
-              e.target.style.display = "none";
-            }}
+            onError={(e) => { e.target.style.display = 'none' }}
           />
           <Typography variant="h4" gutterBottom>
             Bid Proposal
@@ -369,6 +280,7 @@ function BidSigningPageContent() {
 
         <Divider sx={{ my: 3 }} />
 
+        {/* Bid Details */}
         <Box sx={{ mb: 4 }}>
           <Typography variant="h6" gutterBottom>
             Bid Details
@@ -386,7 +298,7 @@ function BidSigningPageContent() {
             <Typography variant="body1" sx={{ mb: 2 }}>
               <strong>Date:</strong> {new Date().toLocaleDateString()}
             </Typography>
-
+            
             {bid.description && (
               <Box sx={{ mt: 2 }}>
                 <Typography variant="subtitle2" gutterBottom>
@@ -413,19 +325,42 @@ function BidSigningPageContent() {
 
         <Divider sx={{ my: 3 }} />
 
+        {/* Terms & Conditions */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" gutterBottom>
+            Terms & Conditions
+          </Typography>
+          <Box sx={{ pl: 2 }}>
+            <Typography variant="body2" paragraph>
+              <strong>Bid Validity:</strong> This bid is valid for 30 days from the date listed above.
+            </Typography>
+            <Typography variant="body2" paragraph>
+              <strong>Payment Terms:</strong> A deposit of 50% is required to begin work. The remaining balance is due upon completion. Payment is accepted via Zelle, cash, or check.
+            </Typography>
+            <Typography variant="body2" paragraph>
+              <strong>Pricing:</strong> Final pricing may vary based on site conditions and material availability. Any changes will be communicated before proceeding.
+            </Typography>
+            <Typography variant="body2" paragraph>
+              <strong>Warranty:</strong> All workmanship is warranted for 30 days from completion against defects in installation.
+            </Typography>
+          </Box>
+        </Box>
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* Signature Section */}
         <Box sx={{ mb: 4 }}>
           <Typography variant="h6" gutterBottom>
             Accept This Bid
           </Typography>
           <Alert severity="info" sx={{ mb: 2 }}>
-            By signing below, you accept this bid and agree to the terms and
-            conditions.
+            By signing below, you accept this bid and agree to the terms and conditions.
           </Alert>
-
-          <Paper
-            variant="outlined"
-            sx={{
-              p: 2,
+          
+          <Paper 
+            variant="outlined" 
+            sx={{ 
+              p: 2, 
               mb: 2,
               border: "2px solid",
               borderColor: "primary.main",
@@ -434,35 +369,37 @@ function BidSigningPageContent() {
             <Typography variant="subtitle2" gutterBottom>
               Sign with your finger or mouse:
             </Typography>
-            <Box
-              sx={{
-                border: "1px solid #ccc",
-                borderRadius: 1,
-                backgroundColor: "white",
-                touchAction: "none",
-              }}
-            >
+            <Box sx={{ 
+              border: "1px solid #ccc", 
+              borderRadius: 1,
+              backgroundColor: "white",
+              touchAction: "none",
+            }}>
               <SignatureCanvas
                 ref={sigPadRef}
                 canvasProps={{
                   width: 500,
                   height: 200,
-                  style: {
-                    width: "100%",
+                  style: { 
+                    width: "100%", 
                     height: "auto",
                     touchAction: "none",
                   },
                 }}
               />
             </Box>
-            <Button size="small" onClick={handleClearSignature} sx={{ mt: 1 }}>
+            <Button 
+              size="small" 
+              onClick={handleClearSignature}
+              sx={{ mt: 1 }}
+            >
               Clear Signature
             </Button>
           </Paper>
 
           <FormControlLabel
             control={
-              <Checkbox
+              <Checkbox 
                 checked={agreed}
                 onChange={(e) => setAgreed(e.target.checked)}
                 color="primary"
@@ -476,13 +413,14 @@ function BidSigningPageContent() {
           />
         </Box>
 
+        {/* Accept Button */}
         <Box sx={{ textAlign: "center" }}>
           <Button
             variant="contained"
             size="large"
             onClick={handleSign}
             disabled={signing || !agreed}
-            sx={{
+            sx={{ 
               minWidth: 200,
               py: 1.5,
               fontSize: "1.1rem",
@@ -490,19 +428,13 @@ function BidSigningPageContent() {
           >
             {signing ? "Accepting..." : "Accept Bid"}
           </Button>
-          <Typography
-            variant="caption"
-            display="block"
-            sx={{ mt: 2, color: "text.secondary" }}
-          >
-            Your signature will be securely stored and we'll contact you to
-            schedule work
+          <Typography variant="caption" display="block" sx={{ mt: 2, color: "text.secondary" }}>
+            Your signature will be securely stored and we'll contact you to schedule work
           </Typography>
         </Box>
       </Paper>
 
-      {renderDebugPanel()}
-
+      {/* Footer */}
       <Box sx={{ textAlign: "center", mt: 4 }}>
         <Typography variant="body2" color="text.secondary">
           {COMPANY.name} | {COMPANY.phone} | {COMPANY.email}
@@ -512,6 +444,7 @@ function BidSigningPageContent() {
   );
 }
 
+// Wrapper component that prevents navigation to main app
 export default function BidSigningPage() {
   return (
     <ThemeProvider theme={publicTheme}>

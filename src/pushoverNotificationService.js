@@ -119,7 +119,7 @@ export async function notifyCrewClockIn(employeeName, location = null) {
 /**
  * Notify admin when a crew member clocks OUT
  */
-export async function notifyCrewClockOut(employeeName, hoursWorked = null) {
+export async function notifyCrewClockOut(employeeName, hoursWorked = null, gpsData = null) {
   const time = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -128,10 +128,20 @@ export async function notifyCrewClockOut(employeeName, hoursWorked = null) {
 
   const hoursText = hoursWorked ? `\n⏱ Hours worked: ${hoursWorked}` : "";
 
+  // Show address and distance at clock-out so Darren can verify they were still on site
+  let locationText = "";
+  if (gpsData?.jobAddress) {
+    locationText = `\n📍 ${gpsData.jobAddress}`;
+    if (gpsData?.gpsOutDistanceFeet != null) {
+      const onSite = gpsData.gpsOutDistanceFeet <= 500;
+      locationText += `\n${onSite ? "✅" : "⚠️"} ${gpsData.gpsOutDistanceFeet.toLocaleString()} ft from site`;
+    }
+  }
+
   return sendPushoverNotification({
     type: "clock_out",
     title: "🔴 Crew Clocked Out",
-    message: `${employeeName} clocked out at ${time}${hoursText}`,
+    message: `${employeeName} clocked out at ${time}${hoursText}${locationText}`,
     priority: PRIORITY.NORMAL,
   });
 }

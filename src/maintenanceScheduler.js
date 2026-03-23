@@ -1,7 +1,7 @@
 // maintenanceScheduler.js
 // Utility functions for auto-scheduling maintenance visits
 
-import { collection, addDoc, query, where, getDocs, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, query, where, getDocs, getDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import moment from "moment";
 
@@ -46,6 +46,58 @@ export function calculateMaintenanceDates(startDate, frequency, count = 12) {
   }
   
   return dates;
+}
+
+
+/**
+ * Find or create a monthly job card for a maintenance contract visit.
+ * One job card per customer per month — crew clocks in against this,
+ * expenses accumulate on it, and Darren invoices from it at month end.
+ */
+async function findOrCreateMonthlyJob(contract, monthYear) {
+  // monthYear format: "2026-03"
+  try {
+    // Check if a monthly job already exists for this contract + month
+    const q = query(
+      collection(db, 'jobs'),
+      where('maintenanceContractId', '==', contract.id),
+      where('monthYear', '==', monthYear)
+    );
+    const existing = await getDocs(q);
+
+    if (!existing.empty) {
+      return existing.docs[0].id;
+    }
+
+    // Create a new monthly job card
+    const [year, month] = monthYear.split('-');
+    const monthLabel = new Date(parseInt(year), parseInt(month) - 1, 1)
+      .toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+    const jobData = {
+      clientName: contract.customerName || '',
+      customerName: contract.customerName || '',
+      customerId: contract.customerId || '',
+      maintenanceContractId: contract.id,
+      monthYear,                          // "2026-03" — used to find this card next visit
+      jobType: 'Maintenance',
+      description: `Monthly Maintenance — ${monthLabel}\n${contract.servicesIncluded || 'Standard maintenance service'}`,
+      monthlyRate: parseFloat(contract.monthlyRate || 0),
+      amount: parseFloat(contract.monthlyRate || 0),
+      status: 'Active',
+      visits: [],                         // appended when each scheduled visit completes
+      source: 'maintenance_contract',
+      createdAt: new Date().toISOString(),
+    };
+
+    const jobRef = await addDoc(collection(db, 'jobs'), jobData);
+    console.log(`  ✅ Created monthly job card for ${contract.customerName} — ${monthLabel} (${jobRef.id})`);
+    return jobRef.id;
+
+  } catch (error) {
+    console.error('Error in findOrCreateMonthlyJob:', error);
+    throw error;
+  }
 }
 
 /**
@@ -98,10 +150,16 @@ export async function createMaintenanceSchedules(contract, monthsAhead = 3) {
     // ✅ FIXED: Only create schedules, NOT jobs
     let createdCount = 0;
     for (const date of datesToCreate) {
+      // Find or create the monthly job card for this visit's month
+      const monthYear = date.substring(0, 7); // "YYYY-MM"
+      const monthlyJobId = await findOrCreateMonthlyJob(contract, monthYear);
+
+      const visitLabel = `Maintenance visit - ${contract.frequency}`;
       const scheduleData = {
         clientName: contract.customerName,
         customerId: contract.customerId || '',
         maintenanceContractId: contract.id,
+        monthlyJobId,                     // links to the monthly job card for clock-in
         startDate: date,
         endDate: date,
         startTime: '08:00',
@@ -110,7 +168,8 @@ export async function createMaintenanceSchedules(contract, monthsAhead = 3) {
         assignedEmployees: [],
         status: 'scheduled',
         type: 'maintenance',
-        notes: `Maintenance visit - ${contract.frequency}`,
+        jobDescription: contract.servicesIncluded || visitLabel,
+        notes: visitLabel,
         servicesIncluded: contract.servicesIncluded || '',
         monthlyRate: contract.monthlyRate || 0,
         createdAt: new Date().toISOString(),
@@ -119,8 +178,6 @@ export async function createMaintenanceSchedules(contract, monthsAhead = 3) {
       
       await addDoc(collection(db, 'schedules'), scheduleData);
       createdCount++;
-      
-      // ❌ REMOVED: Job creation code - jobs will be created when schedule is completed
     }
     
     console.log(`✅ Created ${createdCount} maintenance schedules`);
@@ -281,12 +338,17 @@ export async function regenerateMaintenanceSchedules(contractId, contract) {
       const startDate = moment(lastScheduledDate).add(1, 'day').format('YYYY-MM-DD');
       const newDates = calculateMaintenanceDates(startDate, contract.frequency, visitsNeeded);
       
-      // Create new schedules
+      // Create new schedules, linking each to its monthly job card
       for (const date of newDates) {
+        const monthYear = date.substring(0, 7);
+        const monthlyJobId = await findOrCreateMonthlyJob(contract, monthYear);
+
+        const visitLabel2 = `Maintenance visit - ${contract.frequency}`;
         const scheduleData = {
           clientName: contract.customerName,
           customerId: contract.customerId || '',
           maintenanceContractId: contractId,
+          monthlyJobId,
           startDate: date,
           endDate: date,
           startTime: '08:00',
@@ -295,7 +357,8 @@ export async function regenerateMaintenanceSchedules(contractId, contract) {
           assignedEmployees: [],
           status: 'scheduled',
           type: 'maintenance',
-          notes: `Maintenance visit - ${contract.frequency}`,
+          jobDescription: contract.servicesIncluded || visitLabel2,
+          notes: visitLabel2,
           servicesIncluded: contract.servicesIncluded || '',
           monthlyRate: contract.monthlyRate || 0,
           createdAt: new Date().toISOString(),

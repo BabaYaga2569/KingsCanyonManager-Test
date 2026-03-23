@@ -41,6 +41,16 @@ import {
   updateMaintenanceScheduleStatus 
 } from "./maintenanceScheduler";
 
+// Generate a secure signing token for the maintenance standing contract
+function generateSigningToken() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let token = '';
+  for (let i = 0; i < 48; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
+}
+
 export default function MaintenanceEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -205,7 +215,27 @@ export default function MaintenanceEditor() {
         
         const docRef = await addDoc(collection(db, "maintenance_contracts"), contractData);
         contractId = docRef.id;
-        
+
+        // Create a standing contract in the contracts collection so the
+        // customer can sign the maintenance agreement before work begins.
+        const signingToken = generateSigningToken();
+        const monthLabel = moment().format('MMMM YYYY');
+        await addDoc(collection(db, "contracts"), {
+          maintenanceContractId: contractId,
+          clientName: contract.customerName || '',
+          customerName: contract.customerName || '',
+          customerId: contract.customerId || null,
+          amount: parseFloat(contract.monthlyRate || 0),
+          description: `Maintenance Agreement — ${contract.frequency ? contract.frequency.charAt(0).toUpperCase() + contract.frequency.slice(1) : 'Regular'} Service\n${contract.servicesIncluded || 'Standard maintenance service'}`,
+          materials: '',
+          notes: `Monthly rate: $${contract.monthlyRate}/mo`,
+          status: 'Pending',
+          type: 'maintenance_agreement',
+          signingToken,
+          createdAt: new Date().toISOString(),
+          source: 'maintenance_contract',
+        });
+
         // Auto-create schedules if enabled
         if (contract.autoSchedule && contract.status === "active") {
           console.log("🔄 Creating maintenance schedules...");
@@ -216,13 +246,13 @@ export default function MaintenanceEditor() {
           
           Swal.fire({
             title: "Contract Created!",
-            html: `Maintenance contract created successfully<br><strong>${schedulesCreated} visits scheduled</strong>`,
+            html: `Maintenance contract created successfully<br><strong>${schedulesCreated} visits scheduled</strong><br><small style="color:#1565c0">A signing contract has been created — send it to ${contract.customerName} from the Contracts page</small>`,
             icon: "success",
           });
         } else {
           Swal.fire({
             title: "Contract Created!",
-            text: "Maintenance contract created successfully",
+            html: `Maintenance contract created successfully<br><small style="color:#1565c0">A signing contract has been created — send it to ${contract.customerName} from the Contracts page</small>`,
             icon: "success",
           });
         }
