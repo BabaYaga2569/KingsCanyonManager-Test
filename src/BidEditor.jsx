@@ -14,12 +14,16 @@ import {
   Tooltip,
   Alert,
   Divider,
+  Chip,
+  Card,
+  CardContent,
 } from "@mui/material";
 import LinkIcon from '@mui/icons-material/Link';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import EmailIcon from '@mui/icons-material/Email';
+import LandscapeIcon from '@mui/icons-material/Landscape';
 import Swal from "sweetalert2";
 import SignatureCanvas from "react-signature-canvas";
 import jsPDF from "jspdf";
@@ -49,6 +53,9 @@ export default function BidEditor() {
 
   // Logo for PDF
   const [logoDataUrl, setLogoDataUrl] = useState(null);
+
+  // AI Concept Rendering editing state
+  const [conceptEdits, setConceptEdits] = useState(null);
 
   const COMPANY = {
     name: "Kings Canyon Landscaping LLC",
@@ -163,6 +170,10 @@ export default function BidEditor() {
           }
           if (data.contractorSignedAt) {
             setContractorSignedAt(data.contractorSignedAt);
+          }
+          // Load concept rendering for editing
+          if (data.aiConceptRendering) {
+            setConceptEdits({ ...data.aiConceptRendering });
           }
         } else {
           Swal.fire("Not found", "Bid not found.", "error");
@@ -393,6 +404,8 @@ export default function BidEditor() {
         contractorSignature: contractorSigData,
         clientSignedAt,
         contractorSignedAt,
+        hasAiConceptRendering: Boolean(conceptEdits),
+        aiConceptRendering: conceptEdits || null,
         updatedAt: new Date().toISOString(),
       });
       
@@ -534,7 +547,106 @@ export default function BidEditor() {
       y += mats.length * 12 + 16;
     }
 
-    // Terms
+    // AI Concept Rendering / Design Intent
+    if (bid.hasAiConceptRendering && bid.aiConceptRendering) {
+      const cr = bid.aiConceptRendering;
+
+      // Add a new page if we're running low
+      if (y > H - 220) {
+        docPDF.addPage();
+        docPDF.setDrawColor(60);
+        docPDF.setLineWidth(1);
+        docPDF.rect(28, 28, W - 56, H - 56);
+        y = 50;
+      }
+
+      // Section header
+      docPDF.setFillColor(243, 229, 245);
+      docPDF.roundedRect(38, y - 2, W - 76, 18, 2, 2, "F");
+      docPDF.setFont("helvetica", "bold");
+      docPDF.setFontSize(11);
+      docPDF.setTextColor(100, 40, 160);
+      docPDF.text("Concept Rendering / Design Intent", 42, y + 11);
+      docPDF.setTextColor(0);
+      y += 26;
+
+      docPDF.setFont("helvetica", "normal");
+      docPDF.setFontSize(10);
+
+      if (cr.projectType) {
+        docPDF.setFont("helvetica", "bold");
+        docPDF.text("Project Type:", 40, y);
+        docPDF.setFont("helvetica", "normal");
+        docPDF.text(cr.projectType, 130, y);
+        y += 14;
+      }
+
+      if (cr.dimensions?.width && cr.dimensions?.length) {
+        docPDF.setFont("helvetica", "bold");
+        docPDF.text("Dimensions:", 40, y);
+        docPDF.setFont("helvetica", "normal");
+        docPDF.text(
+          `${cr.dimensions.width} × ${cr.dimensions.length} ${cr.dimensions.unit || "ft"}`,
+          130, y
+        );
+        y += 14;
+      }
+
+      if (cr.stylePreset) {
+        docPDF.setFont("helvetica", "bold");
+        docPDF.text("Design Style:", 40, y);
+        docPDF.setFont("helvetica", "normal");
+        docPDF.text(cr.stylePreset, 130, y);
+        y += 14;
+      }
+
+      if (cr.conceptSummary) {
+        y += 4;
+        docPDF.setFont("helvetica", "normal");
+        const summary = docPDF.splitTextToSize(cr.conceptSummary, W - 80);
+        docPDF.text(summary, 40, y);
+        y += summary.length * 12 + 8;
+      }
+
+      if (cr.focalElements) {
+        y += 4;
+        docPDF.setFont("helvetica", "bold");
+        docPDF.text("Featured Elements:", 40, y);
+        y += 13;
+        docPDF.setFont("helvetica", "normal");
+        const elems = docPDF.splitTextToSize(cr.focalElements, W - 80);
+        docPDF.text(elems, 40, y);
+        y += elems.length * 12 + 8;
+      }
+
+      if (cr.specialNotes) {
+        y += 4;
+        docPDF.setFont("helvetica", "bold");
+        docPDF.text("Placement Notes:", 40, y);
+        y += 13;
+        docPDF.setFont("helvetica", "normal");
+        const notes = docPDF.splitTextToSize(cr.specialNotes, W - 80);
+        docPDF.text(notes, 40, y);
+        y += notes.length * 12 + 8;
+      }
+
+      // Disclaimer
+      y += 6;
+      docPDF.setFont("helvetica", "italic");
+      docPDF.setFontSize(8);
+      docPDF.setTextColor(120);
+      const disclaimer = docPDF.splitTextToSize(
+        "Concept rendering / visualization only. Final plant size, spacing, rock coverage, boulder shape, and layout may vary based on site conditions, material availability, and installation requirements.",
+        W - 80
+      );
+      docPDF.text(disclaimer, 40, y);
+      y += disclaimer.length * 10 + 16;
+      docPDF.setFont("helvetica", "normal");
+      docPDF.setFontSize(10);
+      docPDF.setTextColor(0);
+    }
+
+
     y += 10;
     docPDF.setFont("helvetica", "bold");
     docPDF.setFontSize(11);
@@ -806,6 +918,102 @@ export default function BidEditor() {
           {renderField('description', 'Description', true, 4, 'Describe the work to be done')}
           {renderField('materials', 'Materials', true, 3, 'List materials needed for the job')}
           {renderField('notes', 'Notes', true, 2, 'Internal notes (not shown to customer)')}
+
+          {/* AI Concept Rendering Panel */}
+          {bid.hasAiConceptRendering && conceptEdits && (
+            <Box sx={{ mt: 2 }}>
+              <Divider sx={{ mb: 2 }} />
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2 }}>
+                <LandscapeIcon sx={{ color: "#7c3aed" }} />
+                <Typography variant="h6" sx={{ color: "#7c3aed", fontWeight: 700 }}>
+                  ✨ AI Concept Rendering
+                </Typography>
+                <Chip label="Included with Bid" size="small" color="secondary" variant="outlined" />
+              </Box>
+
+              <Card
+                sx={{
+                  background: "linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%)",
+                  border: "1px solid #ce93d8",
+                  borderRadius: 2,
+                  mb: 2,
+                }}
+              >
+                <CardContent>
+                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2 }}>
+                    {conceptEdits.stylePreset && (
+                      <Chip label={conceptEdits.stylePreset} size="small" color="primary" />
+                    )}
+                    {conceptEdits.projectType && (
+                      <Chip label={conceptEdits.projectType} size="small" variant="outlined" />
+                    )}
+                    {conceptEdits.dimensions?.width && conceptEdits.dimensions?.length && (
+                      <Chip
+                        label={`${conceptEdits.dimensions.width} × ${conceptEdits.dimensions.length} ${conceptEdits.dimensions.unit || "ft"}`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    )}
+                    {conceptEdits.usedPhotos && (
+                      <Chip
+                        label={`${conceptEdits.photoCount} photo ref`}
+                        size="small"
+                        color="info"
+                        variant="outlined"
+                      />
+                    )}
+                  </Box>
+
+                  <TextField
+                    label="Concept Summary"
+                    multiline
+                    rows={3}
+                    fullWidth
+                    value={conceptEdits.conceptSummary || ""}
+                    onChange={(e) =>
+                      setConceptEdits((prev) => ({ ...prev, conceptSummary: e.target.value }))
+                    }
+                    sx={{ mb: 2 }}
+                    helperText="Shown to client on signing page and PDF"
+                  />
+
+                  <TextField
+                    label="Featured Elements / Plants / Hardscape"
+                    multiline
+                    rows={3}
+                    fullWidth
+                    value={conceptEdits.focalElements || ""}
+                    onChange={(e) =>
+                      setConceptEdits((prev) => ({ ...prev, focalElements: e.target.value }))
+                    }
+                    sx={{ mb: 2 }}
+                  />
+
+                  <TextField
+                    label="Special Placement Notes"
+                    multiline
+                    rows={2}
+                    fullWidth
+                    value={conceptEdits.specialNotes || ""}
+                    onChange={(e) =>
+                      setConceptEdits((prev) => ({ ...prev, specialNotes: e.target.value }))
+                    }
+                    sx={{ mb: 1 }}
+                  />
+
+                  {conceptEdits.generatedAt && (
+                    <Typography variant="caption" color="text.secondary">
+                      Generated: {new Date(conceptEdits.generatedAt).toLocaleString()}
+                    </Typography>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Alert severity="info" sx={{ mb: 1 }}>
+                <strong>Concept Rendering Note:</strong> This design intent will appear on the client-facing bid and PDF. Use Save Changes to persist any edits above.
+              </Alert>
+            </Box>
+          )}
 
           {/* Signature Pads - Added to match Contract Editor */}
           <Box sx={{ mt: 3 }}>
