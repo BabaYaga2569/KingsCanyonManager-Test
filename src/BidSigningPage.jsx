@@ -16,9 +16,12 @@ import {
   CssBaseline,
   ThemeProvider,
   createTheme,
+  Chip,
 } from "@mui/material";
 import SignatureCanvas from "react-signature-canvas";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import LandscapeIcon from "@mui/icons-material/Landscape";
 import Swal from "sweetalert2";
 
 const publicTheme = createTheme({
@@ -410,6 +413,113 @@ function BidSigningPageContent() {
             )}
           </Box>
         </Box>
+
+        {/* AI Concept Rendering Section */}
+        {bid.hasAiConceptRendering && bid.aiConceptRendering && (
+          <>
+            <Divider sx={{ my: 3 }} />
+            <Box sx={{ mb: 4 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2.5 }}>
+                <LandscapeIcon sx={{ color: "#7c3aed", fontSize: 28 }} />
+                <Box>
+                  <Typography variant="h6" sx={{ color: "#7c3aed", fontWeight: 700 }}>
+                    ✨ Design Concept Preview
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Your personalized landscape design intent
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Paper
+                sx={{
+                  p: { xs: 2, sm: 3 },
+                  background: "linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%)",
+                  border: "1px solid #ce93d8",
+                  borderRadius: 2,
+                }}
+              >
+                {/* Tags */}
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2 }}>
+                  {bid.aiConceptRendering.stylePreset && (
+                    <Chip
+                      label={bid.aiConceptRendering.stylePreset}
+                      size="small"
+                      sx={{ bgcolor: "#7c3aed", color: "white", fontWeight: 600 }}
+                    />
+                  )}
+                  {bid.aiConceptRendering.projectType && (
+                    <Chip
+                      label={bid.aiConceptRendering.projectType}
+                      size="small"
+                      variant="outlined"
+                      sx={{ borderColor: "#7c3aed", color: "#7c3aed" }}
+                    />
+                  )}
+                  {bid.aiConceptRendering.dimensions?.width &&
+                    bid.aiConceptRendering.dimensions?.length && (
+                      <Chip
+                        label={`${bid.aiConceptRendering.dimensions.width} × ${bid.aiConceptRendering.dimensions.length} ${bid.aiConceptRendering.dimensions.unit || "ft"}`}
+                        size="small"
+                        variant="outlined"
+                        sx={{ borderColor: "#7c3aed", color: "#7c3aed" }}
+                      />
+                    )}
+                </Box>
+
+                {/* Concept Summary */}
+                {bid.aiConceptRendering.conceptSummary && (
+                  <Typography
+                    variant="body1"
+                    sx={{
+                      mb: 2,
+                      fontStyle: "italic",
+                      color: "text.primary",
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    "{bid.aiConceptRendering.conceptSummary}"
+                  </Typography>
+                )}
+
+                {/* Featured Elements */}
+                {bid.aiConceptRendering.focalElements && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                      Featured Elements:
+                    </Typography>
+                    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", pl: 1 }}>
+                      {bid.aiConceptRendering.focalElements}
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Special Notes */}
+                {bid.aiConceptRendering.specialNotes && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                      Design Notes:
+                    </Typography>
+                    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", pl: 1 }}>
+                      {bid.aiConceptRendering.specialNotes}
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Disclaimer */}
+                <Alert
+                  severity="info"
+                  icon={<AutoAwesomeIcon fontSize="small" />}
+                  sx={{ mt: 1, fontSize: "0.78rem", bgcolor: "rgba(255,255,255,0.6)" }}
+                >
+                  <strong>Concept visualization only.</strong> Final plant size, spacing, rock coverage,
+                  boulder placement, and overall layout may vary based on site conditions, material
+                  availability, and installation requirements.
+                </Alert>
+              </Paper>
+            </Box>
+          </>
+        )}
 
         <Divider sx={{ my: 3 }} />
 

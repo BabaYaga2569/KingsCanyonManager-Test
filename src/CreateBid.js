@@ -27,6 +27,13 @@ import {
   Chip,
   Divider,
   Tooltip,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  FormControlLabel,
+  Switch,
+  Collapse,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import { useNavigate } from "react-router-dom";
@@ -38,6 +45,9 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import SendIcon from "@mui/icons-material/Send";
 import CloseIcon from "@mui/icons-material/Close";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import LandscapeIcon from "@mui/icons-material/Landscape";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 
 export default function CreateBid() {
   const theme = useTheme();
@@ -71,6 +81,19 @@ export default function CreateBid() {
   const [bidPhotos, setBidPhotos] = useState([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef = useRef(null);
+
+  // AI Concept Rendering state
+  const [conceptOpen, setConceptOpen] = useState(false);
+  const [conceptProjectType, setConceptProjectType] = useState("Planter Bed");
+  const [conceptWidth, setConceptWidth] = useState("");
+  const [conceptLength, setConceptLength] = useState("");
+  const [conceptUnit, setConceptUnit] = useState("ft");
+  const [conceptStyle, setConceptStyle] = useState("Desert Modern");
+  const [conceptFocalElements, setConceptFocalElements] = useState("");
+  const [conceptSpecialNotes, setConceptSpecialNotes] = useState("");
+  const [conceptUsePhotos, setConceptUsePhotos] = useState(true);
+  const [conceptRendering, setConceptRendering] = useState(null);
+  const [generatingConcept, setGeneratingConcept] = useState(false);
 
   useEffect(() => {
     if (aiBottomRef.current) aiBottomRef.current.scrollIntoView({ behavior: "smooth" });
@@ -201,6 +224,83 @@ export default function CreateBid() {
     setNotes(notesBreakdown);
     setAiOpen(false);
     Swal.fire({ icon: "success", title: "Applied to Bid!", text: "Description, materials, amount, and profit breakdown have been filled in.", timer: 2500, showConfirmButton: false });
+  };
+
+  const generateAiConcept = () => {
+    if (!conceptFocalElements.trim()) {
+      Swal.fire("Missing Info", "Please describe the focal elements or plants you want in the design.", "warning");
+      return;
+    }
+
+    setGeneratingConcept(true);
+    try {
+      const dimStr =
+        conceptWidth && conceptLength
+          ? `${conceptWidth} ${conceptUnit} wide by ${conceptLength} ${conceptUnit} long`
+          : "dimensions to be confirmed on site";
+
+      const photoNote =
+        conceptUsePhotos && bidPhotos.length > 0
+          ? ` Reference the ${bidPhotos.length} uploaded site photo${bidPhotos.length > 1 ? "s" : ""} for existing conditions.`
+          : "";
+
+      const prompt =
+        `Create a realistic ${conceptStyle.toLowerCase()} landscape rendering of a ` +
+        `${dimStr} ${conceptProjectType.toLowerCase()}. ` +
+        `${conceptFocalElements.trim()}` +
+        `${conceptSpecialNotes.trim() ? ` Special notes: ${conceptSpecialNotes.trim()}.` : ""}` +
+        `${photoNote} ` +
+        `Style should be clean, upscale, and appropriate for an Arizona-style ` +
+        `${conceptStyle.toLowerCase()} residential landscape. ` +
+        `Present as a daytime photorealistic view.`;
+
+      const elementList = conceptFocalElements
+        .trim()
+        .split(/[,\n]+/)
+        .map((e) => e.trim())
+        .filter(Boolean);
+
+      const featuredSnippet =
+        elementList.length > 0
+          ? elementList.slice(0, 3).join(", ") + (elementList.length > 3 ? ", and more" : "")
+          : "selected desert plants and hardscape";
+
+      const summary =
+        `This ${conceptStyle} ${conceptProjectType.toLowerCase()} design features ${featuredSnippet}. ` +
+        `The ${dimStr} space will be transformed into a stunning, low-maintenance desert showcase ` +
+        `that enhances curb appeal and property value.`;
+
+      const concept = {
+        projectType: conceptProjectType,
+        dimensions: {
+          width: conceptWidth,
+          length: conceptLength,
+          unit: conceptUnit,
+        },
+        stylePreset: conceptStyle,
+        focalElements: conceptFocalElements,
+        specialNotes: conceptSpecialNotes,
+        usedPhotos: conceptUsePhotos && bidPhotos.length > 0,
+        photoCount: conceptUsePhotos ? bidPhotos.length : 0,
+        generatedPrompt: prompt,
+        conceptSummary: summary,
+        generatedAt: new Date().toISOString(),
+      };
+
+      setConceptRendering(concept);
+      Swal.fire({
+        icon: "success",
+        title: "✨ Concept Brief Generated!",
+        text: "Your AI concept brief is ready and will be included with this bid.",
+        timer: 2500,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error("Concept generation error:", err);
+      Swal.fire("Error", "Failed to generate concept. Please try again.", "error");
+    } finally {
+      setGeneratingConcept(false);
+    }
   };
 
   // Fetch customers for dropdown — only show customers with email AND address
@@ -336,6 +436,8 @@ export default function CreateBid() {
         photos: bidPhotos.map(p => p.url),
         createdAt: new Date().toISOString(),
         hasDesignVisualization: false,
+        hasAiConceptRendering: Boolean(conceptRendering),
+        aiConceptRendering: conceptRendering || null,
         signingToken: generateSecureToken(),
       });
 
@@ -364,6 +466,8 @@ export default function CreateBid() {
         createdAt: new Date().toISOString(),
         hasDesignVisualization: true,
         designVisualization: design,
+        hasAiConceptRendering: Boolean(conceptRendering),
+        aiConceptRendering: conceptRendering || null,
         signingToken: generateSecureToken(),
       });
 
@@ -383,6 +487,16 @@ export default function CreateBid() {
     setMaterials("");
     setNotes("");
     setDesignData(null);
+    setConceptRendering(null);
+    setConceptOpen(false);
+    setConceptProjectType("Planter Bed");
+    setConceptWidth("");
+    setConceptLength("");
+    setConceptUnit("ft");
+    setConceptStyle("Desert Modern");
+    setConceptFocalElements("");
+    setConceptSpecialNotes("");
+    setConceptUsePhotos(true);
   };
 
   if (showDesignVisualizer) {
@@ -622,6 +736,248 @@ export default function CreateBid() {
                 ))}
               </Box>
             )}
+          </Box>
+
+          {/* ── AI Concept Rendering ── */}
+          <Box sx={{ mb: 3 }}>
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                p: 2,
+                borderRadius: 2,
+                cursor: "pointer",
+                background: conceptRendering
+                  ? "linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%)"
+                  : "linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%)",
+                border: "1px solid",
+                borderColor: conceptRendering ? "#a5d6a7" : "#ce93d8",
+                transition: "box-shadow 0.2s",
+                "&:hover": { boxShadow: 2 },
+              }}
+              onClick={() => setConceptOpen((prev) => !prev)}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <LandscapeIcon sx={{ color: conceptRendering ? "#2e7d32" : "#7c3aed", fontSize: 28 }} />
+                <Box>
+                  <Typography
+                    variant="subtitle1"
+                    sx={{ fontWeight: 700, color: conceptRendering ? "#2e7d32" : "#7c3aed", lineHeight: 1.2 }}
+                  >
+                    ✨ AI Concept Rendering{conceptRendering ? " ✅" : " (Optional)"}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {conceptRendering
+                      ? `${conceptRendering.stylePreset} · ${conceptRendering.projectType} — concept brief ready`
+                      : "Generate a polished design concept to impress your client"}
+                  </Typography>
+                </Box>
+              </Box>
+              {conceptOpen ? (
+                <ExpandLessIcon sx={{ color: "text.secondary" }} />
+              ) : (
+                <ExpandMoreIcon sx={{ color: "text.secondary" }} />
+              )}
+            </Box>
+
+            <Collapse in={conceptOpen}>
+              <Paper variant="outlined" sx={{ p: 2.5, mt: 1, borderRadius: 2 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+                  Fill in the details below to generate a professional concept brief. This will be saved with
+                  the bid and shown to your client on the signing page and PDF.
+                </Typography>
+
+                {/* Project Type */}
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel>Project Type</InputLabel>
+                  <Select
+                    value={conceptProjectType}
+                    label="Project Type"
+                    onChange={(e) => setConceptProjectType(e.target.value)}
+                  >
+                    {["Planter Bed", "Front Yard", "Backyard", "Side Yard", "Driveway Entry", "Pool Area", "Full Property", "Other"].map((t) => (
+                      <MenuItem key={t} value={t}>{t}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {/* Dimensions */}
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                  Dimensions (Optional)
+                </Typography>
+                <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+                  <TextField
+                    label="Width"
+                    type="number"
+                    value={conceptWidth}
+                    onChange={(e) => setConceptWidth(e.target.value)}
+                    sx={{ flex: 1 }}
+                    inputProps={{ min: 0 }}
+                    size="small"
+                  />
+                  <TextField
+                    label="Length"
+                    type="number"
+                    value={conceptLength}
+                    onChange={(e) => setConceptLength(e.target.value)}
+                    sx={{ flex: 1 }}
+                    inputProps={{ min: 0 }}
+                    size="small"
+                  />
+                  <FormControl sx={{ minWidth: 80 }} size="small">
+                    <InputLabel>Unit</InputLabel>
+                    <Select
+                      value={conceptUnit}
+                      label="Unit"
+                      onChange={(e) => setConceptUnit(e.target.value)}
+                    >
+                      <MenuItem value="ft">ft</MenuItem>
+                      <MenuItem value="in">in</MenuItem>
+                      <MenuItem value="m">m</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Box>
+
+                {/* Style Preset */}
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel>Style / Vibe</InputLabel>
+                  <Select
+                    value={conceptStyle}
+                    label="Style / Vibe"
+                    onChange={(e) => setConceptStyle(e.target.value)}
+                  >
+                    {[
+                      "Desert Modern",
+                      "Xeriscape Low Maintenance",
+                      "Desert Oasis",
+                      "HOA Clean Look",
+                      "Rock & Cactus Garden",
+                      "Desert Tropical Mix",
+                      "Southwestern Traditional",
+                      "Contemporary Minimalist",
+                    ].map((s) => (
+                      <MenuItem key={s} value={s}>{s}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {/* Focal Elements */}
+                <TextField
+                  label="Focal Elements / Plants / Hardscape *"
+                  multiline
+                  rows={3}
+                  fullWidth
+                  value={conceptFocalElements}
+                  onChange={(e) => setConceptFocalElements(e.target.value)}
+                  placeholder="e.g., 3 standing saguaro cactus, multiple barrel cactus, 1 large boulder at far end, desert mocha rock ground cover..."
+                  sx={{ mb: 2 }}
+                />
+
+                {/* Special Placement Notes */}
+                <TextField
+                  label="Special Placement Notes"
+                  multiline
+                  rows={2}
+                  fullWidth
+                  value={conceptSpecialNotes}
+                  onChange={(e) => setConceptSpecialNotes(e.target.value)}
+                  placeholder="e.g., boulder near the closed end, spacing for HOA clearance, no plants within 3ft of wall..."
+                  sx={{ mb: 2 }}
+                />
+
+                {/* Use Photos Toggle */}
+                {bidPhotos.length > 0 && (
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={conceptUsePhotos}
+                        onChange={(e) => setConceptUsePhotos(e.target.checked)}
+                        color="primary"
+                      />
+                    }
+                    label={`Reference uploaded site photos (${bidPhotos.length} photo${bidPhotos.length > 1 ? "s" : ""})`}
+                    sx={{ mb: 2, display: "block" }}
+                  />
+                )}
+
+                {/* Generate Button */}
+                <Button
+                  variant="contained"
+                  fullWidth
+                  size="large"
+                  onClick={generateAiConcept}
+                  disabled={generatingConcept}
+                  startIcon={
+                    generatingConcept ? (
+                      <CircularProgress size={20} color="inherit" />
+                    ) : (
+                      <AutoAwesomeIcon />
+                    )
+                  }
+                  sx={{
+                    background: "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)",
+                    color: "white",
+                    fontWeight: 700,
+                    borderRadius: 2,
+                    py: 1.5,
+                    boxShadow: "0 4px 14px rgba(124,58,237,0.35)",
+                    "&:hover": {
+                      background: "linear-gradient(135deg, #6d28d9 0%, #4338ca 100%)",
+                    },
+                  }}
+                >
+                  {generatingConcept ? "Generating Concept…" : "✨ Generate AI Concept Brief"}
+                </Button>
+
+                {/* Concept Result Preview */}
+                {conceptRendering && (
+                  <Box sx={{ mt: 2 }}>
+                    <Divider sx={{ mb: 2 }} />
+                    <Box
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        background: "linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%)",
+                        border: "1px solid #a5d6a7",
+                      }}
+                    >
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                        <CheckCircleIcon sx={{ color: "#2e7d32" }} />
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#2e7d32" }}>
+                          Concept Brief Ready
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 1.5 }}>
+                        <Chip label={conceptRendering.stylePreset} size="small" color="primary" variant="outlined" />
+                        <Chip label={conceptRendering.projectType} size="small" variant="outlined" />
+                        {conceptRendering.dimensions.width && conceptRendering.dimensions.length && (
+                          <Chip
+                            label={`${conceptRendering.dimensions.width} × ${conceptRendering.dimensions.length} ${conceptRendering.dimensions.unit}`}
+                            size="small"
+                            variant="outlined"
+                          />
+                        )}
+                        {conceptRendering.usedPhotos && (
+                          <Chip
+                            label={`${conceptRendering.photoCount} photo ref`}
+                            size="small"
+                            color="info"
+                            variant="outlined"
+                          />
+                        )}
+                      </Box>
+                      <Typography variant="body2" sx={{ mb: 1, fontStyle: "italic", color: "text.secondary" }}>
+                        {conceptRendering.conceptSummary}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        ✅ Will be saved with the bid and shown to your client
+                      </Typography>
+                    </Box>
+                  </Box>
+                )}
+              </Paper>
+            </Collapse>
           </Box>
 
           <Button
