@@ -2,6 +2,7 @@ const functions = require('firebase-functions');
 const nodemailer = require('nodemailer');
 const admin = require('firebase-admin');
 const fetch = require('node-fetch');
+const crypto = require('crypto');
 
 admin.initializeApp();
 
@@ -934,6 +935,12 @@ exports.getPublicBid = functions.https.onCall(async (data) => {
         status: bid.status || '',
         clientSignedAt: bid.clientSignedAt || null,
         clientSignature: bid.clientSignature || null,
+        hasAiConceptRenderingImage: !!bid.aiConceptRenderingImageUrl,
+        aiConceptRenderingImageUrl: bid.aiConceptRenderingImageUrl || null,
+        aiConceptRenderingStyle: bid.aiConceptRenderingStyle || '',
+        aiConceptRenderingPrompt: bid.aiConceptRenderingPrompt || '',
+        hasAiConceptRendering: !!bid.aiConceptRendering,
+        aiConceptRendering: bid.aiConceptRendering || null,
       },
     };
   } catch (error) {
@@ -1354,3 +1361,113 @@ If the user asks to adjust the margin (e.g. "bump up the margin 10%", "add 20% p
     throw new functions.https.HttpsError('internal', error.message);
   }
 });
+
+// ========================= AI LANDSCAPE RENDERING =========================
+
+exports.generateLandscapeRendering = functions
+  .runWith({ secrets: ['OPENAI_API_KEY'], timeoutSeconds: 120, memory: '512MB' })
+  .https.onCall(async (data) => {
+    const { bidId, stylePreset, projectType, dimensions, focalElements, specialNotes } = data || {};
+
+    if (!bidId) {
+      throw new functions.https.HttpsError('invalid-argument', 'Missing bidId');
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return {
+        success: false,
+        error: 'not_configured',
+        message: 'AI visual rendering requires an OpenAI API key. Please ask your administrator to configure the OPENAI_API_KEY secret in Firebase.',
+      };
+    }
+
+    const dimStr =
+      dimensions?.width && dimensions?.length
+        ? `${dimensions.width} ${dimensions.unit || 'ft'} wide by ${dimensions.length} ${dimensions.unit || 'ft'} long`
+        : 'residential-scale';
+
+    const prompt = [
+      `Photorealistic professional landscape architecture rendering of a ${stylePreset || 'Desert Modern'} desert garden.`,
+      `Project type: ${projectType || 'Planter Bed'}, ${dimStr} area.`,
+      focalElements ? `Featured plants and hardscape: ${focalElements}.` : '',
+      specialNotes ? `Special notes: ${specialNotes}.` : '',
+      'Arizona residential property, daytime golden hour lighting, lush established plants, clean polished look.',
+      'Ultra-realistic, high resolution, magazine-quality landscape photography. No people, no text overlays.',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    try {
+      const openAiRes = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'dall-e-3',
+          prompt,
+          n: 1,
+          size: '1792x1024',
+          quality: 'hd',
+          response_format: 'url',
+        }),
+      });
+
+      if (!openAiRes.ok) {
+        const errBody = await openAiRes.json().catch(() => ({}));
+        console.error('OpenAI DALL-E error:', errBody);
+        const msg = errBody?.error?.message || 'Image generation failed.';
+        return { success: false, error: 'generation_failed', message: msg };
+      }
+
+      const openAiData = await openAiRes.json();
+      const tempImageUrl = openAiData?.data?.[0]?.url;
+
+      if (!tempImageUrl) {
+        return { success: false, error: 'no_image', message: 'No image was returned from the AI service.' };
+      }
+
+      // Download the generated image
+      const imgRes = await fetch(tempImageUrl);
+      if (!imgRes.ok) {
+        return { success: false, error: 'download_failed', message: 'Failed to retrieve the generated image.' };
+      }
+      const imgArrayBuffer = await imgRes.arrayBuffer();
+      const imgBuffer = Buffer.from(imgArrayBuffer);
+
+      // Upload to Firebase Storage with a stable download token
+      const downloadToken = crypto.randomUUID();
+      const timestamp = Date.now();
+      const fileName = `ai-renderings/${bidId}/${timestamp}.png`;
+
+      const bucket = admin.storage().bucket();
+      const file = bucket.file(fileName);
+      await file.save(imgBuffer, {
+        metadata: {
+          contentType: 'image/png',
+          metadata: { firebaseStorageDownloadTokens: downloadToken },
+        },
+      });
+
+      const storedUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media&token=${downloadToken}`;
+
+      console.log(`>>> generateLandscapeRendering: stored at ${fileName}`);
+
+      return {
+        success: true,
+        imageUrl: storedUrl,
+        prompt,
+        model: 'dall-e-3',
+        generatedAt: new Date().toISOString(),
+      };
+    } catch (err) {
+      console.error('generateLandscapeRendering error:', err);
+      return {
+        success: false,
+        error: 'internal_error',
+        message: 'An unexpected error occurred during image generation. Please try again.',
+      };
+    }
+  });

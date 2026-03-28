@@ -46,7 +46,13 @@ service firebase.storage {
       allow create, update: if isAuthenticated();  // Only authenticated can upload
       allow delete: if isAdmin();  // Only admin/god can delete
     }
-    
+
+    // AI-generated landscape renderings — public read so signing page can show them
+    match /ai-renderings/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;  // Only writable via Admin SDK in Cloud Functions
+    }
+
     // Default: deny all other paths
     match /{allPaths=**} {
       allow read, write: if false;
