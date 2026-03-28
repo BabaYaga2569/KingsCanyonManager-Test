@@ -31,8 +31,6 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  FormControlLabel,
-  Switch,
   Collapse,
 } from "@mui/material";
 import Swal from "sweetalert2";
@@ -94,6 +92,14 @@ export default function CreateBid() {
   const [conceptUsePhotos, setConceptUsePhotos] = useState(true);
   const [conceptRendering, setConceptRendering] = useState(null);
   const [generatingConcept, setGeneratingConcept] = useState(false);
+
+  // Visual rendering image state
+  const [renderingSourcePhoto, setRenderingSourcePhoto] = useState(null); // { url, name }
+  const [renderingImageUrl, setRenderingImageUrl] = useState(null);
+  const [renderingPrompt, setRenderingPrompt] = useState(null);
+  const [renderingModel, setRenderingModel] = useState(null);
+  const [renderingGeneratedAt, setRenderingGeneratedAt] = useState(null);
+  const [renderingError, setRenderingError] = useState(null);
 
   useEffect(() => {
     if (aiBottomRef.current) aiBottomRef.current.scrollIntoView({ behavior: "smooth" });
@@ -226,33 +232,53 @@ export default function CreateBid() {
     Swal.fire({ icon: "success", title: "Applied to Bid!", text: "Description, materials, amount, and profit breakdown have been filled in.", timer: 2500, showConfirmButton: false });
   };
 
-  const generateAiConcept = () => {
+  const generateAiConcept = async () => {
     if (!conceptFocalElements.trim()) {
       Swal.fire("Missing Info", "Please describe the focal elements or plants you want in the design.", "warning");
       return;
     }
 
     setGeneratingConcept(true);
+    setRenderingError(null);
+    setRenderingImageUrl(null);
+
     try {
+      const functions = getFunctions();
+      const generateRendering = httpsCallable(functions, "generateLandscapeRendering");
+
+      // Build a temporary bid-ID-like string if this bid hasn't been saved yet
+      const tempBidId = `draft-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2)}`;
+
+      const result = await generateRendering({
+        bidId: tempBidId,
+        stylePreset: conceptStyle,
+        projectType: conceptProjectType,
+        dimensions: {
+          width: conceptWidth || "",
+          length: conceptLength || "",
+          unit: conceptUnit,
+        },
+        focalElements: conceptFocalElements.trim(),
+        specialNotes: conceptSpecialNotes.trim(),
+      });
+
+      const data = result?.data || {};
+
+      if (!data.success) {
+        setRenderingError(data.message || "Image generation failed. Please try again.");
+        return;
+      }
+
+      // Success — store image URL and metadata
+      setRenderingImageUrl(data.imageUrl);
+      setRenderingPrompt(data.prompt);
+      setRenderingModel(data.model);
+      setRenderingGeneratedAt(data.generatedAt);
+
       const dimStr =
         conceptWidth && conceptLength
           ? `${conceptWidth} ${conceptUnit} wide by ${conceptLength} ${conceptUnit} long`
           : "dimensions to be confirmed on site";
-
-      const photoNote =
-        conceptUsePhotos && bidPhotos.length > 0
-          ? ` Reference the ${bidPhotos.length} uploaded site photo${bidPhotos.length > 1 ? "s" : ""} for existing conditions.`
-          : "";
-
-      const prompt =
-        `Create a realistic ${conceptStyle.toLowerCase()} landscape rendering of a ` +
-        `${dimStr} ${conceptProjectType.toLowerCase()}. ` +
-        `${conceptFocalElements.trim()}` +
-        `${conceptSpecialNotes.trim() ? ` Special notes: ${conceptSpecialNotes.trim()}.` : ""}` +
-        `${photoNote} ` +
-        `Style should be clean, upscale, and appropriate for an Arizona-style ` +
-        `${conceptStyle.toLowerCase()} residential landscape. ` +
-        `Present as a daytime photorealistic view.`;
 
       const elementList = conceptFocalElements
         .trim()
@@ -282,22 +308,25 @@ export default function CreateBid() {
         specialNotes: conceptSpecialNotes,
         usedPhotos: conceptUsePhotos && bidPhotos.length > 0,
         photoCount: conceptUsePhotos ? bidPhotos.length : 0,
-        generatedPrompt: prompt,
+        generatedPrompt: data.prompt,
         conceptSummary: summary,
-        generatedAt: new Date().toISOString(),
+        generatedAt: data.generatedAt || new Date().toISOString(),
       };
 
       setConceptRendering(concept);
+
       Swal.fire({
         icon: "success",
-        title: "✨ Concept Brief Generated!",
-        text: "Your AI concept brief is ready and will be included with this bid.",
-        timer: 2500,
+        title: "🎨 Rendering Generated!",
+        text: "Your AI landscape rendering is ready. Review the image below and save the bid to attach it.",
+        timer: 3000,
         showConfirmButton: false,
       });
     } catch (err) {
       console.error("Concept generation error:", err);
-      Swal.fire("Error", "Failed to generate concept. Please try again.", "error");
+      const msg = err?.message || "Failed to generate rendering. Please try again.";
+      setRenderingError(msg);
+      Swal.fire("Error", msg, "error");
     } finally {
       setGeneratingConcept(false);
     }
@@ -438,6 +467,13 @@ export default function CreateBid() {
         hasDesignVisualization: false,
         hasAiConceptRendering: Boolean(conceptRendering),
         aiConceptRendering: conceptRendering || null,
+        hasAiConceptRenderingImage: Boolean(renderingImageUrl),
+        aiConceptRenderingImageUrl: renderingImageUrl || null,
+        aiConceptRenderingPrompt: renderingPrompt || null,
+        aiConceptRenderingStyle: conceptStyle || null,
+        aiConceptRenderingModel: renderingModel || null,
+        aiConceptRenderingGeneratedAt: renderingGeneratedAt || null,
+        aiConceptRenderingSourcePhotoUrl: renderingSourcePhoto?.url || null,
         signingToken: generateSecureToken(),
       });
 
@@ -468,6 +504,13 @@ export default function CreateBid() {
         designVisualization: design,
         hasAiConceptRendering: Boolean(conceptRendering),
         aiConceptRendering: conceptRendering || null,
+        hasAiConceptRenderingImage: Boolean(renderingImageUrl),
+        aiConceptRenderingImageUrl: renderingImageUrl || null,
+        aiConceptRenderingPrompt: renderingPrompt || null,
+        aiConceptRenderingStyle: conceptStyle || null,
+        aiConceptRenderingModel: renderingModel || null,
+        aiConceptRenderingGeneratedAt: renderingGeneratedAt || null,
+        aiConceptRenderingSourcePhotoUrl: renderingSourcePhoto?.url || null,
         signingToken: generateSecureToken(),
       });
 
@@ -497,6 +540,12 @@ export default function CreateBid() {
     setConceptFocalElements("");
     setConceptSpecialNotes("");
     setConceptUsePhotos(true);
+    setRenderingSourcePhoto(null);
+    setRenderingImageUrl(null);
+    setRenderingPrompt(null);
+    setRenderingModel(null);
+    setRenderingGeneratedAt(null);
+    setRenderingError(null);
   };
 
   if (showDesignVisualizer) {
@@ -738,7 +787,7 @@ export default function CreateBid() {
             )}
           </Box>
 
-          {/* ── AI Concept Rendering ── */}
+          {/* ── AI Visual Rendering ── */}
           <Box sx={{ mb: 3 }}>
             <Box
               sx={{
@@ -748,29 +797,29 @@ export default function CreateBid() {
                 p: 2,
                 borderRadius: 2,
                 cursor: "pointer",
-                background: conceptRendering
+                background: renderingImageUrl
                   ? "linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%)"
                   : "linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%)",
                 border: "1px solid",
-                borderColor: conceptRendering ? "#a5d6a7" : "#ce93d8",
+                borderColor: renderingImageUrl ? "#a5d6a7" : "#ce93d8",
                 transition: "box-shadow 0.2s",
                 "&:hover": { boxShadow: 2 },
               }}
               onClick={() => setConceptOpen((prev) => !prev)}
             >
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                <LandscapeIcon sx={{ color: conceptRendering ? "#2e7d32" : "#7c3aed", fontSize: 28 }} />
+                <LandscapeIcon sx={{ color: renderingImageUrl ? "#2e7d32" : "#7c3aed", fontSize: 28 }} />
                 <Box>
                   <Typography
                     variant="subtitle1"
-                    sx={{ fontWeight: 700, color: conceptRendering ? "#2e7d32" : "#7c3aed", lineHeight: 1.2 }}
+                    sx={{ fontWeight: 700, color: renderingImageUrl ? "#2e7d32" : "#7c3aed", lineHeight: 1.2 }}
                   >
-                    ✨ AI Concept Rendering{conceptRendering ? " ✅" : " (Optional)"}
+                    🎨 AI Visual Rendering{renderingImageUrl ? " ✅" : " (Optional)"}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {conceptRendering
-                      ? `${conceptRendering.stylePreset} · ${conceptRendering.projectType} — concept brief ready`
-                      : "Generate a polished design concept to impress your client"}
+                    {renderingImageUrl
+                      ? `${conceptStyle} · ${conceptProjectType} — image ready`
+                      : "Generate a photorealistic landscape rendering to impress your client"}
                   </Typography>
                 </Box>
               </Box>
@@ -784,9 +833,69 @@ export default function CreateBid() {
             <Collapse in={conceptOpen}>
               <Paper variant="outlined" sx={{ p: 2.5, mt: 1, borderRadius: 2 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-                  Fill in the details below to generate a professional concept brief. This will be saved with
-                  the bid and shown to your client on the signing page and PDF.
+                  Fill in the design details below and click <strong>Generate Rendering</strong> to create a photorealistic AI image of your landscaping concept. The image will be saved with the bid and shown to your client.
                 </Typography>
+
+                {/* Source Photo Selector */}
+                {bidPhotos.length > 0 && (
+                  <Box sx={{ mb: 2.5 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                      📷 Site Photo (Optional Reference)
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                      Select a site photo to reference for the rendering concept
+                    </Typography>
+                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                      {bidPhotos.map((photo, idx) => (
+                        <Box
+                          key={idx}
+                          onClick={() =>
+                            setRenderingSourcePhoto(
+                              renderingSourcePhoto?.url === photo.url ? null : photo
+                            )
+                          }
+                          sx={{
+                            position: "relative",
+                            cursor: "pointer",
+                            borderRadius: 1.5,
+                            overflow: "hidden",
+                            border: "3px solid",
+                            borderColor:
+                              renderingSourcePhoto?.url === photo.url ? "#7c3aed" : "transparent",
+                            width: 80,
+                            height: 80,
+                            flexShrink: 0,
+                            "&:hover": { opacity: 0.85 },
+                          }}
+                        >
+                          <img
+                            src={photo.url}
+                            alt={photo.name}
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          />
+                          {renderingSourcePhoto?.url === photo.url && (
+                            <Box
+                              sx={{
+                                position: "absolute",
+                                top: 2,
+                                right: 2,
+                                bgcolor: "#7c3aed",
+                                borderRadius: "50%",
+                                width: 18,
+                                height: 18,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                            >
+                              <CheckCircleIcon sx={{ fontSize: 14, color: "white" }} />
+                            </Box>
+                          )}
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                )}
 
                 {/* Project Type */}
                 <FormControl fullWidth sx={{ mb: 2 }}>
@@ -856,6 +965,7 @@ export default function CreateBid() {
                       "Desert Tropical Mix",
                       "Southwestern Traditional",
                       "Contemporary Minimalist",
+                      "Premium Resort Desert",
                     ].map((s) => (
                       <MenuItem key={s} value={s}>{s}</MenuItem>
                     ))}
@@ -886,19 +996,18 @@ export default function CreateBid() {
                   sx={{ mb: 2 }}
                 />
 
-                {/* Use Photos Toggle */}
-                {bidPhotos.length > 0 && (
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={conceptUsePhotos}
-                        onChange={(e) => setConceptUsePhotos(e.target.checked)}
-                        color="primary"
-                      />
-                    }
-                    label={`Reference uploaded site photos (${bidPhotos.length} photo${bidPhotos.length > 1 ? "s" : ""})`}
-                    sx={{ mb: 2, display: "block" }}
-                  />
+                {/* No photos uploaded hint */}
+                {bidPhotos.length === 0 && (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    Upload site photos above to enable photo reference in your rendering.
+                  </Alert>
+                )}
+
+                {/* Error state */}
+                {renderingError && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    <strong>Rendering failed:</strong> {renderingError}
+                  </Alert>
                 )}
 
                 {/* Generate Button */}
@@ -927,53 +1036,115 @@ export default function CreateBid() {
                     },
                   }}
                 >
-                  {generatingConcept ? "Generating Concept…" : "✨ Generate AI Concept Brief"}
+                  {generatingConcept ? "Generating Rendering… (may take 30–60 sec)" : "🎨 Generate AI Visual Rendering"}
                 </Button>
 
-                {/* Concept Result Preview */}
-                {conceptRendering && (
-                  <Box sx={{ mt: 2 }}>
+                {/* Generated Image Preview */}
+                {renderingImageUrl && (
+                  <Box sx={{ mt: 3 }}>
                     <Divider sx={{ mb: 2 }} />
-                    <Box
-                      sx={{
-                        p: 2,
-                        borderRadius: 2,
-                        background: "linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%)",
-                        border: "1px solid #a5d6a7",
-                      }}
-                    >
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-                        <CheckCircleIcon sx={{ color: "#2e7d32" }} />
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#2e7d32" }}>
-                          Concept Brief Ready
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#2e7d32", mb: 1.5 }}>
+                      <CheckCircleIcon sx={{ fontSize: 18, verticalAlign: "middle", mr: 0.5 }} />
+                      AI Rendering Generated ✅
+                    </Typography>
+
+                    {/* Side-by-side: source photo vs rendering */}
+                    {renderingSourcePhoto && (
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+                          gap: 2,
+                          mb: 2,
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, fontWeight: 600 }}>
+                            📷 ORIGINAL SITE PHOTO
+                          </Typography>
+                          <Box
+                            component="img"
+                            src={renderingSourcePhoto.url}
+                            alt="Site photo"
+                            sx={{
+                              width: "100%",
+                              borderRadius: 2,
+                              border: "1px solid #ddd",
+                              display: "block",
+                              aspectRatio: "16/9",
+                              objectFit: "cover",
+                            }}
+                          />
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, fontWeight: 600 }}>
+                            🎨 AI CONCEPT RENDERING
+                          </Typography>
+                          <Box
+                            component="img"
+                            src={renderingImageUrl}
+                            alt="AI landscape rendering"
+                            sx={{
+                              width: "100%",
+                              borderRadius: 2,
+                              border: "2px solid #7c3aed",
+                              display: "block",
+                              aspectRatio: "16/9",
+                              objectFit: "cover",
+                            }}
+                          />
+                        </Box>
+                      </Box>
+                    )}
+
+                    {/* Rendering only (no source photo selected) */}
+                    {!renderingSourcePhoto && (
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, fontWeight: 600 }}>
+                          🎨 AI CONCEPT RENDERING
                         </Typography>
+                        <Box
+                          component="img"
+                          src={renderingImageUrl}
+                          alt="AI landscape rendering"
+                          sx={{
+                            width: "100%",
+                            borderRadius: 2,
+                            border: "2px solid #7c3aed",
+                            display: "block",
+                            maxHeight: 400,
+                            objectFit: "cover",
+                          }}
+                        />
                       </Box>
-                      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 1.5 }}>
-                        <Chip label={conceptRendering.stylePreset} size="small" color="primary" variant="outlined" />
-                        <Chip label={conceptRendering.projectType} size="small" variant="outlined" />
-                        {conceptRendering.dimensions.width && conceptRendering.dimensions.length && (
-                          <Chip
-                            label={`${conceptRendering.dimensions.width} × ${conceptRendering.dimensions.length} ${conceptRendering.dimensions.unit}`}
-                            size="small"
-                            variant="outlined"
-                          />
-                        )}
-                        {conceptRendering.usedPhotos && (
-                          <Chip
-                            label={`${conceptRendering.photoCount} photo ref`}
-                            size="small"
-                            color="info"
-                            variant="outlined"
-                          />
-                        )}
-                      </Box>
-                      <Typography variant="body2" sx={{ mb: 1, fontStyle: "italic", color: "text.secondary" }}>
-                        {conceptRendering.conceptSummary}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        ✅ Will be saved with the bid and shown to your client
-                      </Typography>
+                    )}
+
+                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 1.5 }}>
+                      <Chip label={conceptStyle} size="small" color="primary" variant="outlined" />
+                      <Chip label={conceptProjectType} size="small" variant="outlined" />
+                      {conceptWidth && conceptLength && (
+                        <Chip label={`${conceptWidth} × ${conceptLength} ${conceptUnit}`} size="small" variant="outlined" />
+                      )}
+                      <Chip label="AI Generated" size="small" color="secondary" />
                     </Box>
+
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                      ✅ This image will be saved with the bid and shown to your client on the signing page and PDF.
+                    </Typography>
+
+                    <Button
+                      size="small"
+                      variant="text"
+                      color="secondary"
+                      onClick={() => {
+                        setRenderingImageUrl(null);
+                        setRenderingError(null);
+                        setConceptRendering(null);
+                      }}
+                      sx={{ mt: 1 }}
+                    >
+                      🔄 Regenerate
+                    </Button>
                   </Box>
                 )}
               </Paper>
