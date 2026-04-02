@@ -46,26 +46,28 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LandscapeIcon from "@mui/icons-material/Landscape";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import ZoomInIcon from "@mui/icons-material/ZoomIn";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 
 export default function CreateBid() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const navigate = useNavigate();
 
+  // Customer selection state
   const [customers, setCustomers] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
 
+  // Form state — all populated from selected customer, not freehand
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [materials, setMaterials] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Design visualization state
   const [designData, setDesignData] = useState(null);
   const [showDesignDialog, setShowDesignDialog] = useState(false);
   const [showDesignVisualizer, setShowDesignVisualizer] = useState(false);
 
+  // AI Assistant state
   const [aiOpen, setAiOpen] = useState(false);
   const [aiMessages, setAiMessages] = useState([]);
   const [aiInput, setAiInput] = useState("");
@@ -73,10 +75,12 @@ export default function CreateBid() {
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const aiBottomRef = useRef(null);
 
+  // Photo state
   const [bidPhotos, setBidPhotos] = useState([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef = useRef(null);
 
+  // AI Concept Rendering state
   const [conceptOpen, setConceptOpen] = useState(false);
   const [conceptProjectType, setConceptProjectType] = useState("Planter Bed");
   const [conceptWidth, setConceptWidth] = useState("");
@@ -89,20 +93,19 @@ export default function CreateBid() {
   const [conceptRendering, setConceptRendering] = useState(null);
   const [generatingConcept, setGeneratingConcept] = useState(false);
 
-  const [renderingSourcePhoto, setRenderingSourcePhoto] = useState(null);
+  // Visual rendering image state
+  const [renderingSourcePhoto, setRenderingSourcePhoto] = useState(null); // { url, name }
   const [renderingImageUrl, setRenderingImageUrl] = useState(null);
   const [renderingPrompt, setRenderingPrompt] = useState(null);
   const [renderingModel, setRenderingModel] = useState(null);
   const [renderingGeneratedAt, setRenderingGeneratedAt] = useState(null);
   const [renderingError, setRenderingError] = useState(null);
 
-  // Lightbox state
-  const [renderingPreviewOpen, setRenderingPreviewOpen] = useState(false);
-
   useEffect(() => {
     if (aiBottomRef.current) aiBottomRef.current.scrollIntoView({ behavior: "smooth" });
   }, [aiMessages]);
 
+  // Compress image to max 800px and convert to base64 for AI vision
   const compressToBase64 = (file) => new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -130,11 +133,15 @@ export default function CreateBid() {
     if (!file) return;
     setUploadingPhoto(true);
     try {
+      // Compress and convert to base64 for AI vision (keeps payload small)
       const base64 = await compressToBase64(file);
+
+      // Upload original to Firebase Storage for persistence
       const storage = getStorage();
       const storageRef = ref(storage, "bid-photos/" + Date.now() + "_" + file.name);
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
+
       setBidPhotos(prev => [...prev, { url, name: file.name, base64 }]);
     } catch (err) {
       console.error("Photo upload error:", err);
@@ -156,23 +163,20 @@ export default function CreateBid() {
     try {
       const functions = getFunctions();
       const bidAssistant = httpsCallable(functions, "bidAssistant");
+      // Pass base64 photos so the AI can see them
       const photoBase64List = bidPhotos.map(p => p.base64).filter(Boolean);
-
+      // Clean message history — summarize suggestion JSON so history stays readable
       const cleanMessages = updatedMessages.map(msg => {
         if (msg.role === "assistant" && msg.isSuggestion) {
           try {
             const parsed = JSON.parse(msg.content);
             return { role: "assistant", content: "I suggested a bid of $" + parsed.recommendedAmount + " for: " + parsed.description };
-          } catch {
-            return { role: "assistant", content: msg.content };
-          }
+          } catch { return { role: "assistant", content: msg.content }; }
         }
         return { role: msg.role, content: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content) };
       });
-
       const result = await bidAssistant({ messages: cleanMessages, photos: photoBase64List });
       const rawText = result.data?.text || "";
-
       try {
         const parsed = JSON.parse(rawText);
         if (parsed.description && parsed.recommendedAmount) {
@@ -199,6 +203,7 @@ export default function CreateBid() {
     setMaterials(s.materials);
     setAmount(String(s.recommendedAmount));
 
+    // Build profit breakdown for notes
     const revenue = parseFloat(s.recommendedAmount) || 0;
     const laborCost = parseFloat(s.laborCost) || 0;
     const materialsCost = parseFloat(s.materialsCost) || 0;
@@ -220,16 +225,11 @@ export default function CreateBid() {
       "Net Profit (crew @ $15.15/hr): $" + netProfit.toFixed(0) + " (" + netMargin + "% net margin)",
       s.reasoning ? "AI Notes: " + s.reasoning : "",
     ].filter(Boolean);
+    const notesBreakdown = notesLines.join("\n");
 
-    setNotes(notesLines.join("\n"));
+    setNotes(notesBreakdown);
     setAiOpen(false);
-    Swal.fire({
-      icon: "success",
-      title: "Applied to Bid!",
-      text: "Description, materials, amount, and profit breakdown have been filled in.",
-      timer: 2500,
-      showConfirmButton: false
-    });
+    Swal.fire({ icon: "success", title: "Applied to Bid!", text: "Description, materials, amount, and profit breakdown have been filled in.", timer: 2500, showConfirmButton: false });
   };
 
   const generateAiConcept = async () => {
@@ -244,9 +244,9 @@ export default function CreateBid() {
 
     try {
       const functions = getFunctions();
-      // 300 second client-side timeout to match the Cloud Function timeout
-      const generateRendering = httpsCallable(functions, "generateLandscapeRendering", { timeout: 300000 });
+      const generateRendering = httpsCallable(functions, "generateLandscapeRendering");
 
+      // Build a temporary bid-ID-like string if this bid hasn't been saved yet
       const tempBidId = `draft-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2)}`;
 
       const result = await generateRendering({
@@ -260,10 +260,6 @@ export default function CreateBid() {
         },
         focalElements: conceptFocalElements.trim(),
         specialNotes: conceptSpecialNotes.trim(),
-        sourcePhotoUrl:
-          conceptUsePhotos && renderingSourcePhoto?.url
-            ? renderingSourcePhoto.url
-            : "",
       });
 
       const data = result?.data || {};
@@ -273,6 +269,7 @@ export default function CreateBid() {
         return;
       }
 
+      // Success — store image URL and metadata
       setRenderingImageUrl(data.imageUrl);
       setRenderingPrompt(data.prompt);
       setRenderingModel(data.model);
@@ -309,12 +306,11 @@ export default function CreateBid() {
         stylePreset: conceptStyle,
         focalElements: conceptFocalElements,
         specialNotes: conceptSpecialNotes,
-        usedPhotos: conceptUsePhotos && !!renderingSourcePhoto?.url,
-        photoCount: conceptUsePhotos && renderingSourcePhoto?.url ? 1 : 0,
+        usedPhotos: conceptUsePhotos && bidPhotos.length > 0,
+        photoCount: conceptUsePhotos ? bidPhotos.length : 0,
         generatedPrompt: data.prompt,
         conceptSummary: summary,
         generatedAt: data.generatedAt || new Date().toISOString(),
-        sourcePhotoUrl: conceptUsePhotos && renderingSourcePhoto?.url ? renderingSourcePhoto.url : null,
       };
 
       setConceptRendering(concept);
@@ -322,8 +318,8 @@ export default function CreateBid() {
       Swal.fire({
         icon: "success",
         title: "🎨 Rendering Generated!",
-        text: "Your AI landscape rendering is ready. Click the image to view it full size, then save the bid to attach it.",
-        timer: 3500,
+        text: "Your AI landscape rendering is ready. Review the image below and save the bid to attach it.",
+        timer: 3000,
         showConfirmButton: false,
       });
     } catch (err) {
@@ -336,6 +332,7 @@ export default function CreateBid() {
     }
   };
 
+  // Fetch customers for dropdown — only show customers with email AND address
   useEffect(() => {
     const fetchCustomers = async () => {
       try {
@@ -344,6 +341,7 @@ export default function CreateBid() {
           id: d.id,
           ...d.data(),
         }));
+        // Sort by name
         data.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         setCustomers(data);
       } catch (error) {
@@ -353,11 +351,13 @@ export default function CreateBid() {
     fetchCustomers();
   }, []);
 
+  // Handle customer selection
   const handleCustomerSelect = (event, value) => {
     setSelectedCustomer(value);
   };
 
   const handleContinueToSave = () => {
+    // Gate 1 — must select an existing customer
     if (!selectedCustomer) {
       Swal.fire({
         icon: "warning",
@@ -374,6 +374,7 @@ export default function CreateBid() {
       return;
     }
 
+    // Gate 2 — customer must have an email address
     if (!selectedCustomer.email) {
       Swal.fire({
         icon: "warning",
@@ -390,6 +391,7 @@ export default function CreateBid() {
       return;
     }
 
+    // Gate 3 — customer must have an address
     if (!selectedCustomer.address) {
       Swal.fire({
         icon: "warning",
@@ -406,11 +408,13 @@ export default function CreateBid() {
       return;
     }
 
+    // Gate 4 — amount is required
     if (!amount) {
       Swal.fire("Missing Info", "Please enter a bid amount.", "warning");
       return;
     }
 
+    // Gate 5 — description is required
     if (!description || !description.trim()) {
       Swal.fire({
         icon: "warning",
@@ -469,7 +473,7 @@ export default function CreateBid() {
         aiConceptRenderingStyle: conceptStyle || null,
         aiConceptRenderingModel: renderingModel || null,
         aiConceptRenderingGeneratedAt: renderingGeneratedAt || null,
-        aiConceptRenderingSourcePhotoUrl: renderingSourcePhoto?.url || conceptRendering?.sourcePhotoUrl || null,
+        aiConceptRenderingSourcePhotoUrl: renderingSourcePhoto?.url || null,
         signingToken: generateSecureToken(),
       });
 
@@ -506,7 +510,7 @@ export default function CreateBid() {
         aiConceptRenderingStyle: conceptStyle || null,
         aiConceptRenderingModel: renderingModel || null,
         aiConceptRenderingGeneratedAt: renderingGeneratedAt || null,
-        aiConceptRenderingSourcePhotoUrl: renderingSourcePhoto?.url || conceptRendering?.sourcePhotoUrl || null,
+        aiConceptRenderingSourcePhotoUrl: renderingSourcePhoto?.url || null,
         signingToken: generateSecureToken(),
       });
 
@@ -542,7 +546,6 @@ export default function CreateBid() {
     setRenderingModel(null);
     setRenderingGeneratedAt(null);
     setRenderingError(null);
-    setRenderingPreviewOpen(false);
   };
 
   if (showDesignVisualizer) {
@@ -559,7 +562,10 @@ export default function CreateBid() {
     <Container sx={{ mt: { xs: 2, sm: 4 }, pb: { xs: 4, sm: 8 }, px: { xs: 2, sm: 3 } }}>
       <Paper elevation={2} sx={{ p: { xs: 2, sm: 3 }, borderRadius: 2 }}>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
-          <Typography variant="h5" sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}>
+          <Typography
+            variant="h5"
+            sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}
+          >
             Create New Bid
           </Typography>
           <Tooltip title="AI Bid Assistant — describe the job and get instant suggestions">
@@ -582,6 +588,7 @@ export default function CreateBid() {
         </Box>
 
         <Box>
+          {/* Customer Selection — REQUIRED, no freehand entry */}
           <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: "bold" }}>
             Customer *
           </Typography>
@@ -613,6 +620,7 @@ export default function CreateBid() {
             sx={{ mb: 2 }}
           />
 
+          {/* Show customer info once selected */}
           {selectedCustomer && (
             <Paper
               sx={{
@@ -665,6 +673,7 @@ export default function CreateBid() {
             </Paper>
           )}
 
+          {/* No customer selected — prompt to add one */}
           {!selectedCustomer && (
             <Box sx={{ mb: 3, textAlign: "center" }}>
               <Button
@@ -677,6 +686,7 @@ export default function CreateBid() {
             </Box>
           )}
 
+          {/* Bid Details */}
           <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: "bold" }}>
             Bid Details
           </Typography>
@@ -744,12 +754,7 @@ export default function CreateBid() {
               <Button
                 variant="outlined"
                 size="small"
-                onClick={() => {
-                  if (photoInputRef.current) {
-                    photoInputRef.current.removeAttribute("capture");
-                    photoInputRef.current.click();
-                  }
-                }}
+                onClick={() => { if (photoInputRef.current) { photoInputRef.current.removeAttribute("capture"); photoInputRef.current.click(); } }}
                 disabled={uploadingPhoto}
               >
                 {uploadingPhoto ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
@@ -758,12 +763,7 @@ export default function CreateBid() {
               <Button
                 variant="outlined"
                 size="small"
-                onClick={() => {
-                  if (photoInputRef.current) {
-                    photoInputRef.current.setAttribute("capture", "environment");
-                    photoInputRef.current.click();
-                  }
-                }}
+                onClick={() => { if (photoInputRef.current) { photoInputRef.current.setAttribute("capture", "environment"); photoInputRef.current.click(); } }}
                 disabled={uploadingPhoto}
               >
                 Take Photo
@@ -773,11 +773,7 @@ export default function CreateBid() {
               <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                 {bidPhotos.map((photo, i) => (
                   <Box key={i} sx={{ position: "relative" }}>
-                    <img
-                      src={photo.url}
-                      alt={"Site " + (i + 1)}
-                      style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, border: "1px solid #ddd" }}
-                    />
+                    <img src={photo.url} alt={"Site " + (i + 1)} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, border: "1px solid #ddd" }} />
                     <IconButton
                       size="small"
                       onClick={() => setBidPhotos(prev => prev.filter((_, idx) => idx !== i))}
@@ -791,7 +787,7 @@ export default function CreateBid() {
             )}
           </Box>
 
-          {/* ── AI Visual Rendering Section ── */}
+          {/* ── AI Visual Rendering ── */}
           <Box sx={{ mb: 3 }}>
             <Box
               sx={{
@@ -837,12 +833,10 @@ export default function CreateBid() {
             <Collapse in={conceptOpen}>
               <Paper variant="outlined" sx={{ p: 2.5, mt: 1, borderRadius: 2 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-                  Fill in the design details below and click <strong>Generate Rendering</strong> to create a
-                  photorealistic AI image of your landscaping concept. The image will be saved with the bid
-                  and shown to your client.
+                  Fill in the design details below and click <strong>Generate Rendering</strong> to create a photorealistic AI image of your landscaping concept. The image will be saved with the bid and shown to your client.
                 </Typography>
 
-                {/* Source photo picker */}
+                {/* Source Photo Selector */}
                 {bidPhotos.length > 0 && (
                   <Box sx={{ mb: 2.5 }}>
                     <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
@@ -903,6 +897,7 @@ export default function CreateBid() {
                   </Box>
                 )}
 
+                {/* Project Type */}
                 <FormControl fullWidth sx={{ mb: 2 }}>
                   <InputLabel>Project Type</InputLabel>
                   <Select
@@ -916,6 +911,7 @@ export default function CreateBid() {
                   </Select>
                 </FormControl>
 
+                {/* Dimensions */}
                 <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
                   Dimensions (Optional)
                 </Typography>
@@ -952,6 +948,7 @@ export default function CreateBid() {
                   </FormControl>
                 </Box>
 
+                {/* Style Preset */}
                 <FormControl fullWidth sx={{ mb: 2 }}>
                   <InputLabel>Style / Vibe</InputLabel>
                   <Select
@@ -975,6 +972,7 @@ export default function CreateBid() {
                   </Select>
                 </FormControl>
 
+                {/* Focal Elements */}
                 <TextField
                   label="Focal Elements / Plants / Hardscape *"
                   multiline
@@ -986,6 +984,7 @@ export default function CreateBid() {
                   sx={{ mb: 2 }}
                 />
 
+                {/* Special Placement Notes */}
                 <TextField
                   label="Special Placement Notes"
                   multiline
@@ -997,18 +996,21 @@ export default function CreateBid() {
                   sx={{ mb: 2 }}
                 />
 
+                {/* No photos uploaded hint */}
                 {bidPhotos.length === 0 && (
                   <Alert severity="info" sx={{ mb: 2 }}>
                     Upload site photos above to enable photo reference in your rendering.
                   </Alert>
                 )}
 
+                {/* Error state */}
                 {renderingError && (
                   <Alert severity="error" sx={{ mb: 2 }}>
                     <strong>Rendering failed:</strong> {renderingError}
                   </Alert>
                 )}
 
+                {/* Generate Button */}
                 <Button
                   variant="contained"
                   fullWidth
@@ -1034,10 +1036,10 @@ export default function CreateBid() {
                     },
                   }}
                 >
-                  {generatingConcept ? "Generating Rendering… (may take 30–90 sec)" : "🎨 Generate AI Visual Rendering"}
+                  {generatingConcept ? "Generating Rendering… (may take 30–60 sec)" : "🎨 Generate AI Visual Rendering"}
                 </Button>
 
-                {/* ── Rendering Result ── */}
+                {/* Generated Image Preview */}
                 {renderingImageUrl && (
                   <Box sx={{ mt: 3 }}>
                     <Divider sx={{ mb: 2 }} />
@@ -1046,7 +1048,7 @@ export default function CreateBid() {
                       AI Rendering Generated ✅
                     </Typography>
 
-                    {/* Side-by-side when source photo was used */}
+                    {/* Side-by-side: source photo vs rendering */}
                     {renderingSourcePhoto && (
                       <Box
                         sx={{
@@ -1078,58 +1080,6 @@ export default function CreateBid() {
                           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, fontWeight: 600 }}>
                             🎨 AI CONCEPT RENDERING
                           </Typography>
-                          {/* Clickable rendering image */}
-                          <Box
-                            sx={{ position: "relative", cursor: "zoom-in" }}
-                            onClick={() => setRenderingPreviewOpen(true)}
-                          >
-                            <Box
-                              component="img"
-                              src={renderingImageUrl}
-                              alt="AI landscape rendering"
-                              sx={{
-                                width: "100%",
-                                borderRadius: 2,
-                                border: "2px solid #7c3aed",
-                                display: "block",
-                                aspectRatio: "16/9",
-                                objectFit: "cover",
-                              }}
-                            />
-                            <Box
-                              sx={{
-                                position: "absolute",
-                                top: 8,
-                                right: 8,
-                                bgcolor: "rgba(0,0,0,0.55)",
-                                borderRadius: 1,
-                                px: 1,
-                                py: 0.5,
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 0.5,
-                              }}
-                            >
-                              <ZoomInIcon sx={{ color: "#fff", fontSize: 16 }} />
-                              <Typography variant="caption" sx={{ color: "#fff", fontSize: "0.7rem" }}>
-                                Click to zoom
-                              </Typography>
-                            </Box>
-                          </Box>
-                        </Box>
-                      </Box>
-                    )}
-
-                    {/* Full-width when no source photo */}
-                    {!renderingSourcePhoto && (
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, fontWeight: 600 }}>
-                          🎨 AI CONCEPT RENDERING
-                        </Typography>
-                        <Box
-                          sx={{ position: "relative", cursor: "zoom-in" }}
-                          onClick={() => setRenderingPreviewOpen(true)}
-                        >
                           <Box
                             component="img"
                             src={renderingImageUrl}
@@ -1139,30 +1089,33 @@ export default function CreateBid() {
                               borderRadius: 2,
                               border: "2px solid #7c3aed",
                               display: "block",
-                              maxHeight: 400,
+                              aspectRatio: "16/9",
                               objectFit: "cover",
                             }}
                           />
-                          <Box
-                            sx={{
-                              position: "absolute",
-                              top: 8,
-                              right: 8,
-                              bgcolor: "rgba(0,0,0,0.55)",
-                              borderRadius: 1,
-                              px: 1,
-                              py: 0.5,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 0.5,
-                            }}
-                          >
-                            <ZoomInIcon sx={{ color: "#fff", fontSize: 16 }} />
-                            <Typography variant="caption" sx={{ color: "#fff", fontSize: "0.7rem" }}>
-                              Click to zoom
-                            </Typography>
-                          </Box>
                         </Box>
+                      </Box>
+                    )}
+
+                    {/* Rendering only (no source photo selected) */}
+                    {!renderingSourcePhoto && (
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, fontWeight: 600 }}>
+                          🎨 AI CONCEPT RENDERING
+                        </Typography>
+                        <Box
+                          component="img"
+                          src={renderingImageUrl}
+                          alt="AI landscape rendering"
+                          sx={{
+                            width: "100%",
+                            borderRadius: 2,
+                            border: "2px solid #7c3aed",
+                            display: "block",
+                            maxHeight: 400,
+                            objectFit: "cover",
+                          }}
+                        />
                       </Box>
                     )}
 
@@ -1211,7 +1164,7 @@ export default function CreateBid() {
         </Box>
       </Paper>
 
-      {/* ── Design Dialog ── */}
+      {/* Design Dialog */}
       <Dialog
         open={showDesignDialog}
         onClose={() => setShowDesignDialog(false)}
@@ -1239,7 +1192,11 @@ export default function CreateBid() {
           </Card>
         </DialogContent>
         <DialogActions sx={{ flexDirection: isMobile ? "column" : "row", p: 2, gap: 1 }}>
-          <Button variant="outlined" onClick={handleSkipDesign} fullWidth={isMobile}>
+          <Button
+            variant="outlined"
+            onClick={handleSkipDesign}
+            fullWidth={isMobile}
+          >
             Skip — Save Bid Without Design
           </Button>
           <Button
@@ -1254,138 +1211,16 @@ export default function CreateBid() {
         </DialogActions>
       </Dialog>
 
-      {/* ── Rendering Lightbox ── */}
-      <Dialog
-        open={renderingPreviewOpen}
-        onClose={() => setRenderingPreviewOpen(false)}
-        maxWidth="xl"
-        fullWidth
-        PaperProps={{
-          sx: {
-            bgcolor: "#111",
-            m: { xs: 0.5, sm: 2 },
-            borderRadius: 2,
-          },
-        }}
-      >
-        <DialogTitle
-          sx={{
-            color: "#fff",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            py: 1.5,
-            px: 2,
-            borderBottom: "1px solid rgba(255,255,255,0.1)",
-          }}
-        >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <LandscapeIcon sx={{ color: "#ce93d8" }} />
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#fff" }}>
-              AI Landscape Rendering — {conceptStyle}
-            </Typography>
-          </Box>
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<OpenInNewIcon />}
-              href={renderingImageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              sx={{ color: "#ce93d8", borderColor: "#ce93d8", "&:hover": { borderColor: "#f48fb1" } }}
-            >
-              Open Full Size
-            </Button>
-            <IconButton onClick={() => setRenderingPreviewOpen(false)} sx={{ color: "#aaa" }}>
-              <CloseIcon />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <DialogContent sx={{ p: { xs: 1, sm: 2 }, textAlign: "center", bgcolor: "#111" }}>
-          {renderingSourcePhoto && (
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
-                gap: 2,
-                mb: 1,
-              }}
-            >
-              <Box>
-                <Typography variant="caption" sx={{ color: "#aaa", display: "block", mb: 0.5 }}>
-                  📷 ORIGINAL SITE PHOTO
-                </Typography>
-                <Box
-                  component="img"
-                  src={renderingSourcePhoto.url}
-                  alt="Original site photo"
-                  sx={{
-                    width: "100%",
-                    maxHeight: "70vh",
-                    objectFit: "contain",
-                    borderRadius: 1,
-                  }}
-                />
-              </Box>
-              <Box>
-                <Typography variant="caption" sx={{ color: "#ce93d8", display: "block", mb: 0.5 }}>
-                  🎨 AI CONCEPT RENDERING
-                </Typography>
-                <Box
-                  component="img"
-                  src={renderingImageUrl}
-                  alt="AI landscape rendering"
-                  sx={{
-                    width: "100%",
-                    maxHeight: "70vh",
-                    objectFit: "contain",
-                    borderRadius: 1,
-                    border: "1px solid rgba(124,58,237,0.4)",
-                  }}
-                />
-              </Box>
-            </Box>
-          )}
-
-          {!renderingSourcePhoto && (
-            <Box>
-              <Typography variant="caption" sx={{ color: "#ce93d8", display: "block", mb: 1 }}>
-                🎨 AI CONCEPT RENDERING
-              </Typography>
-              <Box
-                component="img"
-                src={renderingImageUrl}
-                alt="AI landscape rendering"
-                sx={{
-                  maxWidth: "100%",
-                  maxHeight: "75vh",
-                  objectFit: "contain",
-                  borderRadius: 1,
-                  border: "1px solid rgba(124,58,237,0.4)",
-                }}
-              />
-            </Box>
-          )}
-
-          <Box sx={{ mt: 1.5, display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "center" }}>
-            <Chip label={conceptStyle} size="small" sx={{ bgcolor: "#333", color: "#ce93d8" }} />
-            <Chip label={conceptProjectType} size="small" sx={{ bgcolor: "#333", color: "#aaa" }} />
-            {conceptWidth && conceptLength && (
-              <Chip label={`${conceptWidth} × ${conceptLength} ${conceptUnit}`} size="small" sx={{ bgcolor: "#333", color: "#aaa" }} />
-            )}
-            <Chip label="AI Generated" size="small" sx={{ bgcolor: "#333", color: "#81c784" }} />
-          </Box>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── AI Bid Assistant Drawer ── */}
+      {/* ═══════════════════════════════════════
+          AI BID ASSISTANT DRAWER
+      ═══════════════════════════════════════ */}
       <Drawer
         anchor="right"
         open={aiOpen}
         onClose={() => setAiOpen(false)}
         PaperProps={{ sx: { width: { xs: "100%", sm: 480 }, display: "flex", flexDirection: "column" } }}
       >
+        {/* Header */}
         <Box sx={{ p: 2, background: "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)", color: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Box>
             <Typography variant="h6" sx={{ fontWeight: 700 }}>✨ AI Bid Assistant</Typography>
@@ -1398,6 +1233,7 @@ export default function CreateBid() {
           <IconButton onClick={() => setAiOpen(false)} sx={{ color: "white" }}><CloseIcon /></IconButton>
         </Box>
 
+        {/* Starter chips */}
         {aiMessages.length === 0 && (
           <Box sx={{ p: 2, borderBottom: "1px solid #e0e0e0" }}>
             <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>Try one of these:</Typography>
@@ -1420,6 +1256,7 @@ export default function CreateBid() {
           </Box>
         )}
 
+        {/* Messages */}
         <Box sx={{ flex: 1, overflowY: "auto", p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
           {aiMessages.length === 0 && (
             <Box sx={{ textAlign: "center", mt: 4, color: "text.secondary" }}>
@@ -1485,6 +1322,7 @@ export default function CreateBid() {
           <div ref={aiBottomRef} />
         </Box>
 
+        {/* Input */}
         <Box sx={{ p: 2, borderTop: "1px solid #e0e0e0", display: "flex", gap: 1 }}>
           <TextField
             fullWidth
@@ -1492,7 +1330,7 @@ export default function CreateBid() {
             placeholder="Describe the job (size, type, condition)..."
             value={aiInput}
             onChange={(e) => setAiInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAiMessage(); } }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAiMessage(); }}}
             multiline
             maxRows={3}
           />

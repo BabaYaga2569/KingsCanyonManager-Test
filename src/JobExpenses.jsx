@@ -32,6 +32,7 @@ export default function JobExpenses() {
   const [job, setJob] = useState(null);
   const [expenses, setExpenses] = useState([]);
   const [invoice, setInvoice] = useState(null);
+  const [jobPayments, setJobPayments] = useState([]);
   const [viewingItems, setViewingItems] = useState(null);
 
   useEffect(() => {
@@ -59,6 +60,19 @@ export default function JobExpenses() {
         .map((d) => ({ id: d.id, ...d.data() }))
         .find((inv) => inv.jobId === id);
       setInvoice(jobInvoice);
+
+      // Load payments for this job's invoice
+      if (jobInvoice) {
+        try {
+          const paymentsSnap = await getDocs(collection(db, "payments"));
+          const invoicePayments = paymentsSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(p => p.invoiceId === jobInvoice.id);
+          setJobPayments(invoicePayments);
+        } catch (e) {
+          console.warn("Could not load payments:", e);
+        }
+      }
 
       setLoading(false);
     } catch (error) {
@@ -213,9 +227,18 @@ export default function JobExpenses() {
   }
 
   const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+  const billableExpenses = expenses.filter(e => e.billableToClient === true);
+  const kclExpenses = expenses.filter(e => !e.billableToClient);
+  const billableMaterialsTotal = billableExpenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+  const kclExpensesTotal = kclExpenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
   const revenue = invoice ? parseFloat(invoice.total || invoice.amount || 0) : 0;
-  const profit = revenue - totalExpenses;
+  const profit = revenue - kclExpensesTotal;  // pass-throughs don't reduce profit
   const profitMargin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : 0;
+
+  // Payment calculations
+  const totalPaid = jobPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+  const balanceDue = Math.max(0, revenue - totalPaid);
+  const isPaidInFull = totalPaid >= revenue && revenue > 0;
 
   const expensesByCategory = {};
   expenses.forEach((expense) => {
@@ -290,29 +313,30 @@ export default function JobExpenses() {
         <Grid container spacing={3} sx={{ mt: 1 }}>
           <Grid item xs={12} sm={3}>
             <Box sx={{ textAlign: "center" }}>
+              <Typography variant="subtitle2" color="text.secondary">Revenue</Typography>
+              <Typography variant="h4" color="primary.dark">${revenue.toFixed(2)}</Typography>
+            </Box>
+          </Grid>
+          {billableMaterialsTotal > 0 && (
+            <Grid item xs={12} sm={3}>
+              <Box sx={{ textAlign: "center", bgcolor: "rgba(230,81,0,0.12)", borderRadius: 1, p: 0.5 }}>
+                <Typography variant="subtitle2" sx={{ color: "#e65100", fontWeight: 700 }}>Client Materials</Typography>
+                <Typography variant="h4" sx={{ color: "#e65100" }}>${billableMaterialsTotal.toFixed(2)}</Typography>
+                <Typography variant="caption" sx={{ color: "#e65100" }}>pass-through</Typography>
+              </Box>
+            </Grid>
+          )}
+          <Grid item xs={12} sm={3}>
+            <Box sx={{ textAlign: "center" }}>
               <Typography variant="subtitle2" color="text.secondary">
-                Revenue
+                {billableMaterialsTotal > 0 ? "KCL Expenses" : "Total Expenses"}
               </Typography>
-              <Typography variant="h4" color="primary.dark">
-                ${revenue.toFixed(2)}
-              </Typography>
+              <Typography variant="h4" color="error.main">${kclExpensesTotal.toFixed(2)}</Typography>
             </Box>
           </Grid>
           <Grid item xs={12} sm={3}>
             <Box sx={{ textAlign: "center" }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                Total Expenses
-              </Typography>
-              <Typography variant="h4" color="error.main">
-                ${totalExpenses.toFixed(2)}
-              </Typography>
-            </Box>
-          </Grid>
-          <Grid item xs={12} sm={3}>
-            <Box sx={{ textAlign: "center" }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                Profit
-              </Typography>
+              <Typography variant="subtitle2" color="text.secondary">Profit</Typography>
               <Typography variant="h4" color={profit >= 0 ? "success.main" : "error.main"}>
                 ${profit.toFixed(2)}
               </Typography>
@@ -320,16 +344,70 @@ export default function JobExpenses() {
           </Grid>
           <Grid item xs={12} sm={3}>
             <Box sx={{ textAlign: "center" }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                Profit Margin
-              </Typography>
+              <Typography variant="subtitle2" color="text.secondary">Profit Margin</Typography>
               <Typography variant="h4" color={profit >= 0 ? "success.main" : "error.main"}>
                 {profitMargin}%
               </Typography>
             </Box>
           </Grid>
         </Grid>
+        {billableMaterialsTotal > 0 && (
+          <Box sx={{ mt: 2, p: 1.5, bgcolor: "rgba(230,81,0,0.1)", borderRadius: 1, border: "1px solid rgba(230,81,0,0.3)" }}>
+            <Typography variant="caption" sx={{ color: "#e65100" }}>
+              💰 <strong>${billableMaterialsTotal.toFixed(2)}</strong> in client materials ({billableExpenses.length} item{billableExpenses.length !== 1 ? "s" : ""}) are pass-through costs — billed to the client, not charged against KCL profit.
+            </Typography>
+          </Box>
+        )}
       </Paper>
+
+      {/* ── PAYMENT STATUS ─────────────────────────────────── */}
+      {invoice && (
+        <Paper sx={{ p: 3, mb: 3, borderRadius: 2, border: "2px solid", borderColor: isPaidInFull ? "success.main" : totalPaid > 0 ? "warning.main" : "divider" }}>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 700 }}>
+            💳 Payment Status
+          </Typography>
+          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+            <Box sx={{ textAlign: "center", p: 2, bgcolor: "white", borderRadius: 1, flex: 1 }}>
+              <Typography variant="caption" color="text.secondary">Invoice Total</Typography>
+              <Typography variant="h5" color="primary.dark" fontWeight="bold">${revenue.toFixed(2)}</Typography>
+            </Box>
+            <Box sx={{ textAlign: "center", p: 2, bgcolor: totalPaid > 0 ? "#e8f5e9" : "#f5f5f5", borderRadius: 1, flex: 1 }}>
+              <Typography variant="caption" color="text.secondary">Amount Paid</Typography>
+              <Typography variant="h5" color="success.main" fontWeight="bold">${totalPaid.toFixed(2)}</Typography>
+            </Box>
+            <Box sx={{ textAlign: "center", p: 2, bgcolor: isPaidInFull ? "#e8f5e9" : balanceDue > 0 ? "#fff3e0" : "#f5f5f5", borderRadius: 1, flex: 1 }}>
+              <Typography variant="caption" color="text.secondary">Balance Due</Typography>
+              <Typography variant="h5" color={isPaidInFull ? "success.main" : "warning.main"} fontWeight="bold">
+                {isPaidInFull ? "PAID ✓" : `$${balanceDue.toFixed(2)}`}
+              </Typography>
+            </Box>
+          </Box>
+          {jobPayments.length > 0 && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1, fontWeight: 700 }}>
+                Payment History:
+              </Typography>
+              {jobPayments.map((p, idx) => (
+                <Box key={idx} sx={{ display: "flex", justifyContent: "space-between", p: 1, bgcolor: "#f9f9f9", borderRadius: 1, mb: 0.5 }}>
+                  <Typography variant="caption">
+                    {p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : "—"} · {p.paymentMethod || "Zelle"}
+                  </Typography>
+                  <Typography variant="caption" fontWeight="bold" color="success.main">
+                    +${parseFloat(p.amount || 0).toFixed(2)}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+          {!isPaidInFull && balanceDue > 0 && (
+            <Box sx={{ mt: 1.5, p: 1, bgcolor: "#fff8e1", borderRadius: 1 }}>
+              <Typography variant="caption" color="warning.dark">
+                ⏳ ${balanceDue.toFixed(2)} outstanding — mark as Paid in the Invoice editor once received.
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
 
       {/* Expense Breakdown */}
       <Grid container spacing={3} sx={{ mb: 3 }}>

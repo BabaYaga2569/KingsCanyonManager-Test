@@ -55,8 +55,12 @@ export default function JobsManager() {
   const [jobs, setJobs] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [sortedJobs, setSortedJobs] = useState([]);
-  const [sortOrder, setSortOrder] = useState("newest");
+  const [sortOrder, setSortOrder] = useState("oldest");
   const [jobTypeFilter, setJobTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [invoiceMap, setInvoiceMap] = useState({});
+  const [paymentMap, setPaymentMap] = useState({});
+  const [customerMap, setCustomerMap] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [expandedClients, setExpandedClients] = useState({});
@@ -86,6 +90,133 @@ export default function JobsManager() {
   const fileInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
+  const normalizeStatus = (status) => (status || "").trim().toLowerCase();
+
+  const getJobDate = (job) => {
+    const raw = job?.createdAt || job?.startDate || 0;
+    if (raw?.toDate) return raw.toDate();
+    return new Date(raw);
+  };
+
+  const formatJobDate = (rawDate) => {
+    try {
+      const date = rawDate?.toDate ? rawDate.toDate() : new Date(rawDate);
+      if (Number.isNaN(date.getTime())) return "Unknown";
+      return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    } catch {
+      return "Unknown";
+    }
+  };
+
+  const getJobAgeDays = (job) => {
+    try {
+      const created = getJobDate(job);
+      if (!(created instanceof Date) || Number.isNaN(created.getTime())) return null;
+      return Math.floor((Date.now() - created.getTime()) / 86400000);
+    } catch {
+      return null;
+    }
+  };
+
+  const getStaleLevel = (job) => {
+    const age = getJobAgeDays(job);
+    if (age == null) return null;
+    if (age >= 90) return "very-stale";
+    if (age >= 30) return "stale";
+    return null;
+  };
+
+  const compareJobs = (a, b, currentSortOrder) => {
+    switch (currentSortOrder) {
+      case "newest":
+        return getJobDate(b) - getJobDate(a);
+
+      case "oldest":
+        return getJobDate(a) - getJobDate(b);
+
+      case "name-asc":
+        return (a.clientName || "").localeCompare(b.clientName || "");
+
+      case "name-desc":
+        return (b.clientName || "").localeCompare(a.clientName || "");
+
+      case "status-active": {
+        const aIsMatch = normalizeStatus(a.status) === "active";
+        const bIsMatch = normalizeStatus(b.status) === "active";
+        if (aIsMatch && !bIsMatch) return -1;
+        if (!aIsMatch && bIsMatch) return 1;
+        return getJobDate(a) - getJobDate(b);
+      }
+
+      case "status-completed": {
+        const aIsMatch = normalizeStatus(a.status) === "completed";
+        const bIsMatch = normalizeStatus(b.status) === "completed";
+        if (aIsMatch && !bIsMatch) return -1;
+        if (!aIsMatch && bIsMatch) return 1;
+        return getJobDate(a) - getJobDate(b);
+      }
+
+      case "status-pending": {
+        const aIsMatch = normalizeStatus(a.status) === "pending";
+        const bIsMatch = normalizeStatus(b.status) === "pending";
+        if (aIsMatch && !bIsMatch) return -1;
+        if (!aIsMatch && bIsMatch) return 1;
+        return getJobDate(a) - getJobDate(b);
+      }
+
+      default:
+        return getJobDate(a) - getJobDate(b);
+    }
+  };
+
+  const compareClientGroups = ([clientA, jobsA], [clientB, jobsB], currentSortOrder) => {
+    switch (currentSortOrder) {
+      case "name-asc":
+        return clientA.localeCompare(clientB);
+
+      case "name-desc":
+        return clientB.localeCompare(clientA);
+
+      case "status-active": {
+        const aCount = jobsA.filter((job) => normalizeStatus(job.status) === "active").length;
+        const bCount = jobsB.filter((job) => normalizeStatus(job.status) === "active").length;
+        if (aCount !== bCount) return bCount - aCount;
+        return clientA.localeCompare(clientB);
+      }
+
+      case "status-completed": {
+        const aCount = jobsA.filter((job) => normalizeStatus(job.status) === "completed").length;
+        const bCount = jobsB.filter((job) => normalizeStatus(job.status) === "completed").length;
+        if (aCount !== bCount) return bCount - aCount;
+        return clientA.localeCompare(clientB);
+      }
+
+      case "status-pending": {
+        const aCount = jobsA.filter((job) => normalizeStatus(job.status) === "pending").length;
+        const bCount = jobsB.filter((job) => normalizeStatus(job.status) === "pending").length;
+        if (aCount !== bCount) return bCount - aCount;
+        return clientA.localeCompare(clientB);
+      }
+
+      case "newest": {
+        const newestA = [...jobsA].sort((a, b) => getJobDate(b) - getJobDate(a))[0];
+        const newestB = [...jobsB].sort((a, b) => getJobDate(b) - getJobDate(a))[0];
+        return getJobDate(newestB) - getJobDate(newestA);
+      }
+
+      case "oldest":
+      default: {
+        const oldestA = [...jobsA].sort((a, b) => getJobDate(a) - getJobDate(b))[0];
+        const oldestB = [...jobsB].sort((a, b) => getJobDate(a) - getJobDate(b))[0];
+        return getJobDate(oldestA) - getJobDate(oldestB);
+      }
+    }
+  };
+
   useEffect(() => {
     fetchJobs();
   }, []);
@@ -99,6 +230,12 @@ export default function JobsManager() {
 
     if (jobTypeFilter !== "all") {
       filtered = filtered.filter((job) => job.jobType === jobTypeFilter);
+    }
+
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(
+        (job) => normalizeStatus(job.status) === normalizeStatus(statusFilter)
+      );
     }
 
     const search = searchTerm.trim().toLowerCase();
@@ -120,41 +257,9 @@ export default function JobsManager() {
       });
     }
 
-    const sorted = filtered.sort((a, b) => {
-      switch (sortOrder) {
-        case "newest": {
-          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || a.startDate || 0);
-          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || b.startDate || 0);
-          return dateB - dateA;
-        }
-        case "oldest": {
-          const dateA2 = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || a.startDate || 0);
-          const dateB2 = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || b.startDate || 0);
-          return dateA2 - dateB2;
-        }
-        case "name-asc":
-          return (a.clientName || "").localeCompare(b.clientName || "");
-        case "name-desc":
-          return (b.clientName || "").localeCompare(a.clientName || "");
-        case "status-active":
-          if (a.status === "Active" && b.status !== "Active") return -1;
-          if (a.status !== "Active" && b.status === "Active") return 1;
-          return 0;
-        case "status-completed":
-          if (a.status === "Completed" && b.status !== "Completed") return -1;
-          if (a.status !== "Completed" && b.status === "Completed") return 1;
-          return 0;
-        case "status-pending":
-          if (a.status === "Pending" && b.status !== "Pending") return -1;
-          if (a.status !== "Pending" && b.status === "Pending") return 1;
-          return 0;
-        default:
-          return 0;
-      }
-    });
-
+    const sorted = [...filtered].sort((a, b) => compareJobs(a, b, sortOrder));
     setSortedJobs(sorted);
-  }, [jobs, sortOrder, jobTypeFilter, searchTerm]);
+  }, [jobs, sortOrder, jobTypeFilter, statusFilter, searchTerm]);
 
   const fetchJobs = async () => {
     try {
@@ -170,6 +275,47 @@ export default function JobsManager() {
         .map((d) => ({ id: d.id, ...d.data() }))
         .filter((user) => user.active !== false);
       setEmployees(activeEmployees);
+
+      // Load customers for address on job cards
+      try {
+        const customersSnap = await getDocs(collection(db, "customers"));
+        const custMap = {};
+        customersSnap.docs.forEach(d => {
+          const c = d.data();
+          const addressParts = [c.address, c.city, c.state, c.zip].filter(Boolean);
+          custMap[d.id] = { address: addressParts.join(", ") };
+        });
+        setCustomerMap(custMap);
+      } catch (e) {
+        console.warn("Could not load customers:", e);
+      }
+
+      // Load invoices + payments for job card payment status
+      try {
+        const invoicesSnap = await getDocs(collection(db, "invoices"));
+        const allInvoices = invoicesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const invMap = {};
+        allInvoices.forEach(inv => { if (inv.jobId) invMap[inv.jobId] = inv; });
+        setInvoiceMap(invMap);
+
+        const paymentsSnap = await getDocs(collection(db, "payments"));
+        const allPayments = paymentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const pmtMap = {};
+        allInvoices.forEach(inv => {
+          const invPayments = allPayments.filter(p => p.invoiceId === inv.id);
+          const totalPaid = invPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+          const invoiceTotal = parseFloat(inv.total || inv.amount || 0);
+          pmtMap[inv.id] = {
+            totalPaid,
+            balance: Math.max(0, invoiceTotal - totalPaid),
+            isPaid: totalPaid >= invoiceTotal && invoiceTotal > 0,
+            paymentCount: invPayments.length,
+          };
+        });
+        setPaymentMap(pmtMap);
+      } catch (e) {
+        console.warn("Could not load invoices/payments for job cards:", e);
+      }
     } catch (error) {
       console.error("Error fetching jobs:", error);
     } finally {
@@ -567,25 +713,19 @@ export default function JobsManager() {
   };
 
   const getStatusColor = (status) => {
-    switch ((status || "").toLowerCase()) {
+    switch (normalizeStatus(status)) {
       case "active":
         return "success";
       case "pending":
         return "warning";
       case "completed":
         return "info";
+      case "cancelled":
+        return "error";
       default:
         return "default";
     }
   };
-
-  if (loading) {
-    return (
-      <Typography sx={{ mt: 4, textAlign: "center" }}>
-        Loading jobs...
-      </Typography>
-    );
-  }
 
   const handleScheduleJob = async (job) => {
     const jobType = job.jobType || "General Service";
@@ -693,6 +833,14 @@ export default function JobsManager() {
     navigate(`/schedule?contractId=${job.contractId}`);
   };
 
+  if (loading) {
+    return (
+      <Typography sx={{ mt: 4, textAlign: "center" }}>
+        Loading jobs...
+      </Typography>
+    );
+  }
+
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
@@ -732,6 +880,22 @@ export default function JobsManager() {
               <MenuItem value="Maintenance">Maintenance</MenuItem>
               <MenuItem value="General Service">General Service</MenuItem>
               <MenuItem value="Emergency">Emergency</MenuItem>
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel id="status-filter-label">Filter by Status</InputLabel>
+            <Select
+              labelId="status-filter-label"
+              value={statusFilter}
+              label="Filter by Status"
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <MenuItem value="all">All Statuses</MenuItem>
+              <MenuItem value="Active">Active</MenuItem>
+              <MenuItem value="Pending">Pending</MenuItem>
+              <MenuItem value="Completed">Completed</MenuItem>
+              <MenuItem value="Cancelled">Cancelled</MenuItem>
             </Select>
           </FormControl>
 
@@ -782,8 +946,8 @@ export default function JobsManager() {
           <Typography variant="body2" color="text.secondary">
             {searchTerm
               ? "No jobs match your search."
-              : jobTypeFilter !== "all"
-                ? `No ${jobTypeFilter} jobs found. Try changing the filter.`
+              : jobTypeFilter !== "all" || statusFilter !== "all"
+                ? "No jobs found for the selected filters. Try changing the filters."
                 : "Jobs will appear here after you create them"}
           </Typography>
         </Box>
@@ -796,12 +960,16 @@ export default function JobsManager() {
         }, {});
 
         return Object.entries(groups)
-          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([clientName, clientJobs]) => [
+            clientName,
+            [...clientJobs].sort((a, b) => compareJobs(a, b, sortOrder)),
+          ])
+          .sort((a, b) => compareClientGroups(a, b, sortOrder))
           .map(([clientName, clientJobs]) => {
             const isExpanded = expandedClients[clientName] !== false;
             const hasMultiple = clientJobs.length > 1;
-            const activeCount = clientJobs.filter((j) => j.status === "Active").length;
-            const pendingCount = clientJobs.filter((j) => j.status === "Pending").length;
+            const activeCount = clientJobs.filter((j) => normalizeStatus(j.status) === "active").length;
+            const pendingCount = clientJobs.filter((j) => normalizeStatus(j.status) === "pending").length;
 
             return (
               <Accordion
@@ -849,6 +1017,9 @@ export default function JobsManager() {
                           })()}`
                         : null;
 
+                      const ageDays = getJobAgeDays(job);
+                      const staleLevel = getStaleLevel(job);
+
                       return (
                         <Card key={job.id} sx={{ boxShadow: 1, border: hasMultiple ? "1px solid #e0e0e0" : "none" }}>
                           <CardContent>
@@ -862,7 +1033,24 @@ export default function JobsManager() {
                                 <Typography variant="body1" fontWeight="bold">
                                   {job.jobType || "General Service"}
                                 </Typography>
+
+                                {job.createdAt && (
+                                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                    Created: {formatJobDate(job.createdAt)}
+                                    {ageDays != null ? ` • ${ageDays} day${ageDays === 1 ? "" : "s"} old` : ""}
+                                  </Typography>
+                                )}
+
+                                <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
+                                  {staleLevel === "stale" && (
+                                    <Chip label="30+ days old" size="small" color="warning" variant="outlined" />
+                                  )}
+                                  {staleLevel === "very-stale" && (
+                                    <Chip label="90+ days old" size="small" color="error" variant="outlined" />
+                                  )}
+                                </Box>
                               </Box>
+
                               <Chip label={job.status || "Pending"} color={getStatusColor(job.status)} size="small" />
                             </Box>
 
@@ -898,17 +1086,56 @@ export default function JobsManager() {
                               </Box>
                             )}
 
+                            {/* Address box */}
                             {(() => {
-                              const revenue = parseFloat(job.amount || 0);
+                              const customer = customerMap[job.customerId];
+                              const addr = customer?.address || job.address || null;
+                              if (!addr) return null;
+                              return (
+                                <Box sx={{ mb: 2, p: 1, bgcolor: "#f3f8ff", borderRadius: 1, borderLeft: "3px solid #42a5f5", display: "flex", alignItems: "center", gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{ fontSize: "0.78rem" }}>
+                                    📍 {addr}
+                                  </Typography>
+                                </Box>
+                              );
+                            })()}
+
+                            {(() => {
+                              const inv = invoiceMap[job.id];
+                              const pmt = inv ? paymentMap[inv.id] : null;
+                              const revenue = inv ? parseFloat(inv.total || inv.amount || 0) : parseFloat(job.amount || 0);
                               const materials = parseFloat(job.totalExpenses || 0);
                               const hasRevenue = revenue > 0;
+
+                              const paymentChip = pmt && pmt.paymentCount > 0 ? (
+                                <Box sx={{ mb: 1, p: 1, bgcolor: pmt.isPaid ? "#e8f5e9" : "#fff8e1", borderRadius: 1, borderLeft: `3px solid ${pmt.isPaid ? "#4caf50" : "#ff9800"}`, display: "flex", justifyContent: "space-between" }}>
+                                  <Typography variant="caption" fontWeight="bold" color={pmt.isPaid ? "success.main" : "warning.dark"}>
+                                    {pmt.isPaid ? "✅ PAID IN FULL" : `💳 ${pmt.paymentCount} payment${pmt.paymentCount !== 1 ? "s" : ""} received`}
+                                  </Typography>
+                                  {!pmt.isPaid && (
+                                    <Typography variant="caption" color="warning.dark">
+                                      ${pmt.balance.toFixed(0)} left
+                                    </Typography>
+                                  )}
+                                </Box>
+                              ) : inv ? (
+                                <Box sx={{ mb: 1, p: 1, bgcolor: "#fff3e0", borderRadius: 1, borderLeft: "3px solid #ff9800" }}>
+                                  <Typography variant="caption" color="warning.dark">
+                                    ⏳ Invoice sent — awaiting payment
+                                  </Typography>
+                                </Box>
+                              ) : null;
+
                               if (!hasRevenue) {
                                 return (
-                                  <Box sx={{ mb: 2, p: 1, bgcolor: "#f5f5f5", borderRadius: 1, display: "flex", alignItems: "center", gap: 1 }}>
-                                    <Typography variant="caption" color="text.secondary">
-                                      💰 No invoice — profitability unknown
-                                    </Typography>
-                                  </Box>
+                                  <>
+                                    {paymentChip}
+                                    <Box sx={{ mb: 2, p: 1, bgcolor: "#f5f5f5", borderRadius: 1 }}>
+                                      <Typography variant="caption" color="text.secondary">
+                                        💰 No invoice — profitability unknown
+                                      </Typography>
+                                    </Box>
+                                  </>
                                 );
                               }
                               const profit = revenue - materials;
@@ -919,14 +1146,17 @@ export default function JobsManager() {
                               const borderColor = isLoss ? "#f44336" : isThin ? "#ff9800" : "#4caf50";
                               const emoji = isLoss ? "🔴" : isThin ? "🟡" : "🟢";
                               return (
-                                <Box sx={{ mb: 2, p: 1, bgcolor, borderRadius: 1, borderLeft: `3px solid ${borderColor}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                  <Typography variant="caption" fontWeight="bold">
-                                    {emoji} Margin: {margin.toFixed(0)}%
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    ${revenue.toFixed(0)} rev · ${materials.toFixed(0)} mat
-                                  </Typography>
-                                </Box>
+                                <>
+                                  {paymentChip}
+                                  <Box sx={{ mb: 2, p: 1, bgcolor, borderRadius: 1, borderLeft: `3px solid ${borderColor}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <Typography variant="caption" fontWeight="bold">
+                                      {emoji} Margin: {margin.toFixed(0)}%
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      ${revenue.toFixed(0)} rev · ${materials.toFixed(0)} mat
+                                    </Typography>
+                                  </Box>
+                                </>
                               );
                             })()}
 

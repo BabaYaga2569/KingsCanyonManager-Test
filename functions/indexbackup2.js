@@ -45,6 +45,8 @@ async function sendEmailToSMS(transporter, fromEmail, toGateway, message) {
 }
 
 async function sendToAllAdmins(settings, message, type, metadata = {}) {
+  // SMS gateway is disabled by default now that Pushover handles admin alerts.
+  // To re-enable, set smsGatewayEnabled: true in the notification_settings doc.
   if (!settings?.smsGatewayEnabled) {
     console.log(`>>> sendToAllAdmins: SMS gateway disabled, skipping type="${type}"`);
     return { success: false, reason: 'sms_gateway_disabled' };
@@ -108,8 +110,11 @@ async function getSettings() {
   return snap.docs[0].data();
 }
 
-const PUSHOVER_TOKEN_FALLBACK = 'aka88i2ehjtm4r47d3zuqz7bhionvu';
-const PUSHOVER_USER_FALLBACK = 'gnh1nvir8hovia25ohsdoq2ys8x1n3';
+// Fallback Pushover credentials — used when Firestore notification_settings
+// does not have pushoverApiKey / pushoverUserKey populated.
+// These match the values in src/pushoverNotificationService.js.
+const PUSHOVER_TOKEN_FALLBACK = 'aka88i2ehjtm4r47d3zuqz7bhionvu'; // KCL Manager API Token
+const PUSHOVER_USER_FALLBACK  = 'gnh1nvir8hovia25ohsdoq2ys8x1n3'; // KCL Alerts Group Key
 
 async function sendPushoverNotification(title, message, priority = 0, sound = 'pushover') {
   let settings;
@@ -119,13 +124,17 @@ async function sendPushoverNotification(title, message, priority = 0, sound = 'p
     console.warn('>>> sendPushoverNotification: could not load settings, using fallback credentials');
   }
 
+  // If Pushover is explicitly disabled in Firestore, respect that and skip.
+  // Missing / undefined = not explicitly disabled, so we proceed.
   if (settings?.pushoverEnabled === false) {
     console.log('>>> sendPushoverNotification: Pushover disabled in settings, skipping');
     return { success: false, reason: 'pushover_disabled' };
   }
 
-  const apiToken = settings?.pushoverApiKey || PUSHOVER_TOKEN_FALLBACK;
-  const userKey = settings?.pushoverUserKey || PUSHOVER_USER_FALLBACK;
+  // Prefer Firestore-configured keys; fall back to hardcoded constants so the
+  // function works even before the admin has populated notification_settings.
+  const apiToken = settings?.pushoverApiKey  || PUSHOVER_TOKEN_FALLBACK;
+  const userKey  = settings?.pushoverUserKey || PUSHOVER_USER_FALLBACK;
 
   if (!apiToken || !userKey) {
     console.warn('>>> sendPushoverNotification: no credentials available');
@@ -133,18 +142,19 @@ async function sendPushoverNotification(title, message, priority = 0, sound = 'p
   }
 
   try {
+    // Pushover requires application/x-www-form-urlencoded — NOT JSON.
     const formData = new URLSearchParams();
-    formData.append('token', apiToken);
-    formData.append('user', userKey);
-    formData.append('title', title);
-    formData.append('message', message);
+    formData.append('token',    apiToken);
+    formData.append('user',     userKey);
+    formData.append('title',    title);
+    formData.append('message',  message);
     formData.append('priority', priority);
-    formData.append('sound', sound);
+    formData.append('sound',    sound);
 
     const response = await fetch('https://api.pushover.net/1/messages.json', {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
+      body:    formData.toString(),
     });
 
     const result = await response.json();
@@ -173,24 +183,26 @@ function detectMediaType(base64String) {
   return 'image/jpeg';
 }
 
-// ========================= RECEIPT SCANNER (Claude Vision - Multi-Image) =========================
 exports.scanReceipt = functions.runWith({ secrets: ['ANTHROPIC_API_KEY'] }).https.onCall(async (data, context) => {
-  console.log('>>> SCAN STARTED (Claude Vision - Multi-Image)');
+  console.log('>>> SCAN STARTED (Claude Vision)');
 
   try {
-    // Accept images[] array (new multi-scan) OR single image string (legacy fallback)
-    const images = data.images ? data.images : data.image ? [data.image] : null;
-    if (!images || images.length === 0) {
-      throw new functions.https.HttpsError('invalid-argument', 'At least one image is required');
+    if (!data.image) {
+      throw new functions.https.HttpsError('invalid-argument', 'Image required');
     }
-    console.log(`>>> Image count: ${images.length}`);
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      throw new functions.https.HttpsError('failed-precondition', 'Anthropic API key not configured.');
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Anthropic API key not configured. Add ANTHROPIC_API_KEY to functions/.env'
+      );
     }
 
-    const prompt = `You are a receipt scanner for a landscaping company. Analyze ${images.length > 1 ? `these ${images.length} photos of the SAME receipt (in order top to bottom — treat as one continuous receipt)` : 'this receipt image'} and return ONLY a valid JSON object — no markdown, no code fences, no explanation.
+    const mediaType = detectMediaType(data.image);
+    console.log('>>> Detected media type:', mediaType);
+
+    const prompt = `You are a receipt scanner for a landscaping company. Analyze this receipt image carefully and return ONLY a valid JSON object — no markdown, no code fences, no explanation.
 
 Use this exact structure:
 {
@@ -205,7 +217,7 @@ Use this exact structure:
     { "item": "item name", "quantity": "1", "price": 0.00 }
   ],
   "description": "short comma-separated summary of top items",
-  "rawText": "brief summary only — no special characters or quotes"
+  "rawText": "full text you read from the receipt"
 }
 
 Rules:
@@ -217,14 +229,10 @@ Rules:
 - category: choose the best fit from: materials, fuel, equipment, food, other
 - lineItems: list every individual item purchased with its price; quantity as a string
 - description: comma-separated list of the first 5 item names
-- rawText: brief summary of receipt only — do NOT include raw transcription, special characters, quotes, or apostrophes
+- rawText: transcribe all text you can read from the receipt
 - Return ONLY the JSON object, absolutely nothing else`;
 
-    const contentBlocks = images.map((img) => ({
-      type: 'image',
-      source: { type: 'base64', media_type: detectMediaType(img), data: img },
-    }));
-    contentBlocks.push({ type: 'text', text: prompt });
+    console.log('>>> Calling Anthropic API...');
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -236,56 +244,62 @@ Rules:
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 2048,
-        messages: [{ role: 'user', content: contentBlocks }],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType,
+                  data: data.image,
+                },
+              },
+              {
+                type: 'text',
+                text: prompt,
+              },
+            ],
+          },
+        ],
       }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
+      console.error('>>> Anthropic API HTTP error:', response.status, errText);
       throw new functions.https.HttpsError('internal', `Claude API error ${response.status}: ${errText}`);
     }
 
     const claudeResult = await response.json();
+    console.log('>>> Anthropic response received, stop_reason:', claudeResult.stop_reason);
+
     const rawOutput = claudeResult.content?.[0]?.text || '';
+    console.log('>>> Claude raw output:');
+    console.log(rawOutput);
+    console.log('-'.repeat(80));
 
     let parsed;
     try {
       parsed = JSON.parse(rawOutput.trim());
-    } catch (e1) {
-      try {
-        const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error('No JSON block found');
+    } catch (parseErr) {
+      const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[0]);
-      } catch (e2) {
-        try {
-          // Strategy 3: remove rawText field which most commonly causes parse errors
-          const noRaw = rawOutput.replace(/"rawText"\s*:\s*"[\s\S]*?"(?=\s*[,}])/g, '"rawText": ""');
-          const jsonMatch2 = noRaw.match(/\{[\s\S]*\}/);
-          if (!jsonMatch2) throw new Error('No JSON after rawText removal');
-          parsed = JSON.parse(jsonMatch2[0]);
-        } catch (e3) {
-          try {
-            // Strategy 4: extract just the numeric fields we need
-            const vendor = (rawOutput.match(/"vendor"\s*:\s*"([^"]*)"/) || [])[1] || 'Unknown';
-            const amount = parseFloat((rawOutput.match(/"amount"\s*:\s*([\d.]+)/) || [])[1]) || 0;
-            const date = (rawOutput.match(/"date"\s*:\s*"([^"]*)"/) || [])[1] || new Date().toISOString().slice(0,10);
-            parsed = { vendor, amount, subtotal: 0, tax: 0, date, receiptNumber: '', category: 'materials', lineItems: [], description: vendor, rawText: '' };
-          } catch (e4) {
-            console.error('>>> All JSON parse strategies failed:', rawOutput.substring(0, 300));
-            throw new Error('Claude returned unparseable JSON: ' + e1.message);
-          }
-        }
+      } else {
+        console.error('>>> JSON parse failed. Raw output was:', rawOutput);
+        throw new Error('Claude did not return valid JSON. Raw: ' + rawOutput.substring(0, 200));
       }
     }
 
-    parsed.amount   = parseFloat(parsed.amount)   || 0;
+    parsed.amount = parseFloat(parsed.amount) || 0;
     parsed.subtotal = parseFloat(parsed.subtotal) || 0;
-    parsed.tax      = parseFloat(parsed.tax)      || 0;
+    parsed.tax = parseFloat(parsed.tax) || 0;
     parsed.lineItems = Array.isArray(parsed.lineItems) ? parsed.lineItems : [];
 
     console.log(`>>> SUCCESS: vendor=${parsed.vendor}, total=${parsed.amount}, items=${parsed.lineItems.length}`);
     return { success: true, ...parsed };
-
   } catch (error) {
     console.error('>>> SCAN FAILED:', error.message);
     if (error instanceof functions.https.HttpsError) throw error;
@@ -372,6 +386,8 @@ exports.sendEmployeeInvite = functions.https.onCall(async (data, context) => {
       expiresAt,
     });
 
+    console.log('>>> Invite token created:', token.substring(0, 8) + '...');
+
     const settings = await getSettings();
     const appUrl = 'https://kcl-manager-test.web.app';
     const inviteUrl = `${appUrl}/public/invite/${token}`;
@@ -436,6 +452,7 @@ exports.sendEmployeeInvite = functions.https.onCall(async (data, context) => {
 
       await transporter.sendMail(mailOptions);
       transporter.close();
+      console.log('>>> Invite email sent to:', email);
     } else {
       console.warn('>>> Gmail not configured — invite token created but email not sent');
     }
@@ -494,6 +511,8 @@ exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
       throw new functions.https.HttpsError('failed-precondition', 'This invite link has expired. Ask your manager to send a new one.');
     }
 
+    console.log('>>> Creating Firebase Auth user for:', invite.email);
+
     let userRecord;
     try {
       userRecord = await admin.auth().createUser({
@@ -505,10 +524,13 @@ exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
       if (authErr.code === 'auth/email-already-exists') {
         userRecord = await admin.auth().getUserByEmail(invite.email);
         await admin.auth().updateUser(userRecord.uid, { password });
+        console.log('>>> Updated password for existing user:', invite.email);
       } else {
         throw authErr;
       }
     }
+
+    console.log('>>> Firebase Auth user created/updated:', userRecord.uid);
 
     await admin.firestore().collection('users').doc(userRecord.uid).set({
       name: invite.name,
@@ -530,6 +552,8 @@ exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
       createdViaInvite: true,
     }, { merge: true });
 
+    console.log('>>> Firestore user document created for UID:', userRecord.uid);
+
     await inviteRef.update({
       used: true,
       usedAt: new Date().toISOString(),
@@ -544,7 +568,7 @@ exports.acceptEmployeeInvite = functions.https.onCall(async (data) => {
   }
 });
 
-// ========================= NOTIFICATION FUNCTIONS =========================
+// ========================= NOTIFICATION FUNCTIONS (EMAIL-TO-SMS) =========================
 
 exports.sendNotification = functions.https.onCall(async (data, context) => {
   console.log('>>> sendNotification called');
@@ -560,7 +584,8 @@ exports.sendNotification = functions.https.onCall(async (data, context) => {
       throw new functions.https.HttpsError('failed-precondition', 'Gmail not configured. Go to SMS Settings to set up.');
     }
 
-    return await sendToAllAdmins(settings, message, type || 'general', metadata || {});
+    const result = await sendToAllAdmins(settings, message, type || 'general', metadata || {});
+    return result;
   } catch (error) {
     console.error('>>> sendNotification error:', error);
     throw new functions.https.HttpsError('internal', error.message);
@@ -572,14 +597,10 @@ exports.sendTestNotification = functions.https.onCall(async () => {
 
   try {
     const settings = await getSettings();
-    if (!settings || !settings.gmailConfigured) {
-      throw new functions.https.HttpsError('failed-precondition', 'Gmail not configured');
-    }
+    if (!settings || !settings.gmailConfigured) throw new functions.https.HttpsError('failed-precondition', 'Gmail not configured');
 
     const adminPhones = settings.adminPhones || [];
-    if (adminPhones.length === 0) {
-      throw new functions.https.HttpsError('failed-precondition', 'No admin phones configured');
-    }
+    if (adminPhones.length === 0) throw new functions.https.HttpsError('failed-precondition', 'No admin phones configured');
 
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/Phoenix' });
     const message = `KCL Manager\nTest notification working!\n${now}`;
@@ -596,6 +617,8 @@ exports.dailyNotifications = functions.pubsub
   .schedule('0 8 * * *')
   .timeZone('America/Phoenix')
   .onRun(async () => {
+    console.log('Running daily notifications check...');
+
     try {
       const settings = await getSettings();
       if (!settings || !settings.gmailConfigured) return null;
@@ -694,6 +717,8 @@ exports.eveningJobReminder = functions.pubsub
   .schedule('0 18 * * *')
   .timeZone('America/Phoenix')
   .onRun(async () => {
+    console.log('Running evening job reminder...');
+
     try {
       const settings = await getSettings();
       if (!settings || !settings.gmailConfigured || !settings.jobReminders?.enabled) return null;
@@ -829,7 +854,10 @@ exports.notifySignature = functions.https.onCall(async (data) => {
       throw new functions.https.HttpsError('failed-precondition', 'Notification settings not found');
     }
 
-    const pushoverResult = await sendPushoverNotification(pushoverTitle, pushoverMessage);
+    const pushoverResult = await sendPushoverNotification(
+      pushoverTitle,
+      pushoverMessage
+    );
 
     let smsSent = false;
     if (!pushoverResult.success &&
@@ -898,24 +926,23 @@ exports.getPublicBid = functions.https.onCall(async (data) => {
     }
 
     return {
-  success: true,
-  bid: {
-    customerName: bid.customerName || '',
-    amount: bid.amount || 0,
-    description: bid.description || '',
-    materials: bid.materials || '',
-    status: bid.status || '',
-    clientSignedAt: bid.clientSignedAt || null,
-    clientSignature: bid.clientSignature || null,
-    photos: bid.photos || [],
-    hasAiConceptRenderingImage: !!bid.aiConceptRenderingImageUrl,
-    aiConceptRenderingImageUrl: bid.aiConceptRenderingImageUrl || null,
-    aiConceptRenderingStyle: bid.aiConceptRenderingStyle || '',
-    aiConceptRenderingPrompt: bid.aiConceptRenderingPrompt || '',
-    hasAiConceptRendering: !!bid.aiConceptRendering,
-    aiConceptRendering: bid.aiConceptRendering || null,
-  },
-};
+      success: true,
+      bid: {
+        customerName: bid.customerName || '',
+        amount: bid.amount || 0,
+        description: bid.description || '',
+        materials: bid.materials || '',
+        status: bid.status || '',
+        clientSignedAt: bid.clientSignedAt || null,
+        clientSignature: bid.clientSignature || null,
+        hasAiConceptRenderingImage: !!bid.aiConceptRenderingImageUrl,
+        aiConceptRenderingImageUrl: bid.aiConceptRenderingImageUrl || null,
+        aiConceptRenderingStyle: bid.aiConceptRenderingStyle || '',
+        aiConceptRenderingPrompt: bid.aiConceptRenderingPrompt || '',
+        hasAiConceptRendering: !!bid.aiConceptRendering,
+        aiConceptRendering: bid.aiConceptRendering || null,
+      },
+    };
   } catch (error) {
     console.error('>>> getPublicBid error:', error);
     if (error instanceof functions.https.HttpsError) throw error;
@@ -945,11 +972,21 @@ exports.signPublicBid = functions.https.onCall(async (data) => {
 
   const bid = bidSnap.data() || {};
 
+  console.log('>>> signPublicBid loaded bid:', JSON.stringify({
+    bidId,
+    status: bid.status || null,
+    hasClientSignedAt: !!bid.clientSignedAt,
+    hasClientSignature: !!bid.clientSignature,
+    hasSigningToken: !!bid.signingToken,
+  }));
+
   if (bid.signingToken && signingToken && bid.signingToken !== signingToken) {
+    console.error('>>> signPublicBid token mismatch', JSON.stringify({ bidId }));
     throw new functions.https.HttpsError('permission-denied', 'Invalid or expired signing link');
   }
 
   if (bid.signingToken && !signingToken) {
+    console.error('>>> signPublicBid missing signing token', JSON.stringify({ bidId }));
     throw new functions.https.HttpsError('permission-denied', 'Missing signing token');
   }
 
@@ -961,6 +998,12 @@ exports.signPublicBid = functions.https.onCall(async (data) => {
   );
 
   if (alreadySigned) {
+    console.log('>>> signPublicBid already signed:', JSON.stringify({
+      bidId,
+      clientSignedAt: bid.clientSignedAt || null,
+      status: bid.status || null,
+    }));
+
     return {
       success: true,
       alreadySigned: true,
@@ -980,13 +1023,18 @@ exports.signPublicBid = functions.https.onCall(async (data) => {
     lastUpdated: timestamp,
   });
 
+  console.log('>>> Bid accepted by client:', bidId);
+
+  // Auto-create Contract + Invoice + Job when bid is accepted
   try {
+    // Generate a signing token so Darren can send the contract link immediately
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let newSigningToken = '';
+    let signingToken = '';
     for (let i = 0; i < 48; i++) {
-      newSigningToken += chars.charAt(Math.floor(Math.random() * chars.length));
+      signingToken += chars.charAt(Math.floor(Math.random() * chars.length));
     }
 
+    // Shared base fields used by all three documents
     const packageBase = {
       bidId,
       clientName: bid.customerName || '',
@@ -1001,13 +1049,15 @@ exports.signPublicBid = functions.https.onCall(async (data) => {
       source: 'bid_signed',
     };
 
+    // 1. Contract — signingToken lets Darren send the link right away
     const contractRef = await admin.firestore().collection('contracts').add({
       ...packageBase,
       type: 'contract',
-      signingToken: newSigningToken,
+      signingToken,
       clientEmail: bid.clientEmail || bid.customerEmail || '',
     });
 
+    // 2. Invoice
     const invoiceRef = await admin.firestore().collection('invoices').add({
       ...packageBase,
       type: 'invoice',
@@ -1017,6 +1067,7 @@ exports.signPublicBid = functions.https.onCall(async (data) => {
       dueDate: null,
     });
 
+    // 3. Job folder
     const jobRef = await admin.firestore().collection('jobs').add({
       ...packageBase,
       type: 'job',
@@ -1025,8 +1076,15 @@ exports.signPublicBid = functions.https.onCall(async (data) => {
       photos: [],
     });
 
+    // Back-link all three documents to each other
     await contractRef.update({ invoiceId: invoiceRef.id, jobId: jobRef.id });
     await invoiceRef.update({ contractId: contractRef.id, jobId: jobRef.id });
+
+    console.log('>>> Auto-created job package for bid:', bidId, JSON.stringify({
+      contractId: contractRef.id,
+      invoiceId: invoiceRef.id,
+      jobId: jobRef.id,
+    }));
   } catch (pkgError) {
     console.error('>>> Job package creation failed (non-blocking):', pkgError.message);
   }
@@ -1070,6 +1128,12 @@ exports.signPublicBid = functions.https.onCall(async (data) => {
       pushoverReason: pushoverResult.success ? null : (pushoverResult.reason || 'unknown'),
       sentAt: new Date().toISOString(),
     });
+
+    console.log('>>> signPublicBid notification complete:', JSON.stringify({
+      bidId,
+      delivery,
+      pushover: pushoverResult.success,
+    }));
   } catch (notifyError) {
     console.error('>>> signPublicBid notify error (non-blocking):', notifyError.message);
 
@@ -1105,6 +1169,8 @@ exports.autoBidArchive = functions.pubsub
   .schedule('0 9 * * *')
   .timeZone('America/Phoenix')
   .onRun(async () => {
+    console.log('>>> autoBidArchive running');
+
     try {
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
@@ -1159,6 +1225,7 @@ exports.autoBidArchive = functions.pubsub
             archivedBy: 'auto',
           });
           archived++;
+          console.log(`Archived bid for ${bid.customerName} (${bidDoc.id})`);
 
           await sendPushover(
             `📁 Bid AUTO-ARCHIVED\n${bid.customerName} — $${parseFloat(bid.amount || 0).toFixed(2)}\nNot edited in 30 days. View archive in the Bids page.`
@@ -1180,9 +1247,11 @@ exports.autoBidArchive = functions.pubsub
 
           await bidDoc.ref.update({ warningSent30: true });
           warned++;
+          console.log(`Warning sent for ${bid.customerName} (${daysLeft} days left)`);
         }
       }
 
+      console.log(`autoBidArchive complete: ${archived} archived, ${warned} warnings sent`);
       return null;
     } catch (error) {
       console.error('Error in autoBidArchive:', error);
@@ -1296,27 +1365,12 @@ If the user asks to adjust the margin (e.g. "bump up the margin 10%", "add 20% p
 // ========================= AI LANDSCAPE RENDERING =========================
 
 exports.generateLandscapeRendering = functions
-  .runWith({ secrets: ['OPENAI_API_KEY'], timeoutSeconds: 300, memory: '1GB' })
+  .runWith({ secrets: ['OPENAI_API_KEY'], timeoutSeconds: 120, memory: '512MB' })
   .https.onCall(async (data) => {
-    const {
-      bidId,
-      stylePreset,
-      projectType,
-      dimensions,
-      focalElements,
-      specialNotes,
-      sourcePhotoUrl,
-    } = data || {};
+    const { bidId, stylePreset, projectType, dimensions, focalElements, specialNotes } = data || {};
 
     if (!bidId) {
       throw new functions.https.HttpsError('invalid-argument', 'Missing bidId');
-    }
-
-    if (!focalElements || !String(focalElements).trim()) {
-      throw new functions.https.HttpsError(
-        'invalid-argument',
-        'Please provide focal elements or design details.'
-      );
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -1333,133 +1387,63 @@ exports.generateLandscapeRendering = functions
         ? `${dimensions.width} ${dimensions.unit || 'ft'} wide by ${dimensions.length} ${dimensions.unit || 'ft'} long`
         : 'residential-scale';
 
-    const usingSourcePhoto = !!sourcePhotoUrl;
-
-    const editPrompt = [
-      'Edit the uploaded property photo into a photorealistic landscape rendering while preserving the original property as closely as possible.',
-      'Preserve the existing house exactly, including rooflines, stucco color, windows, garage, driveway, block walls, neighboring homes, sidewalk, street, lot size, and camera angle.',
-      'Do not redesign the architecture. Do not change the house structure. Do not enlarge the yard. Do not replace or move walls. Do not invent a different property.',
-      'Only modify the existing landscape and gravel yard areas.',
-      `Project type: ${projectType || 'Front Yard'}.`,
-      `Style: ${stylePreset || 'HOA Clean Look'}.`,
-      `Approximate area: ${dimStr}.`,
-      `Add these plants and hardscape elements: ${focalElements}.`,
-      specialNotes ? `Additional instructions: ${specialNotes}.` : '',
-      'Keep the design realistic, subtle, buildable, HOA-friendly, and proportional to the exact yard shown in the photo.',
-      'Use a photo-editing approach, not a reimagined scene or luxury concept rendering.',
-      'Photorealistic daylight exterior image, no people, no text, no watermark.',
-    ]
-      .filter(Boolean)
-      .join(' ');
-
-    const generationPrompt = [
+    const prompt = [
       `Photorealistic professional landscape architecture rendering of a ${stylePreset || 'Desert Modern'} desert garden.`,
       `Project type: ${projectType || 'Planter Bed'}, ${dimStr} area.`,
       focalElements ? `Featured plants and hardscape: ${focalElements}.` : '',
       specialNotes ? `Special notes: ${specialNotes}.` : '',
-      'Arizona residential property, daytime lighting, clean polished look.',
+      'Arizona residential property, daytime golden hour lighting, lush established plants, clean polished look.',
       'Ultra-realistic, high resolution, magazine-quality landscape photography. No people, no text overlays.',
     ]
       .filter(Boolean)
       .join(' ');
 
     try {
-      let openAiRes;
-
-      if (usingSourcePhoto) {
-        const FormData = require('form-data');
-
-        const sourceRes = await fetch(sourcePhotoUrl);
-        if (!sourceRes.ok) {
-          return {
-            success: false,
-            error: 'source_photo_download_failed',
-            message: 'Failed to download the selected source photo.',
-          };
-        }
-
-        const sourceArrayBuffer = await sourceRes.arrayBuffer();
-        const sourceBuffer = Buffer.from(sourceArrayBuffer);
-
-        const form = new FormData();
-        form.append('model', 'gpt-image-1');
-        form.append('prompt', editPrompt);
-        form.append('size', '1536x1024');
-        form.append('output_format', 'png');
-        form.append('input_fidelity', 'high');
-        form.append('image', sourceBuffer, {
-          filename: 'source.png',
-          contentType: 'image/png',
-        });
-
-        openAiRes = await fetch('https://api.openai.com/v1/images/edits', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            ...form.getHeaders(),
-          },
-          body: form,
-        });
-      } else {
-        openAiRes = await fetch('https://api.openai.com/v1/images/generations', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'gpt-image-1',
-            prompt: generationPrompt,
-            size: '1536x1024',
-            output_format: 'png',
-          }),
-        });
-      }
+      const openAiRes = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'dall-e-3',
+          prompt,
+          n: 1,
+          size: '1792x1024',
+          quality: 'hd',
+          response_format: 'url',
+        }),
+      });
 
       if (!openAiRes.ok) {
-        const errText = await openAiRes.text();
-        console.error('OpenAI image error:', errText);
-        return {
-          success: false,
-          error: 'generation_failed',
-          message: errText || 'Image generation failed.',
-        };
+        const errBody = await openAiRes.json().catch(() => ({}));
+        console.error('OpenAI DALL-E error:', errBody);
+        const msg = errBody?.error?.message || 'Image generation failed.';
+        return { success: false, error: 'generation_failed', message: msg };
       }
 
-      const openAiData = await openAiRes.json().catch(() => ({}));
-      const imageBase64 = openAiData?.data?.[0]?.b64_json || null;
-      const imageUrl = openAiData?.data?.[0]?.url || null;
+      const openAiData = await openAiRes.json();
+      const tempImageUrl = openAiData?.data?.[0]?.url;
 
-      let imgBuffer = null;
-
-      if (imageBase64) {
-        imgBuffer = Buffer.from(imageBase64, 'base64');
-      } else if (imageUrl) {
-        const imgRes = await fetch(imageUrl);
-        if (!imgRes.ok) {
-          return {
-            success: false,
-            error: 'download_failed',
-            message: 'Failed to retrieve the generated image.',
-          };
-        }
-        const imgArrayBuffer = await imgRes.arrayBuffer();
-        imgBuffer = Buffer.from(imgArrayBuffer);
-      } else {
-        return {
-          success: false,
-          error: 'no_image',
-          message: 'No image was returned from the AI service.',
-        };
+      if (!tempImageUrl) {
+        return { success: false, error: 'no_image', message: 'No image was returned from the AI service.' };
       }
 
+      // Download the generated image
+      const imgRes = await fetch(tempImageUrl);
+      if (!imgRes.ok) {
+        return { success: false, error: 'download_failed', message: 'Failed to retrieve the generated image.' };
+      }
+      const imgArrayBuffer = await imgRes.arrayBuffer();
+      const imgBuffer = Buffer.from(imgArrayBuffer);
+
+      // Upload to Firebase Storage with a stable download token
       const downloadToken = crypto.randomUUID();
       const timestamp = Date.now();
       const fileName = `ai-renderings/${bidId}/${timestamp}.png`;
 
       const bucket = admin.storage().bucket();
       const file = bucket.file(fileName);
-
       await file.save(imgBuffer, {
         metadata: {
           contentType: 'image/png',
@@ -1469,20 +1453,21 @@ exports.generateLandscapeRendering = functions
 
       const storedUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media&token=${downloadToken}`;
 
+      console.log(`>>> generateLandscapeRendering: stored at ${fileName}`);
+
       return {
         success: true,
         imageUrl: storedUrl,
-        prompt: usingSourcePhoto ? editPrompt : generationPrompt,
-        model: usingSourcePhoto ? 'gpt-image-1 edit high-fidelity' : 'gpt-image-1 generation',
+        prompt,
+        model: 'dall-e-3',
         generatedAt: new Date().toISOString(),
-        sourcePhotoUsed: usingSourcePhoto,
       };
     } catch (err) {
       console.error('generateLandscapeRendering error:', err);
       return {
         success: false,
         error: 'internal_error',
-        message: err?.message || 'An unexpected error occurred during image generation. Please try again.',
+        message: 'An unexpected error occurred during image generation. Please try again.',
       };
     }
   });

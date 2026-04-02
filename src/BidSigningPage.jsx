@@ -17,21 +17,23 @@ import {
   ThemeProvider,
   createTheme,
   Chip,
+  Dialog,
+  DialogContent,
+  IconButton,
 } from "@mui/material";
 import SignatureCanvas from "react-signature-canvas";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import LandscapeIcon from "@mui/icons-material/Landscape";
+import CloseIcon from "@mui/icons-material/Close";
+import ZoomInIcon from "@mui/icons-material/ZoomIn";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Swal from "sweetalert2";
 
 const publicTheme = createTheme({
   palette: {
-    primary: {
-      main: "#1565c0",
-    },
-    success: {
-      main: "#2e7d32",
-    },
+    primary: { main: "#1565c0" },
+    success: { main: "#2e7d32" },
   },
 });
 
@@ -60,6 +62,9 @@ function BidSigningPageContent() {
     errorMessage: "",
     userAgent: "",
   });
+
+  // Photo lightbox
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
 
   const sigPadRef = useRef(null);
   const signingRef = useRef(false);
@@ -92,42 +97,23 @@ function BidSigningPageContent() {
       const functions = getFunctions();
       const getPublicBid = httpsCallable(functions, "getPublicBid");
 
-      const result = await getPublicBid({
-        bidId,
-        signingToken: token,
-      });
-
+      const result = await getPublicBid({ bidId, signingToken: token });
       const response = result?.data || {};
       const publicBid = response?.bid || null;
 
-      if (!publicBid) {
-        throw new Error("Public bid payload was empty");
-      }
+      if (!publicBid) throw new Error("Public bid payload was empty");
 
       setBid(publicBid);
       setAlreadySigned(isBidAlreadySigned(publicBid));
 
-      setDebugInfo((prev) => ({
-        ...prev,
-        loadedFromCallable: true,
-        errorMessage: "",
-      }));
-
+      setDebugInfo((prev) => ({ ...prev, loadedFromCallable: true, errorMessage: "" }));
       setLoading(false);
     } catch (error) {
       console.error("Error loading bid:", error);
 
-      const message =
-        error?.message ||
-        error?.details ||
-        "Failed to load bid. Please try again.";
+      const message = error?.message || error?.details || "Failed to load bid. Please try again.";
 
-      setDebugInfo((prev) => ({
-        ...prev,
-        loadedFromCallable: false,
-        errorMessage: message,
-      }));
-
+      setDebugInfo((prev) => ({ ...prev, loadedFromCallable: false, errorMessage: message }));
       setBid(null);
       setAlreadySigned(false);
       setLoading(false);
@@ -136,23 +122,15 @@ function BidSigningPageContent() {
     }
   }, [bidId, isBidAlreadySigned]);
 
-  useEffect(() => {
-    loadBid();
-  }, [loadBid]);
+  useEffect(() => { loadBid(); }, [loadBid]);
 
-  const handleClearSignature = () => {
-    sigPadRef.current?.clear();
-  };
+  const handleClearSignature = () => { sigPadRef.current?.clear(); };
 
   const handleSign = async () => {
     if (signingRef.current || signing) return;
 
     if (!agreed) {
-      Swal.fire(
-        "Agreement Required",
-        "Please check the box to accept this bid.",
-        "warning"
-      );
+      Swal.fire("Agreement Required", "Please check the box to accept this bid.", "warning");
       return;
     }
 
@@ -186,16 +164,7 @@ function BidSigningPageContent() {
           title: "Bid Already Accepted",
           html: `
             <p>This bid has already been accepted.</p>
-            <p>
-              Accepted on
-              <strong>
-                ${
-                  response.signedAt
-                    ? new Date(response.signedAt).toLocaleString()
-                    : " a previous date"
-                }
-              </strong>
-            </p>
+            <p>Accepted on <strong>${response.signedAt ? new Date(response.signedAt).toLocaleString() : " a previous date"}</strong></p>
           `,
           confirmButtonText: "OK",
         });
@@ -220,22 +189,15 @@ function BidSigningPageContent() {
     } catch (error) {
       console.error("Error signing bid:", error);
 
-      const message =
-        error?.message ||
-        error?.details ||
-        "Failed to accept bid. Please try again.";
+      const message = error?.message || error?.details || "Failed to accept bid. Please try again.";
 
       try {
         await loadBid();
-
         if (bid && isBidAlreadySigned(bid)) {
           await Swal.fire({
             icon: "success",
             title: "Bid Accepted!",
-            html: `
-              <p>This bid has already been accepted.</p>
-              <p>We'll contact you to schedule the work.</p>
-            `,
+            html: `<p>This bid has already been accepted.</p><p>We'll contact you to schedule the work.</p>`,
             confirmButtonText: "OK",
           });
           return;
@@ -252,35 +214,14 @@ function BidSigningPageContent() {
   };
 
   const renderDebugPanel = () => (
-    <Paper
-      sx={{
-        p: 2,
-        mt: 3,
-        backgroundColor: "#fff8e1",
-        border: "1px solid #ffcc80",
-      }}
-    >
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Debug Info
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>URL:</strong> {debugInfo.href || "N/A"}
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>bidId:</strong> {debugInfo.bidId || "N/A"}
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>token:</strong> {debugInfo.token || "N/A"}
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>loadedFromCallable:</strong> {String(debugInfo.loadedFromCallable)}
-      </Typography>
-      <Typography variant="caption" display="block">
-        <strong>error:</strong> {debugInfo.errorMessage || "None"}
-      </Typography>
-      <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-        <strong>User Agent:</strong> {debugInfo.userAgent || "N/A"}
-      </Typography>
+    <Paper sx={{ p: 2, mt: 3, backgroundColor: "#fff8e1", border: "1px solid #ffcc80" }}>
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>Debug Info</Typography>
+      <Typography variant="caption" display="block"><strong>URL:</strong> {debugInfo.href || "N/A"}</Typography>
+      <Typography variant="caption" display="block"><strong>bidId:</strong> {debugInfo.bidId || "N/A"}</Typography>
+      <Typography variant="caption" display="block"><strong>token:</strong> {debugInfo.token || "N/A"}</Typography>
+      <Typography variant="caption" display="block"><strong>loadedFromCallable:</strong> {String(debugInfo.loadedFromCallable)}</Typography>
+      <Typography variant="caption" display="block"><strong>error:</strong> {debugInfo.errorMessage || "None"}</Typography>
+      <Typography variant="caption" display="block" sx={{ mt: 1 }}><strong>User Agent:</strong> {debugInfo.userAgent || "N/A"}</Typography>
     </Paper>
   );
 
@@ -288,9 +229,7 @@ function BidSigningPageContent() {
     return (
       <Container sx={{ mt: 4, textAlign: "center" }}>
         <CircularProgress size={60} />
-        <Typography variant="h6" sx={{ mt: 2 }}>
-          Loading bid...
-        </Typography>
+        <Typography variant="h6" sx={{ mt: 2 }}>Loading bid...</Typography>
         {renderDebugPanel()}
       </Container>
     );
@@ -313,28 +252,19 @@ function BidSigningPageContent() {
       <Container maxWidth="md" sx={{ mt: 4, mb: 6 }}>
         <Paper sx={{ p: 4, textAlign: "center" }}>
           <CheckCircleIcon sx={{ fontSize: 80, color: "success.main", mb: 2 }} />
-          <Typography variant="h4" gutterBottom>
-            Bid Already Accepted
-          </Typography>
+          <Typography variant="h4" gutterBottom>Bid Already Accepted</Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
             You accepted this bid on{" "}
             {bid.clientSignedAt
-              ? new Date(bid.clientSignedAt).toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })
+              ? new Date(bid.clientSignedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
               : "a previous date"}
           </Typography>
           <Divider sx={{ my: 3 }} />
-          <Typography variant="h6" gutterBottom>
-            Next Steps:
-          </Typography>
+          <Typography variant="h6" gutterBottom>Next Steps:</Typography>
           <Typography variant="body1" sx={{ mb: 2 }}>
-            • We'll contact you to schedule the work
-            <br />
-            • A deposit of 50% will be required to begin
-            <br />• Estimated amount: <strong>${(bid.amount || 0).toFixed(2)}</strong>
+            • We'll contact you to schedule the work<br />
+            • A deposit of 50% will be required to begin<br />
+            • Estimated amount: <strong>${(bid.amount || 0).toFixed(2)}</strong>
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Questions? Call us at {COMPANY.phone}
@@ -346,25 +276,22 @@ function BidSigningPageContent() {
   }
 
   const depositAmount = (bid.amount || 0) * 0.5;
+  const bidPhotos = Array.isArray(bid.photos) ? bid.photos.filter(Boolean) : [];
 
   return (
     <Container maxWidth="md" sx={{ mt: 4, mb: 6 }}>
       <Paper sx={{ p: { xs: 2, sm: 4 } }}>
+
+        {/* ── Header ── */}
         <Box sx={{ textAlign: "center", mb: 4 }}>
           <img
             src={COMPANY.logoPath}
             alt="Kings Canyon Landscaping"
             style={{ height: 80, marginBottom: 16 }}
-            onError={(e) => {
-              e.target.style.display = "none";
-            }}
+            onError={(e) => { e.target.style.display = "none"; }}
           />
-          <Typography variant="h4" gutterBottom>
-            Bid Proposal
-          </Typography>
-          <Typography variant="h5" color="primary">
-            {COMPANY.name}
-          </Typography>
+          <Typography variant="h4" gutterBottom>Bid Proposal</Typography>
+          <Typography variant="h5" color="primary">{COMPANY.name}</Typography>
           <Typography variant="body2" color="text.secondary">
             {COMPANY.phone} • {COMPANY.email}
           </Typography>
@@ -372,16 +299,15 @@ function BidSigningPageContent() {
 
         <Divider sx={{ my: 3 }} />
 
+        {/* ── Bid Details ── */}
         <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom>
-            Bid Details
-          </Typography>
+          <Typography variant="h6" gutterBottom>Bid Details</Typography>
           <Box sx={{ pl: 2 }}>
             <Typography variant="body1" sx={{ mb: 1 }}>
               <strong>Client:</strong> {bid.customerName}
             </Typography>
             <Typography variant="body1" sx={{ mb: 1 }}>
-              <strong>Estimated Amount:</strong> ${(bid.amount || 0).toFixed(2)}
+              <strong>Estimated Amount (Labor):</strong> ${(bid.amount || 0).toFixed(2)}
             </Typography>
             <Typography variant="body1" sx={{ mb: 1 }}>
               <strong>Required Deposit (50%):</strong> ${depositAmount.toFixed(2)}
@@ -392,29 +318,96 @@ function BidSigningPageContent() {
 
             {bid.description && (
               <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  <strong>Scope of Work:</strong>
-                </Typography>
-                <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", pl: 2 }}>
-                  {bid.description}
-                </Typography>
+                <Typography variant="subtitle2" gutterBottom><strong>Scope of Work:</strong></Typography>
+                <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", pl: 2 }}>{bid.description}</Typography>
               </Box>
             )}
 
             {bid.materials && (
               <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  <strong>Materials:</strong>
-                </Typography>
-                <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", pl: 2 }}>
-                  {bid.materials}
-                </Typography>
+                <Typography variant="subtitle2" gutterBottom><strong>Materials (Estimate — Billed Separately at Actual Cost):</strong></Typography>
+                <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", pl: 2 }}>{bid.materials}</Typography>
               </Box>
             )}
           </Box>
         </Box>
 
-        {/* AI Visual Rendering Section */}
+        {/* ── Site Photos ── */}
+        {bidPhotos.length > 0 && (
+          <>
+            <Divider sx={{ my: 3 }} />
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h6" gutterBottom>📷 Site Photos</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Tap any photo to view it full size.
+              </Typography>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "repeat(2, 1fr)",
+                    sm: "repeat(3, 1fr)",
+                  },
+                  gap: 1.5,
+                }}
+              >
+                {bidPhotos.map((url, i) => (
+                  <Box
+                    key={i}
+                    onClick={() => setPhotoPreviewUrl(url)}
+                    sx={{
+                      position: "relative",
+                      borderRadius: 2,
+                      overflow: "hidden",
+                      cursor: "zoom-in",
+                      aspectRatio: "4/3",
+                      border: "1px solid #ddd",
+                      "&:hover .zoom-badge": { opacity: 1 },
+                      "&:hover img": { transform: "scale(1.04)" },
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={url}
+                      alt={`Site photo ${i + 1}`}
+                      sx={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        transition: "transform 0.2s ease",
+                      }}
+                    />
+                    {/* Zoom badge overlay */}
+                    <Box
+                      className="zoom-badge"
+                      sx={{
+                        position: "absolute",
+                        bottom: 6,
+                        right: 6,
+                        bgcolor: "rgba(0,0,0,0.55)",
+                        borderRadius: 1,
+                        px: 0.75,
+                        py: 0.25,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.5,
+                        opacity: 0,
+                        transition: "opacity 0.2s ease",
+                      }}
+                    >
+                      <ZoomInIcon sx={{ color: "#fff", fontSize: 14 }} />
+                      <Typography variant="caption" sx={{ color: "#fff", fontSize: "0.65rem", lineHeight: 1 }}>
+                        Tap to zoom
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </>
+        )}
+
+        {/* ── AI Visual Rendering Section ── */}
         {(bid.hasAiConceptRenderingImage || bid.hasAiConceptRendering) && (
           <>
             <Divider sx={{ my: 3 }} />
@@ -442,154 +435,90 @@ function BidSigningPageContent() {
                 >
                   {/* Before/After layout if source photo is available */}
                   {bid.aiConceptRenderingSourcePhotoUrl ? (
-                    <Box
-                      sx={{
-                        display: "grid",
-                        gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
-                        gap: 2,
-                        mb: 2,
-                      }}
-                    >
+                    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2, mb: 2 }}>
                       <Box>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: "block", mb: 0.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}
-                        >
+                        <Typography variant="caption" color="text.secondary"
+                          sx={{ display: "block", mb: 0.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
                           📷 Current Site
                         </Typography>
                         <Box
                           component="img"
                           src={bid.aiConceptRenderingSourcePhotoUrl}
                           alt="Current site photo"
-                          sx={{
-                            width: "100%",
-                            borderRadius: 2,
-                            border: "1px solid #ddd",
-                            aspectRatio: "16/9",
-                            objectFit: "cover",
-                          }}
+                          sx={{ width: "100%", borderRadius: 2, border: "1px solid #ddd", aspectRatio: "16/9", objectFit: "cover" }}
                         />
                       </Box>
                       <Box>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: "block", mb: 0.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}
-                        >
+                        <Typography variant="caption" color="text.secondary"
+                          sx={{ display: "block", mb: 0.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
                           ✨ Concept Rendering
                         </Typography>
                         <Box
                           component="img"
                           src={bid.aiConceptRenderingImageUrl}
                           alt="AI landscape rendering concept"
+                          onClick={() => setPhotoPreviewUrl(bid.aiConceptRenderingImageUrl)}
                           sx={{
-                            width: "100%",
-                            borderRadius: 2,
-                            border: "3px solid #7c3aed",
-                            aspectRatio: "16/9",
-                            objectFit: "cover",
+                            width: "100%", borderRadius: 2, border: "3px solid #7c3aed",
+                            aspectRatio: "16/9", objectFit: "cover", cursor: "zoom-in",
                           }}
                         />
                       </Box>
                     </Box>
                   ) : (
                     <Box sx={{ mb: 2 }}>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ display: "block", mb: 0.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}
-                      >
+                      <Typography variant="caption" color="text.secondary"
+                        sx={{ display: "block", mb: 0.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
                         ✨ AI Concept Rendering
                       </Typography>
                       <Box
                         component="img"
                         src={bid.aiConceptRenderingImageUrl}
                         alt="AI landscape rendering concept"
+                        onClick={() => setPhotoPreviewUrl(bid.aiConceptRenderingImageUrl)}
                         sx={{
-                          width: "100%",
-                          borderRadius: 2,
-                          border: "3px solid #7c3aed",
-                          display: "block",
-                          maxHeight: { xs: 220, sm: 380 },
-                          objectFit: "cover",
+                          width: "100%", borderRadius: 2, border: "3px solid #7c3aed",
+                          display: "block", maxHeight: { xs: 220, sm: 380 },
+                          objectFit: "cover", cursor: "zoom-in",
                         }}
                       />
                     </Box>
                   )}
 
-                  {/* Tags */}
                   <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2 }}>
                     {bid.aiConceptRenderingStyle && (
-                      <Chip
-                        label={bid.aiConceptRenderingStyle}
-                        size="small"
-                        sx={{ bgcolor: "#7c3aed", color: "white", fontWeight: 600 }}
-                      />
+                      <Chip label={bid.aiConceptRenderingStyle} size="small" sx={{ bgcolor: "#7c3aed", color: "white", fontWeight: 600 }} />
                     )}
                     {bid.aiConceptRendering?.projectType && (
-                      <Chip
-                        label={bid.aiConceptRendering.projectType}
-                        size="small"
-                        variant="outlined"
-                        sx={{ borderColor: "#7c3aed", color: "#7c3aed" }}
-                      />
+                      <Chip label={bid.aiConceptRendering.projectType} size="small" variant="outlined" sx={{ borderColor: "#7c3aed", color: "#7c3aed" }} />
                     )}
                     {bid.aiConceptRendering?.dimensions?.width && bid.aiConceptRendering?.dimensions?.length && (
                       <Chip
                         label={`${bid.aiConceptRendering.dimensions.width} × ${bid.aiConceptRendering.dimensions.length} ${bid.aiConceptRendering.dimensions.unit || "ft"}`}
-                        size="small"
-                        variant="outlined"
-                        sx={{ borderColor: "#7c3aed", color: "#7c3aed" }}
+                        size="small" variant="outlined" sx={{ borderColor: "#7c3aed", color: "#7c3aed" }}
                       />
                     )}
                   </Box>
 
-                  {/* Concept summary if available */}
                   {bid.aiConceptRendering?.conceptSummary && (
-                    <Typography
-                      variant="body2"
-                      sx={{ mb: 2, fontStyle: "italic", color: "text.primary", lineHeight: 1.7 }}
-                    >
+                    <Typography variant="body2" sx={{ mb: 2, fontStyle: "italic", color: "text.primary", lineHeight: 1.7 }}>
                       "{bid.aiConceptRendering.conceptSummary}"
                     </Typography>
                   )}
 
-                  {/* Disclaimer */}
-                  <Alert
-                    severity="info"
-                    icon={<AutoAwesomeIcon fontSize="small" />}
-                    sx={{ mt: 1, fontSize: "0.78rem", bgcolor: "rgba(255,255,255,0.6)" }}
-                  >
+                  <Alert severity="info" icon={<AutoAwesomeIcon fontSize="small" />} sx={{ mt: 1, fontSize: "0.78rem", bgcolor: "rgba(255,255,255,0.6)" }}>
                     <strong>Visual concept only.</strong> This AI-generated rendering is for design inspiration. Final plant selection, sizing, spacing, rock coverage, boulder placement, and overall layout may vary based on site conditions, material availability, and installation requirements.
                   </Alert>
                 </Paper>
               ) : (
-                /* Text-only fallback — no image was generated */
                 bid.hasAiConceptRendering && bid.aiConceptRendering && (
-                  <Paper
-                    sx={{
-                      p: { xs: 2, sm: 3 },
-                      background: "linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%)",
-                      border: "1px solid #ce93d8",
-                      borderRadius: 2,
-                    }}
-                  >
+                  <Paper sx={{ p: { xs: 2, sm: 3 }, background: "linear-gradient(135deg, #f3e5f5 0%, #e8eaf6 100%)", border: "1px solid #ce93d8", borderRadius: 2 }}>
                     <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2 }}>
                       {bid.aiConceptRendering.stylePreset && (
-                        <Chip
-                          label={bid.aiConceptRendering.stylePreset}
-                          size="small"
-                          sx={{ bgcolor: "#7c3aed", color: "white", fontWeight: 600 }}
-                        />
+                        <Chip label={bid.aiConceptRendering.stylePreset} size="small" sx={{ bgcolor: "#7c3aed", color: "white", fontWeight: 600 }} />
                       )}
                       {bid.aiConceptRendering.projectType && (
-                        <Chip
-                          label={bid.aiConceptRendering.projectType}
-                          size="small"
-                          variant="outlined"
-                          sx={{ borderColor: "#7c3aed", color: "#7c3aed" }}
-                        />
+                        <Chip label={bid.aiConceptRendering.projectType} size="small" variant="outlined" sx={{ borderColor: "#7c3aed", color: "#7c3aed" }} />
                       )}
                     </Box>
                     {bid.aiConceptRendering.conceptSummary && (
@@ -600,16 +529,10 @@ function BidSigningPageContent() {
                     {bid.aiConceptRendering.focalElements && (
                       <Box sx={{ mb: 2 }}>
                         <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>Featured Elements:</Typography>
-                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", pl: 1 }}>
-                          {bid.aiConceptRendering.focalElements}
-                        </Typography>
+                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap", pl: 1 }}>{bid.aiConceptRendering.focalElements}</Typography>
                       </Box>
                     )}
-                    <Alert
-                      severity="info"
-                      icon={<AutoAwesomeIcon fontSize="small" />}
-                      sx={{ mt: 1, fontSize: "0.78rem", bgcolor: "rgba(255,255,255,0.6)" }}
-                    >
+                    <Alert severity="info" icon={<AutoAwesomeIcon fontSize="small" />} sx={{ mt: 1, fontSize: "0.78rem", bgcolor: "rgba(255,255,255,0.6)" }}>
                       <strong>Concept visualization only.</strong> Final plant size, spacing, rock coverage, boulder placement, and overall layout may vary based on site conditions, material availability, and installation requirements.
                     </Alert>
                   </Paper>
@@ -621,66 +544,55 @@ function BidSigningPageContent() {
 
         <Divider sx={{ my: 3 }} />
 
+        {/* ── Terms & Conditions ── */}
         <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom>
-            Accept This Bid
-          </Typography>
+          <Typography variant="h6" gutterBottom>Terms &amp; Conditions</Typography>
+          <Box sx={{ pl: 2 }}>
+            <Typography variant="body2" paragraph>
+              <strong>Bid Validity:</strong> This bid is valid for 30 days from the date listed above.
+            </Typography>
+            <Typography variant="body2" paragraph>
+              <strong>Payment Terms:</strong> A deposit of 50% is required to begin work. The remaining balance is due upon completion. Payment is accepted via Zelle, cash, or check.
+            </Typography>
+            <Typography variant="body2" paragraph>
+              <strong>Pricing:</strong> Final pricing may vary based on site conditions and material availability. Any changes will be communicated before proceeding.
+            </Typography>
+            <Typography variant="body2" paragraph>
+              <strong>Materials Cost:</strong> This bid covers labor only. All materials required for this project will be purchased by Kings Canyon Landscaping LLC and billed to the client at actual cost, separate from the labor price above. Final materials cost will reflect actual purchase receipts.
+            </Typography>
+            <Typography variant="body2" paragraph>
+              <strong>Warranty:</strong> All workmanship is warranted for 30 days from completion against defects in installation.
+            </Typography>
+          </Box>
+        </Box>
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* ── Signature ── */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h6" gutterBottom>Accept This Bid</Typography>
           <Alert severity="info" sx={{ mb: 2 }}>
-            By signing below, you accept this bid and agree to the terms and
-            conditions.
+            By signing below, you accept this bid and agree to the terms and conditions.
           </Alert>
 
-          <Paper
-            variant="outlined"
-            sx={{
-              p: 2,
-              mb: 2,
-              border: "2px solid",
-              borderColor: "primary.main",
-            }}
-          >
-            <Typography variant="subtitle2" gutterBottom>
-              Sign with your finger or mouse:
-            </Typography>
-            <Box
-              sx={{
-                border: "1px solid #ccc",
-                borderRadius: 1,
-                backgroundColor: "white",
-                touchAction: "none",
-              }}
-            >
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, border: "2px solid", borderColor: "primary.main" }}>
+            <Typography variant="subtitle2" gutterBottom>Sign with your finger or mouse:</Typography>
+            <Box sx={{ border: "1px solid #ccc", borderRadius: 1, backgroundColor: "white", touchAction: "none" }}>
               <SignatureCanvas
                 ref={sigPadRef}
                 canvasProps={{
                   width: 500,
                   height: 200,
-                  style: {
-                    width: "100%",
-                    height: "auto",
-                    touchAction: "none",
-                  },
+                  style: { width: "100%", height: "auto", touchAction: "none" },
                 }}
               />
             </Box>
-            <Button size="small" onClick={handleClearSignature} sx={{ mt: 1 }}>
-              Clear Signature
-            </Button>
+            <Button size="small" onClick={handleClearSignature} sx={{ mt: 1 }}>Clear Signature</Button>
           </Paper>
 
           <FormControlLabel
-            control={
-              <Checkbox
-                checked={agreed}
-                onChange={(e) => setAgreed(e.target.checked)}
-                color="primary"
-              />
-            }
-            label={
-              <Typography variant="body2">
-                I accept this bid and agree to the terms and conditions
-              </Typography>
-            }
+            control={<Checkbox checked={agreed} onChange={(e) => setAgreed(e.target.checked)} color="primary" />}
+            label={<Typography variant="body2">I accept this bid and agree to the terms and conditions</Typography>}
           />
         </Box>
 
@@ -690,21 +602,12 @@ function BidSigningPageContent() {
             size="large"
             onClick={handleSign}
             disabled={signing || !agreed}
-            sx={{
-              minWidth: 200,
-              py: 1.5,
-              fontSize: "1.1rem",
-            }}
+            sx={{ minWidth: 200, py: 1.5, fontSize: "1.1rem" }}
           >
             {signing ? "Accepting..." : "Accept Bid"}
           </Button>
-          <Typography
-            variant="caption"
-            display="block"
-            sx={{ mt: 2, color: "text.secondary" }}
-          >
-            Your signature will be securely stored and we'll contact you to
-            schedule work
+          <Typography variant="caption" display="block" sx={{ mt: 2, color: "text.secondary" }}>
+            Your signature will be securely stored and we'll contact you to schedule work
           </Typography>
         </Box>
       </Paper>
@@ -716,6 +619,40 @@ function BidSigningPageContent() {
           {COMPANY.name} | {COMPANY.phone} | {COMPANY.email}
         </Typography>
       </Box>
+
+      {/* ── Photo Lightbox ── */}
+      <Dialog
+        open={Boolean(photoPreviewUrl)}
+        onClose={() => setPhotoPreviewUrl(null)}
+        maxWidth="xl"
+        fullWidth
+        PaperProps={{ sx: { bgcolor: "#111", m: { xs: 0.5, sm: 2 }, borderRadius: 2 } }}
+      >
+        <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", px: 2, pt: 1.5, pb: 0 }}>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<OpenInNewIcon />}
+            href={photoPreviewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            sx={{ color: "#ce93d8", borderColor: "#ce93d8", mr: 1 }}
+          >
+            Open Full Size
+          </Button>
+          <IconButton onClick={() => setPhotoPreviewUrl(null)} sx={{ color: "#aaa" }}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        <DialogContent sx={{ p: { xs: 1, sm: 2 }, textAlign: "center", bgcolor: "#111" }}>
+          <Box
+            component="img"
+            src={photoPreviewUrl}
+            alt="Site photo full size"
+            sx={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain", borderRadius: 1 }}
+          />
+        </DialogContent>
+      </Dialog>
     </Container>
   );
 }

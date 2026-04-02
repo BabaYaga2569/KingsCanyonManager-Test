@@ -262,7 +262,7 @@ function ContractSigningPageContent() {
         </Box>
 
         <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" color="text.secondary">Amount</Typography>
+          <Typography variant="body2" color="text.secondary">Contract Amount (Labor)</Typography>
           <Typography variant="h5" color="primary" fontWeight="bold">
             ${(contract.amount || 0).toFixed(2)}
           </Typography>
@@ -275,7 +275,7 @@ function ContractSigningPageContent() {
 
         {contract.materials && (
           <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" color="text.secondary">Materials</Typography>
+            <Typography variant="body2" color="text.secondary">Materials (Estimate — Billed Separately at Actual Cost)</Typography>
             <Typography variant="body1">{contract.materials}</Typography>
           </Box>
         )}
@@ -285,12 +285,13 @@ function ContractSigningPageContent() {
         {/* Terms */}
         <Typography variant="subtitle2" gutterBottom>Terms & Conditions</Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
-          Payment is due upon substantial completion of the project. Invoices are due within 14 days. 
-          A late payment fee of 5% may be applied to balances over 15 days past due.
+          <strong>Payment Terms:</strong> A deposit of 50% is required before work begins. The remaining balance is due upon substantial completion of the project. Invoices are due within 14 days. A late payment fee of 5% may be applied to balances over 15 days past due.
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
-          All workmanship is warranted for 30 days from completion against defects in installation. 
-          Client may cancel before work begins; if materials have been ordered, a restocking fee may apply.
+          <strong>Materials Cost:</strong> This contract covers labor only. All materials required for this project will be purchased by Kings Canyon Landscaping LLC and billed to the client at actual cost, separate from and in addition to the contract amount above. Final materials cost will reflect actual purchase receipts.
+        </Typography>
+        <Typography variant="body2" color="text.secondary" paragraph>
+          <strong>Warranty:</strong> All workmanship is warranted for 30 days from completion against defects in installation. Client may cancel before work begins; if materials have been ordered, a restocking fee may apply.
         </Typography>
       </Paper>
 

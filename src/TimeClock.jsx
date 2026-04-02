@@ -93,11 +93,20 @@ export default function TimeClock() {
       const jobsSnap = await getDocs(collection(db, "jobs"));
       const jobsData = jobsSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(j => j.status !== "Completed" && j.status !== "Cancelled" && j.status !== "cancelled")
-        .map(j => ({
-          ...j,
-          displayName: `${j.clientName || j.customerName || "Unknown Client"} — ${j.description || j.jobType || "Job"}`,
-        }));
+        .filter(j => {
+          const status = (j.status || "").toLowerCase();
+          // Only Active jobs show in clock-in list
+          return status === "active";
+        })
+        .map(j => {
+          const addressParts = [j.address, j.city, j.state].filter(Boolean);
+          return {
+            ...j,
+            address: addressParts.join(", "),
+            displayName: `${j.clientName || j.customerName || "Unknown Client"} — ${j.description || j.jobType || "Job"}`,
+          };
+        })
+        .sort((a, b) => (a.clientName || "").localeCompare(b.clientName || ""));
       setJobs(jobsData);
 
       const twelveHoursAgo = Date.now() - 12 * 60 * 60 * 1000;
@@ -528,7 +537,21 @@ export default function TimeClock() {
               <TextField select fullWidth value={selectedJob} onChange={(e) => setSelectedJob(e.target.value)} sx={{ mb: 2 }}>
                 <MenuItem value="">-- Select a Job --</MenuItem>
                 {jobs.map((job) => (
-                  <MenuItem key={job.id} value={job.id}>{job.displayName}</MenuItem>
+                  <MenuItem key={job.id} value={job.id}>
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
+                        {job.clientName || job.customerName || "Unknown"}
+                      </Typography>
+                      {job.address && (
+                        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2, display: "block" }}>
+                          📍 {job.address}
+                        </Typography>
+                      )}
+                      <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2, fontStyle: "italic" }}>
+                        {job.jobType || job.description?.substring(0, 50) || ""}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
                 ))}
               </TextField>
             )}

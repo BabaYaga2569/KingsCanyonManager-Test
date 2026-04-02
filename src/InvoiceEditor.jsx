@@ -218,6 +218,12 @@ const InvoiceEditor = () => {
     }
   }, [invoice?.jobId]);
 
+  // Derived expense buckets — billable (client charges) vs KCL overhead
+  const billableExpenses = expenses.filter(e => e.billableToClient === true);
+  const kclExpenses = expenses.filter(e => !e.billableToClient);
+  const billableMaterialsTotal = billableExpenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+  const kclCostsTotal = kclExpenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
+
   const COMPANY = {
     name: "Kings Canyon Landscaping LLC",
     cityState: "Bullhead City, AZ",
@@ -329,10 +335,10 @@ const InvoiceEditor = () => {
     try {
       const docRef = doc(db, "invoices", id);
       
-      // Recalculate total when saving
+      // Recalculate total — grand total includes billable materials
       const subtotal = parseFloat(invoice.subtotal || invoice.amount || 0);
       const tax = parseFloat(invoice.tax || 0);
-      const total = subtotal + tax;
+      const total = subtotal + billableMaterialsTotal + tax;
       
       // Build payment plan object
       const paymentPlan = paymentPlanEnabled ? {
@@ -432,8 +438,9 @@ const InvoiceEditor = () => {
         tax,
         total,
         taxRate,
-        includeMaterialBreakdown, // Save material breakdown preference
-        paymentPlan, // NEW: Save payment plan
+        includeMaterialBreakdown,
+        billableMaterialsTotal,
+        paymentPlan,
         totalPaid: invoice.status === "Paid" ? total : (invoice.totalPaid || 0),
         remainingBalance: invoice.status === "Paid" ? 0 : (invoice.remainingBalance || total),
         paymentStatus: invoice.status === "Paid" ? "paid" : (invoice.paymentStatus || "unpaid"),
@@ -465,7 +472,7 @@ const InvoiceEditor = () => {
 
     const invoiceSubtotal = parseFloat(invoice.subtotal || invoice.amount || 0);
     const invoiceTax = parseFloat(invoice.tax || 0);
-    const invoiceTotal = invoiceSubtotal + invoiceTax;
+    const invoiceTotal = invoiceSubtotal + billableMaterialsTotal + invoiceTax;
 
     // Frame
     docPDF.setDrawColor(60);
@@ -570,12 +577,36 @@ const InvoiceEditor = () => {
     docPDF.text("Amount", W - 60, y + 16, { align: "right" });
     y += 28;
 
-    // Subtotal row
+    // Labor / Services row
     docPDF.setFont("helvetica", "normal");
-    docPDF.text("Subtotal", W - 270, y + 14);
+    docPDF.text("Labor / Services", W - 270, y + 14);
     docPDF.text(`$${invoiceSubtotal.toFixed(2)}`, W - 60, y + 14, { align: "right" });
     docPDF.line(W - 280, y + 20, W - 40, y + 20);
     y += 24;
+
+    // Billable materials rows — one per expense
+    if (billableExpenses.length > 0) {
+      billableExpenses.forEach((exp) => {
+        const label = exp.vendor
+          ? `Materials — ${exp.vendor}${exp.description ? ` (${exp.description.substring(0, 40)})` : ''}`
+          : `Materials${exp.description ? ` — ${exp.description.substring(0, 50)}` : ''}`;
+        const labelLines = docPDF.splitTextToSize(label, 200);
+        docPDF.setFont("helvetica", "normal");
+        docPDF.text(labelLines, W - 270, y + 14);
+        docPDF.text(`$${parseFloat(exp.amount || 0).toFixed(2)}`, W - 60, y + 14, { align: "right" });
+        docPDF.line(W - 280, y + (labelLines.length * 12) + 6, W - 40, y + (labelLines.length * 12) + 6);
+        y += labelLines.length * 12 + 10;
+      });
+      if (billableExpenses.length > 1) {
+        docPDF.setFont("helvetica", "italic");
+        docPDF.setTextColor(100);
+        docPDF.text("Materials Subtotal", W - 270, y + 14);
+        docPDF.text(`$${billableMaterialsTotal.toFixed(2)}`, W - 60, y + 14, { align: "right" });
+        docPDF.setTextColor(0);
+        docPDF.line(W - 280, y + 20, W - 40, y + 20);
+        y += 24;
+      }
+    }
 
     // Tax row
     if (invoiceTax > 0) {
@@ -789,10 +820,11 @@ const InvoiceEditor = () => {
   const tax = parseFloat(invoice.tax || 0);
   const total = subtotal + tax;
   
-  // NEW: Calculate profit metrics
+  // Calculate profit — billable expenses are pass-through (client pays, not KCL costs)
   const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount || 0), 0);
-  const profit = total - totalExpenses;
-  const profitMargin = total > 0 ? ((profit / total) * 100).toFixed(1) : 0;
+  const grandTotal = subtotal + billableMaterialsTotal + tax;
+  const profit = grandTotal - kclCostsTotal;
+  const profitMargin = grandTotal > 0 ? ((profit / grandTotal) * 100).toFixed(1) : 0;
 
   return (
     <Container sx={{ mt: 4, mb: 6 }}>
@@ -1018,10 +1050,44 @@ const InvoiceEditor = () => {
 
             <Divider sx={{ my: 2 }} />
 
+            {billableMaterialsTotal > 0 && (
+              <Box>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", p: 2, bgcolor: "#fff3e0", borderRadius: 2, border: "1px solid #e65100", mb: 1 }}>
+                  <Box>
+                    <Typography variant="body1" sx={{ fontWeight: 700, color: "#e65100" }}>
+                      💰 Client Materials (Pass-Through)
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {billableExpenses.length} item{billableExpenses.length !== 1 ? "s" : ""} — automatically pulled from billable expenses
+                    </Typography>
+                  </Box>
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: "#e65100" }}>
+                    +${billableMaterialsTotal.toFixed(2)}
+                  </Typography>
+                </Box>
+                {billableExpenses.map((exp, idx) => (
+                  <Box key={idx} sx={{ display: "flex", justifyContent: "space-between", px: 3, py: 0.5, bgcolor: "#fff8f0", borderRadius: 1, mb: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {exp.vendor}{exp.description ? ` — ${exp.description}` : ""}
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      ${parseFloat(exp.amount || 0).toFixed(2)}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", p: 2, bgcolor: "#f5f5f5", borderRadius: 2 }}>
-              <Typography variant="h6">Total Amount:</Typography>
+              <Box>
+                <Typography variant="h6">Total Amount:</Typography>
+                {billableMaterialsTotal > 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    Labor ${subtotal.toFixed(2)} + Materials ${billableMaterialsTotal.toFixed(2)}{tax > 0 ? ` + Tax $${tax.toFixed(2)}` : ""}
+                  </Typography>
+                )}
+              </Box>
               <Typography variant="h4" color="primary" sx={{ fontWeight: 700 }}>
-                ${total.toFixed(2)}
+                ${grandTotal.toFixed(2)}
               </Typography>
             </Box>
           </Box>
@@ -1043,54 +1109,35 @@ const InvoiceEditor = () => {
               <CircularProgress size={24} />
             ) : (
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
                   <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'white', borderRadius: 1 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Invoice Total (Revenue)
-                    </Typography>
-                    <Typography variant="h5" color="primary.main" fontWeight="bold">
-                      ${total.toFixed(2)}
-                    </Typography>
+                    <Typography variant="caption" color="text.secondary">Invoice Total (Revenue)</Typography>
+                    <Typography variant="h5" color="primary.main" fontWeight="bold">${grandTotal.toFixed(2)}</Typography>
                   </Box>
                 </Grid>
-                
-                <Grid item xs={12} sm={4}>
+                {billableMaterialsTotal > 0 && (
+                  <Grid item xs={12} sm={3}>
+                    <Box sx={{ textAlign: 'center', p: 2, bgcolor: '#fff3e0', borderRadius: 1, border: "1px solid #e65100" }}>
+                      <Typography variant="caption" sx={{ color: "#e65100" }}>Client Materials (Pass-Through)</Typography>
+                      <Typography variant="h5" sx={{ color: "#e65100" }} fontWeight="bold">${billableMaterialsTotal.toFixed(2)}</Typography>
+                      <Typography variant="caption" color="text.secondary">Billed to client — nets zero</Typography>
+                    </Box>
+                  </Grid>
+                )}
+                <Grid item xs={12} sm={3}>
                   <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'white', borderRadius: 1 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Your Costs (Expenses)
-                    </Typography>
-                    <Typography variant="h5" color="error.main" fontWeight="bold">
-                      ${totalExpenses.toFixed(2)}
-                    </Typography>
+                    <Typography variant="caption" color="text.secondary">KCL Overhead Only</Typography>
+                    <Typography variant="h5" color="error.main" fontWeight="bold">${kclCostsTotal.toFixed(2)}</Typography>
                   </Box>
                 </Grid>
-                
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
                   <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'white', borderRadius: 1 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Your Profit
-                    </Typography>
-                    <Typography 
-                      variant="h5" 
-                      color={profit >= 0 ? "success.main" : "error.main"}
-                      fontWeight="bold"
-                    >
+                    <Typography variant="caption" color="text.secondary">KCL Profit</Typography>
+                    <Typography variant="h5" color={profit >= 0 ? "success.main" : "error.main"} fontWeight="bold">
                       ${profit.toFixed(2)}
                     </Typography>
-                  </Box>
-                </Grid>
-                
-                <Grid item xs={12}>
-                  <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'white', borderRadius: 1 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Profit Margin
-                    </Typography>
-                    <Typography 
-                      variant="h4" 
-                      color={profit >= 0 ? "success.main" : "error.main"}
-                      fontWeight="bold"
-                    >
-                      {profitMargin}%
+                    <Typography variant="caption" color={profit >= 0 ? "success.main" : "error.main"}>
+                      {profitMargin}% margin
                     </Typography>
                   </Box>
                 </Grid>
