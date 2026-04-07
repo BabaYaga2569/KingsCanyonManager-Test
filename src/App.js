@@ -34,11 +34,14 @@ import {
   InputLabel,
   Badge,
   Chip,
+  TextField,
+  InputAdornment,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
 import LogoutIcon from "@mui/icons-material/Logout";
 import SortIcon from "@mui/icons-material/Sort";
+import SearchIcon from "@mui/icons-material/Search";
 import CancelIcon from "@mui/icons-material/Cancel";
 import DownloadIcon from "@mui/icons-material/Download";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -90,6 +93,7 @@ import JobExpenses from "./JobExpenses";
 import NotesManager from "./NotesManager";
 import NotificationSettings from "./NotificationSettings";
 import EmployeeAccountManager from './EmployeeAccountManager';
+import AuditLog from './AuditLog';
 import { createFullJobPackage } from "./utils/createFullJobPackage";
 import { exportBidsToExcel, exportBidToWord, exportAllBidsToWord } from "./utils/exportUtils";
 import generateBidPDF from "./pdf/generateBidPDF";
@@ -115,6 +119,7 @@ function BidsList() {
   const [sortOrder, setSortOrder] = useState("newest");
   const [logoDataUrl, setLogoDataUrl] = useState(null);
   const [contracts, setContracts] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -318,11 +323,18 @@ function BidsList() {
     }
   };
 
+  // Search filter applied on top of sort
+  const displayedBids = searchQuery.trim()
+    ? sortedBids.filter(b =>
+        (b.customerName || '').toLowerCase().includes(searchQuery.trim().toLowerCase())
+      )
+    : sortedBids;
+
   return (
     <Container sx={{ mt: 3, px: { xs: 1, sm: 2 } }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
         <Typography variant="h6" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-          Bids List ({sortedBids.length})
+          Bids List ({displayedBids.length})
         </Typography>
 
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -363,10 +375,25 @@ function BidsList() {
             <MenuItem value="amount-low">Lowest Amount</MenuItem>
           </Select>
         </FormControl>
+
+        <TextField
+          size="small"
+          placeholder="Search by client name…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+          sx={{ minWidth: 220 }}
+        />
       </Box>
 
       <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-        {sortedBids.map((bid) => (
+        {displayedBids.map((bid) => (
           <Box
             key={bid.id}
             sx={{
@@ -460,17 +487,21 @@ function BidsList() {
           </Box>
         ))}
 
-        {sortedBids.length === 0 && (
+        {displayedBids.length === 0 && (
           <Box sx={{ textAlign: 'center', py: 8 }}>
             <Typography variant="h6" color="text.secondary">
-              No Bids Yet
+              {searchQuery.trim() ? `No bids matching "${searchQuery}"` : 'No Bids Yet'}
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Create your first bid to get started
-            </Typography>
-            <Button variant="contained" onClick={() => navigate('/create-bid')}>
-              Create Bid
-            </Button>
+            {!searchQuery.trim() && (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Create your first bid to get started
+                </Typography>
+                <Button variant="contained" onClick={() => navigate('/create-bid')}>
+                  Create Bid
+                </Button>
+              </>
+            )}
           </Box>
         )}
       </Box>
@@ -501,7 +532,7 @@ function BidsList() {
             </tr>
           </thead>
           <tbody>
-            {sortedBids.map((bid) => (
+            {displayedBids.map((bid) => (
               <tr key={bid.id} style={{ borderBottom: "1px solid #ddd" }}>
                 <td style={{ padding: 10 }}>{bid.customerName}</td>
                 <td style={{ padding: 10 }}>
@@ -578,18 +609,22 @@ function BidsList() {
               </tr>
             ))}
 
-            {sortedBids.length === 0 && (
+            {displayedBids.length === 0 && (
               <tr>
                 <td colSpan="7" style={{ padding: 40, textAlign: 'center' }}>
                   <Typography variant="h6" color="text.secondary">
-                    No Bids Yet
+                    {searchQuery.trim() ? `No bids matching "${searchQuery}"` : 'No Bids Yet'}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                    Create your first bid to get started
-                  </Typography>
-                  <Button variant="contained" onClick={() => navigate('/create-bid')}>
-                    Create Bid
-                  </Button>
+                  {!searchQuery.trim() && (
+                    <>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                        Create your first bid to get started
+                      </Typography>
+                      <Button variant="contained" onClick={() => navigate('/create-bid')}>
+                        Create Bid
+                      </Button>
+                    </>
+                  )}
                 </td>
               </tr>
             )}
@@ -705,6 +740,9 @@ function AppContent() {
       { label: "Equipment", path: "/equipment-manager", notificationKey: null },
       { label: "Employees", path: "/employees", notificationKey: null },
       { label: "SMS Notifications", path: "/notification-settings", notificationKey: null },
+      ...(userRole === 'god' || userRole === 'admin' ? [
+        { label: "Audit Log", path: "/audit-log", notificationKey: null },
+      ] : []),
       { label: "My Profile", path: "/profile", notificationKey: null },
     ];
   } else {
@@ -990,6 +1028,7 @@ function AppContent() {
         <Route path="/maintenance" element={<AdminRoute><MaintenanceDashboard /></AdminRoute>} />
         <Route path="/maintenance/:id" element={<AdminRoute><MaintenanceEditor /></AdminRoute>} />
         <Route path="/notification-settings" element={<AdminRoute><NotificationSettings /></AdminRoute>} />
+        <Route path="/audit-log" element={<AdminRoute><AuditLog /></AdminRoute>} />
         <Route path="/payment-tracker/:id" element={<AdminRoute><PaymentTracker /></AdminRoute>} />
         <Route path="/payments-dashboard" element={<AdminRoute><PaymentsDashboard /></AdminRoute>} />
         <Route path="/crew-manager" element={<AdminRoute><CrewManager /></AdminRoute>} />

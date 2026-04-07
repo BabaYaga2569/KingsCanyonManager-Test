@@ -40,6 +40,8 @@ import {
   Pending as PendingIcon
 } from '@mui/icons-material';
 import { db, auth } from './firebase';
+import { useAuth } from './AuthProvider';
+import { logAction, AUDIT_ACTIONS } from './utils/auditLog';
 import { 
   collection, 
   getDocs, 
@@ -61,6 +63,7 @@ import Swal from 'sweetalert2';
 import generateEmployeeNDAPDF from './pdf/generateEmployeeNDAPDF';
 
 const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
+  const { user, userRole } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openDialog, setOpenDialog] = useState(false);
@@ -365,6 +368,7 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
 
       const userRef = doc(db, 'users', selectedEmployee.id);
       await updateDoc(userRef, updates);
+      await logAction(AUDIT_ACTIONS.EMPLOYEE_UPDATED, { employeeId: selectedEmployee.id, employeeName: formData.name, role: formData.role }, user, userRole);
 
       await Swal.fire({
         icon: 'success',
@@ -412,6 +416,7 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
           updatedBy: currentUser.uid,
           ...(newActiveStatus ? {} : { inactivatedAt: new Date().toISOString() })
         });
+        await logAction(newActiveStatus ? AUDIT_ACTIONS.EMPLOYEE_ACTIVATED : AUDIT_ACTIONS.EMPLOYEE_DEACTIVATED, { employeeId: employee.id, employeeName: employee.name }, user, userRole);
 
         Swal.fire({
           icon: 'success',
@@ -476,6 +481,7 @@ const EmployeeAccountManager = ({ currentUser, currentUserRole }) => {
       if (result.isConfirmed) {
         // User chose to delete
         await deleteDoc(doc(db, 'users', employee.id));
+        await logAction(AUDIT_ACTIONS.EMPLOYEE_DELETED, { employeeId: employee.id, employeeName: employee.name, email: employee.email }, user, userRole);
 
         Swal.fire({
           icon: 'success',

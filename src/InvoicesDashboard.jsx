@@ -43,6 +43,7 @@ import {
   FormControlLabel,
   Alert,
   LinearProgress,
+  InputAdornment,
 } from "@mui/material";
 import { useNavigate, useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
@@ -51,6 +52,7 @@ import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PaymentIcon from "@mui/icons-material/Payment";
 import SortIcon from "@mui/icons-material/Sort";
+import SearchIcon from "@mui/icons-material/Search";
 import GrassIcon from "@mui/icons-material/Grass";
 import SpeedIcon from "@mui/icons-material/Speed";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
@@ -60,11 +62,13 @@ import moment from "moment";
 import generateInvoicePDF from "./pdf/generateInvoicePDF";
 import { markAsViewed } from './useNotificationCounts';
 import { useAuth } from './AuthProvider';
+import { logAction, AUDIT_ACTIONS } from './utils/auditLog';
 
 export default function InvoicesDashboard() {
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
   const [invoices, setInvoices] = useState([]);
   const [sortedInvoices, setSortedInvoices] = useState([]);
+  const [clientSearch, setClientSearch] = useState("");
   const [sortOrder, setSortOrder] = useState("newest");
   const [selectedYear, setSelectedYear] = useState("all");
   const [filters, setFilters] = useState({
@@ -309,7 +313,11 @@ export default function InvoicesDashboard() {
             notes: "Created when invoice marked as Paid from dashboard",
             receiptGenerated: false,
             createdAt: new Date().toISOString(),
+            createdBy: user?.uid || null,
+            createdByName: user?.displayName || user?.email || "Unknown",
+            source: "invoices_dashboard",
           });
+          await logAction(AUDIT_ACTIONS.PAYMENT_CREATED, { clientName: invoiceData.clientName, amount: total, source: 'invoices_dashboard', note: 'Invoice marked as Paid' }, user, userRole);
         }
 
         // ✅ Auto-complete the related job if it exists
@@ -493,7 +501,11 @@ export default function InvoicesDashboard() {
           notes: `Quick Weed Invoice - ${services.join(", ")}`,
           receiptGenerated: false,
           createdAt: new Date().toISOString(),
+          createdBy: user?.uid || null,
+          createdByName: user?.displayName || user?.email || "Unknown",
+          source: "quick_weed_invoice",
         });
+        await logAction(AUDIT_ACTIONS.PAYMENT_CREATED, { clientName: customer.name, amount: total, source: 'quick_weed_invoice', note: 'Quick Weed Invoice payment' }, user, userRole);
       }
 
             // Create calendar entry to show work was done
@@ -918,12 +930,19 @@ export default function InvoicesDashboard() {
     return invDate >= filterStart && invDate <= filterEnd;
   });
 
+  // Apply client name search on top of date filter
+  const displayedInvoices = clientSearch.trim()
+    ? filteredInvoices.filter(inv =>
+        (inv.clientName || '').toLowerCase().includes(clientSearch.trim().toLowerCase())
+      )
+    : filteredInvoices;
+
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
       {/* Header with Sort Dropdown */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Typography variant="h5" sx={{ fontSize: { xs: "1.5rem", sm: "2rem" } }}>
-          Invoices ({filteredInvoices.length})
+          Invoices ({displayedInvoices.length})
         </Typography>
 
         <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
@@ -940,6 +959,21 @@ export default function InvoicesDashboard() {
           >
             {isMobile ? <SpeedIcon /> : "Quick Weed Invoice"}
           </Button>
+
+        <TextField
+          size="small"
+          placeholder="Search by client name…"
+          value={clientSearch}
+          onChange={(e) => setClientSearch(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+          sx={{ minWidth: 220 }}
+        />
 
           <FormControl size="small" sx={{ minWidth: 150 }}>
             <InputLabel>Year</InputLabel>
@@ -988,7 +1022,7 @@ export default function InvoicesDashboard() {
 
       {/* Mobile: Card Layout */}
       <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-        {filteredInvoices.map((inv) => (
+        {displayedInvoices.map((inv) => (
           <Card key={inv.id} sx={{ mb: 2, boxShadow: 2 }}>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 2 }}>
@@ -1106,7 +1140,7 @@ export default function InvoicesDashboard() {
           </Card>
         ))}
 
-        {filteredInvoices.length === 0 && (
+        {displayedInvoices.length === 0 && (
           <Paper sx={{ p: 4, textAlign: "center" }}>
             <Typography variant="h6">No Invoices Yet</Typography>
             <Typography variant="body2" color="text.secondary">
@@ -1130,7 +1164,7 @@ export default function InvoicesDashboard() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredInvoices.map((inv) => (
+            {displayedInvoices.map((inv) => (
               <TableRow key={inv.id}>
                 <TableCell>{inv.clientName}</TableCell>
                 <TableCell sx={{ maxWidth: 250 }}>
@@ -1235,7 +1269,7 @@ export default function InvoicesDashboard() {
               </TableRow>
             ))}
 
-            {filteredInvoices.length === 0 && (
+            {displayedInvoices.length === 0 && (
               <TableRow>
                 <TableCell colSpan="5" style={{ padding: 40, textAlign: 'center' }}>
                   <Typography variant="h6" color="text.secondary">

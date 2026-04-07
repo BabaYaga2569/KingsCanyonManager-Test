@@ -36,10 +36,13 @@ import ReceiptIcon from "@mui/icons-material/Receipt";
 import { markAsViewed } from './useNotificationCounts';
 import generatePaymentReceipt from './pdf/generatePaymentReceipt';
 import { viewPaymentReceiptPDF } from './utils/pdfViewerUtils';
+import { useAuth } from './AuthProvider';
+import DeleteIcon from "@mui/icons-material/Delete";
 
 export default function PaymentsDashboard() {
   const navigate = useNavigate();
   const theme = useTheme();
+  const { user, userRole } = useAuth();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const [loading, setLoading] = useState(true);
@@ -169,7 +172,7 @@ export default function PaymentsDashboard() {
     const filtered = sortedPayments;
     
     const csvContent = [
-      ["Date", "Client", "Amount", "Method", "Reference", "Notes"].join(","),
+      ["Date", "Client", "Amount", "Method", "Reference", "Notes", "Recorded By", "Recorded At"].join(","),
       ...filtered.map((p) =>
         [
           p.paymentDate,
@@ -178,6 +181,8 @@ export default function PaymentsDashboard() {
           getPaymentMethodLabel(p.paymentMethod),
           `"${p.reference || ""}"`,
           `"${p.notes || ""}"`,
+          `"${p.createdByName ? p.createdByName.split('@')[0] : p.source === 'payment_portal' ? 'Customer' : 'Unknown'}"`,
+          `"${p.createdAt ? moment(p.createdAt).format("YYYY-MM-DD h:mm a") : ''}"`,
         ].join(",")
       ),
     ].join("\n");
@@ -546,13 +551,14 @@ export default function PaymentsDashboard() {
                 <TableCell>Method</TableCell>
                 <TableCell>Reference</TableCell>
                 <TableCell>Notes</TableCell>
+                <TableCell>Recorded By</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {filteredPayments.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} align="center">
+                  <TableCell colSpan={8} align="center">
                     <Typography color="text.secondary" sx={{ py: 3 }}>
                       No payments found for selected filters
                     </Typography>
@@ -583,6 +589,20 @@ export default function PaymentsDashboard() {
                     </TableCell>
                     <TableCell>{payment.reference || "—"}</TableCell>
                     <TableCell>{payment.notes || "—"}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {payment.createdByName
+                          ? payment.createdByName.split('@')[0]
+                          : payment.source === 'payment_portal'
+                          ? 'Customer'
+                          : '—'}
+                      </Typography>
+                      {payment.createdAt && (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {moment(payment.createdAt).format("MMM D, h:mm a")}
+                        </Typography>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 1 }}>
                         <Button

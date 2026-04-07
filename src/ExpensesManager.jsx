@@ -3,6 +3,8 @@ import { collection, getDocs, addDoc, deleteDoc, doc, updateDoc } from "firebase
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { db, storage } from "./firebase";
+import { useAuth } from "./AuthProvider";
+import { logAction, AUDIT_ACTIONS } from "./utils/auditLog";
 import { useNavigate } from "react-router-dom";
 import {
   Container,
@@ -42,6 +44,7 @@ import {
   List,
   ListItem,
   ListItemText,
+  Autocomplete,
 } from "@mui/material";
 import Swal from "sweetalert2";
 import AddIcon from "@mui/icons-material/Add";
@@ -137,6 +140,7 @@ export default function ExpensesManager() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const navigate = useNavigate();
+  const { user, userRole } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [expenses, setExpenses] = useState([]);
@@ -400,6 +404,7 @@ export default function ExpensesManager() {
 
       console.log("ðŸ’¾ Saving to Firestore...");
       const docRef = await addDoc(collection(db, "expenses"), expenseData);
+      await logAction(AUDIT_ACTIONS.EXPENSE_CREATED, { expenseId: docRef.id, vendor: expenseData.vendor, amount: expenseData.amount, jobId: expenseData.jobId, jobName: expenseData.jobName }, user, userRole);
       console.log("âœ… SAVED! Doc ID:", docRef.id);
 
       // Update job expenses if linked
@@ -544,6 +549,7 @@ export default function ExpensesManager() {
       }
 
       await updateDoc(doc(db, "expenses", editingExpense.id), expenseData);
+      await logAction(AUDIT_ACTIONS.EXPENSE_UPDATED, { expenseId: editingExpense.id, vendor: expenseData.vendor, amount: expenseData.amount, jobName: expenseData.jobName }, user, userRole);
 
       // Update job totals
       if (oldJobId && oldJobId === newJobId) {
@@ -638,6 +644,7 @@ export default function ExpensesManager() {
         }
 
         await deleteDoc(doc(db, "expenses", id));
+        await logAction(AUDIT_ACTIONS.EXPENSE_DELETED, { expenseId: id, vendor: expense.vendor, amount: expense.amount, jobName: expense.jobName }, user, userRole);
         Swal.fire("Deleted!", "Expense has been deleted", "success");
         loadData();
       } catch (error) {
@@ -1374,36 +1381,49 @@ export default function ExpensesManager() {
             </Grid>
 
             <Grid item xs={12}>
-              <TextField
-                select
-                label="Link to Job (Optional)"
-                value={expenseForm.jobId}
-                onChange={(e) => {
-                  const selectedJob = jobs.find((j) => j.id === e.target.value);
+              <Autocomplete
+                options={[{ id: '', clientName: 'General Business Expense' }, ...jobs]}
+                getOptionLabel={(option) => option.clientName || ''}
+                value={
+                  expenseForm.jobId
+                    ? jobs.find((j) => j.id === expenseForm.jobId) || null
+                    : { id: '', clientName: 'General Business Expense' }
+                }
+                onChange={(e, selected) => {
                   setExpenseForm({
                     ...expenseForm,
-                    jobId: e.target.value,
-                    jobName: selectedJob ? selectedJob.clientName : "",
+                    jobId: selected?.id || '',
+                    jobName: selected?.clientName || '',
                   });
                 }}
-                fullWidth
-                SelectProps={{
-                  MenuProps: {
-                    PaperProps: {
-                      style: {
-                        maxHeight: 300,
-                      },
-                    },
-                  },
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                renderOption={(props, option) => {
+                  const parts = [];
+                  if (option.id) {
+                    if (option.serviceType) parts.push(option.serviceType);
+                    if (option.address) parts.push(option.address);
+                    else if (option.serviceAddress) parts.push(option.serviceAddress);
+                    if (parts.length === 0 && option.createdAt) {
+                      parts.push(new Date(option.createdAt).toLocaleDateString());
+                    }
+                  }
+                  return (
+                    <li {...props} key={option.id || 'general'}>
+                      <Box>
+                        <Typography variant="body2">{option.clientName || 'General Business Expense'}</Typography>
+                        {parts.length > 0 && (
+                          <Typography variant="caption" color="text.secondary">
+                            {parts.join(' · ')}
+                          </Typography>
+                        )}
+                      </Box>
+                    </li>
+                  );
                 }}
-              >
-                <MenuItem value="">General Business Expense</MenuItem>
-                {jobs.map((job) => (
-                  <MenuItem key={job.id} value={job.id}>
-                    {job.clientName}
-                  </MenuItem>
-                ))}
-              </TextField>
+                renderInput={(params) => (
+                  <TextField {...params} label="Link to Job (Optional)" fullWidth />
+                )}
+              />
             </Grid>
 
             <Grid item xs={12}>

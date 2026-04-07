@@ -278,5 +278,13 @@ service cloud.firestore {
       allow read: if isGodOrAdmin();
       allow create: if isAuthenticated();
     }
+
+    // ============================================
+    // AUDIT LOG COLLECTION
+    // ============================================
+    match /audit_log/{logId} {
+      allow read: if isGodOrAdmin();
+      allow create: if isAuthenticated();
+    }
   }
 }
