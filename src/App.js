@@ -12,13 +12,12 @@ import {
   Link,
   useLocation,
   useNavigate,
-  Navigate,
 } from "react-router-dom";
 import {
   AppBar,
   Toolbar,
   Typography,
-  Button,
+  Button,  
   Container,
   IconButton,
   Drawer,
@@ -36,15 +35,19 @@ import {
   Chip,
   TextField,
   InputAdornment,
+  Card,
+  CardContent,
+  Alert,
+  CircularProgress,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import CloseIcon from "@mui/icons-material/Close";
 import LogoutIcon from "@mui/icons-material/Logout";
 import SortIcon from "@mui/icons-material/Sort";
 import SearchIcon from "@mui/icons-material/Search";
-import CancelIcon from "@mui/icons-material/Cancel";
 import DownloadIcon from "@mui/icons-material/Download";
 import DescriptionIcon from "@mui/icons-material/Description";
+import LockIcon from "@mui/icons-material/Lock";
 import Swal from "sweetalert2";
 import { db } from "./firebase";
 import {
@@ -55,17 +58,19 @@ import {
   doc,
   getDoc,
   onSnapshot,
+  updateDoc,
 } from "firebase/firestore";
+// Import AuthProvider
 import { AuthProvider, useAuth } from "./AuthProvider";
+
+// Import notification counts hook
 import { useNotificationCounts, markAsViewed } from "./useNotificationCounts";
-import { cascadeCancelJob, buildCancelSummary, buildCancelConfirmationMessage } from "./utils/cascadeCancel";
 
 import ContractsDashboard from "./ContractsDashboard";
 import CreateBid from "./CreateBid";
 import ContractEditor from "./ContractEditor";
 import Dashboard from "./Dashboard";
 import EnhancedDashboard from './EnhancedDashboard';
-import CalendarView from './CalendarView';
 import InvoicesDashboard from "./InvoicesDashboard";
 import InvoiceEditor from "./InvoiceEditor";
 import JobsManager from "./JobsManager";
@@ -74,24 +79,28 @@ import CustomerProfile from "./CustomerProfile";
 import CustomerEditor from "./CustomerEditor";
 import ScheduleJob from "./ScheduleJob";
 import ScheduleDashboard from "./ScheduleDashboard";
+import CalendarView from "./CalendarView";
+// ========================================
+// 🔒 CRITICAL: MAINTENANCE COMPONENTS - DO NOT REMOVE
+// If these are missing, the Maintenance tab won't work!
+// ========================================
 import MaintenanceDashboard from "./MaintenanceDashboard";
 import MaintenanceEditor from "./MaintenanceEditor";
+// ========================================
 import PaymentTracker from "./PaymentTracker";
 import PaymentsDashboard from "./PaymentsDashboard";
 import CrewManager from "./CrewManager";
 import EquipmentManager from "./EquipmentManager";
 import NDAEditor from "./NDAEditor";
 import NDASigningPage from "./NDASigningPage";
-import NDASigning from "./NDASigning";
+import NDASigning from "./NDASigning"; // NEW: Employee first-login NDA
 import ExpensesManager from "./ExpensesManager";
-import IntegratedPayroll from "./IntegratedPayroll";
+import IntegratedPayroll from "./IntegratedPayroll"; // ✅ CHANGED: New integrated payroll system
 import CrewPaymentHistory from "./CrewPaymentHistory";
 import TaxReport from "./TaxReport";
-import MigrationPage from './MigrationPage';
-import MigrationDashboard from './MigrationDashboard';
 import JobExpenses from "./JobExpenses";
-import NotesManager from "./NotesManager";
-import NotificationSettings from "./NotificationSettings";
+import NotesManager from "./NotesManager"; // â† ADDED: Notes Manager
+import NotificationSettings from "./NotificationSettings"; // NEW: SMS Notification Settings
 import EmployeeAccountManager from './EmployeeAccountManager';
 import AuditLog from './AuditLog';
 import { createFullJobPackage } from "./utils/createFullJobPackage";
@@ -100,25 +109,28 @@ import generateBidPDF from "./pdf/generateBidPDF";
 import ContractSigningPage from "./ContractSigningPage";
 import BidSigningPage from './BidSigningPage';
 import PaymentPortal from "./PaymentPortal";
+import InviteSignup from "./InviteSignup";
 import BidEditor from "./BidEditor";
 
+// REFRESH SYSTEM IMPORTS
 import UpdateNotification from "./UpdateNotification";
 import RefreshButton from "./RefreshButton";
 import VersionDisplay from "./VersionDisplay";
 
+// TIME CLOCK IMPORTS
 import TimeClock from "./TimeClock";
 import MyHours from "./MyHours";
 import ApproveTime from "./ApproveTime";
-import UserProfile from "./UserProfile";
-import InviteSignup from "./InviteSignup";
+import UserProfile from "./UserProfile"; // User profile and password change
+
 
 // --------------------- BIDS LIST WITH SORTING ---------------------
-function BidsList() {
+function BidsList() {  
   const [bids, setBids] = useState([]);
   const [sortedBids, setSortedBids] = useState([]);
   const [sortOrder, setSortOrder] = useState("newest");
   const [logoDataUrl, setLogoDataUrl] = useState(null);
-  const [contracts, setContracts] = useState([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
 
@@ -149,13 +161,6 @@ function BidsList() {
         ...d.data(),
       }));
       setBids(bidsData);
-
-      const contractsSnapshot = await getDocs(collection(db, "contracts"));
-      const contractsData = contractsSnapshot.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      }));
-      setContracts(contractsData);
     };
     fetchBids();
   }, []);
@@ -164,8 +169,12 @@ function BidsList() {
     markAsViewed('bids');
   }, []);
 
+  // Sort bids whenever bids, sortOrder, or showArchived changes
   useEffect(() => {
-    const sorted = [...bids].sort((a, b) => {
+    const filtered = bids.filter(b =>
+      showArchived ? b.status === 'archived' : b.status !== 'archived'
+    );
+    const sorted = [...filtered].sort((a, b) => {
       switch (sortOrder) {
         case "newest":
           return new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0);
@@ -184,26 +193,13 @@ function BidsList() {
       }
     });
     setSortedBids(sorted);
-  }, [bids, sortOrder]);
+  }, [bids, sortOrder, showArchived]);
 
-  const hasContract = (bidId) => {
-    return contracts.some(contract => contract.bidId === bidId);
-  };
-
-  const getBidStatus = (bid) => {
-    if (hasContract(bid.id)) {
-      return { label: "Accepted", color: "success" };
-    }
-
-    if (bid.clientSignature && bid.contractorSignature) {
-      return { label: "Signed", color: "info" };
-    }
-
-    if (bid.signingToken) {
-      return { label: "Sent", color: "warning" };
-    }
-
-    return { label: "Pending", color: "default" };
+  // Days since last edit
+  const daysSinceEdit = (bid) => {
+    const ref = bid.updatedAt || bid.createdAt || bid.date;
+    if (!ref) return null;
+    return Math.floor((Date.now() - new Date(ref).getTime()) / 86400000);
   };
 
   const handleDelete = async (bid) => {
@@ -215,7 +211,6 @@ function BidsList() {
       confirmButtonText: "Yes, delete",
       cancelButtonText: "Cancel",
     });
-
     if (confirm.isConfirmed) {
       await deleteDoc(doc(db, "bids", bid.id));
       setBids(bids.filter((b) => b.id !== bid.id));
@@ -223,41 +218,25 @@ function BidsList() {
     }
   };
 
-  const handleCancelBid = async (bid) => {
-    const result = await Swal.fire({
-      title: "Cancel Bid?",
-      html: buildCancelConfirmationMessage(bid.customerName, "bid"),
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonText: "Yes, Cancel Bid",
-      confirmButtonColor: "#f44336",
-      cancelButtonText: "No, Keep It",
+  const handleArchive = async (bid) => {
+    await updateDoc(doc(db, "bids", bid.id), {
+      status: 'archived',
+      archivedAt: new Date().toISOString(),
+      archivedBy: 'manual',
     });
+    setBids(bids.map(b => b.id === bid.id ? { ...b, status: 'archived', archivedAt: new Date().toISOString() } : b));
+    Swal.fire({ icon: 'success', title: 'Archived', text: `${bid.customerName}'s bid moved to archive.`, timer: 2000, showConfirmButton: false });
+  };
 
-    if (result.isConfirmed) {
-      try {
-        const cancelResult = await cascadeCancelJob("bids", bid.id);
-
-        const summaryHtml = buildCancelSummary(cancelResult);
-
-        await Swal.fire({
-          icon: cancelResult.success ? "success" : "warning",
-          title: cancelResult.success ? "Bid Cancelled" : "Partial Cancellation",
-          html: summaryHtml,
-          confirmButtonText: "OK",
-        });
-
-        const querySnapshot = await getDocs(collection(db, "bids"));
-        const bidsData = querySnapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        }));
-        setBids(bidsData);
-      } catch (error) {
-        console.error("Error cancelling bid:", error);
-        Swal.fire("Error", "Failed to cancel bid. Check console for details.", "error");
-      }
-    }
+  const handleRestore = async (bid) => {
+    await updateDoc(doc(db, "bids", bid.id), {
+      status: 'pending',
+      archivedAt: null,
+      archivedBy: null,
+      updatedAt: new Date().toISOString(),
+    });
+    setBids(bids.map(b => b.id === bid.id ? { ...b, status: 'pending', archivedAt: null } : b));
+    Swal.fire({ icon: 'success', title: 'Restored', text: `${bid.customerName}'s bid is back in the active list.`, timer: 2000, showConfirmButton: false });
   };
 
   const handleEdit = (bid) => {
@@ -267,92 +246,82 @@ function BidsList() {
   const handleCreateContract = async (bid) => {
     try {
       const result = await createFullJobPackage(bid);
-
       if (!result) return;
-
       const { contractId, invoiceId, jobId } = result;
-
       Swal.fire({
         icon: "success",
         title: "Job Package Created!",
-        html: `
-          <b>${bid.customerName}</b>'s bid has been promoted.<br>
+        html: `<b>${bid.customerName}</b>'s bid has been promoted.<br>
           <ul style="text-align:left">
             <li>Contract: ${contractId}</li>
             <li>Invoice: ${invoiceId}</li>
             <li>Job Folder: ${jobId}</li>
-          </ul>
-        `,
+          </ul>`,
         confirmButtonText: "Open Contract",
-      }).then(() => {
-        window.location.assign(`/contract/${contractId}`);
-      });
+      }).then(() => { window.location.assign(`/contract/${contractId}`); });
     } catch (error) {
       console.error("Error creating full job package:", error);
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: "Could not create linked documents. Check console for details.",
-      });
+      Swal.fire({ icon: "error", title: "Error", text: "Could not create linked documents. Check console for details." });
     }
   };
 
   const handleGeneratePDF = async (bid) => {
     try {
       const pdf = await generateBidPDF(bid, logoDataUrl);
-
       const pdfBlob = pdf.output('blob');
-      const pdfUrl = URL.createObjectURL(pdfBlob);
-
-      window.open(pdfUrl, '_blank');
-
-      Swal.fire({
-        icon: "success",
-        title: "PDF Opened!",
-        text: `Viewing bid proposal for ${bid.customerName}`,
-        timer: 2000,
-        showConfirmButton: false,
-      });
+      window.open(URL.createObjectURL(pdfBlob), '_blank');
+      Swal.fire({ icon: "success", title: "PDF Opened!", text: `Viewing bid proposal for ${bid.customerName}`, timer: 2000, showConfirmButton: false });
     } catch (error) {
-      console.error("Error generating bid PDF:", error);
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: "Failed to generate PDF. Please try again.",
-      });
+      Swal.fire({ icon: "error", title: "Error", text: "Failed to generate PDF. Please try again." });
     }
   };
 
-  // Search filter applied on top of sort
+  const activeBids = bids.filter(b => b.status !== 'archived');
+  const archivedBids = bids.filter(b => b.status === 'archived');
+
+  // Search filter applied on top of sort/archive
   const displayedBids = searchQuery.trim()
     ? sortedBids.filter(b =>
         (b.customerName || '').toLowerCase().includes(searchQuery.trim().toLowerCase())
       )
     : sortedBids;
 
+  // Bids expiring within 7 days (not yet archived, not signed)
+  const expiringSoon = activeBids.filter(b => {
+    if (b.clientSignature && b.contractorSignature) return false;
+    if (b.status === 'archived') return false;
+    const days = daysSinceEdit(b);
+    return days !== null && days >= 23 && days < 30;
+  });
+
   return (
     <Container sx={{ mt: 3, px: { xs: 1, sm: 2 } }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h6" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-          Bids List ({displayedBids.length})
-        </Typography>
 
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+      {/* Expiring Soon Banner */}
+      {!showArchived && expiringSoon.length > 0 && (
+        <Box sx={{ mb: 2, p: 2, bgcolor: '#fff8e1', border: '1px solid #ff9800', borderRadius: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="body2" color="warning.dark" fontWeight="bold">
+            ⚠️ {expiringSoon.length} bid{expiringSoon.length > 1 ? 's' : ''} will auto-archive within 7 days:
+          </Typography>
+          <Typography variant="body2" color="warning.dark">
+            {expiringSoon.map(b => `${b.customerName} (${30 - daysSinceEdit(b)}d left)`).join(', ')}
+          </Typography>
+        </Box>
+      )}
+
+      {/* Header */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="h6" sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+            {showArchived ? `Archived Bids (${archivedBids.length})` : `Bids (${activeBids.length})`}
+          </Typography>
           <Button
-            variant="outlined"
+            variant={showArchived ? "contained" : "outlined"}
+            color="warning"
             size="small"
-            startIcon={<DownloadIcon />}
-            onClick={() => exportBidsToExcel(sortedBids)}
+            onClick={() => setShowArchived(!showArchived)}
           >
-            Export Excel
-          </Button>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<DescriptionIcon />}
-            onClick={() => exportAllBidsToWord(sortedBids)}
-          >
-            Export All (Word Zip)
+            {showArchived ? '← Active Bids' : `🗄️ Archive (${archivedBids.length})`}
           </Button>
         </Box>
 
@@ -361,12 +330,7 @@ function BidsList() {
             <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'middle' }} />
             Sort By
           </InputLabel>
-          <Select
-            labelId="sort-label"
-            value={sortOrder}
-            label="Sort By"
-            onChange={(e) => setSortOrder(e.target.value)}
-          >
+          <Select labelId="sort-label" value={sortOrder} label="Sort By" onChange={(e) => setSortOrder(e.target.value)}>
             <MenuItem value="newest">Newest First</MenuItem>
             <MenuItem value="oldest">Oldest First</MenuItem>
             <MenuItem value="name-asc">Name (A-Z)</MenuItem>
@@ -390,240 +354,158 @@ function BidsList() {
           }}
           sx={{ minWidth: 220 }}
         />
+
+        {!showArchived && (
+          <>
+            <Button variant="outlined" startIcon={<DownloadIcon />} onClick={() => exportBidsToExcel(sortedBids)} size="small">
+              Export Excel
+            </Button>
+            <Button variant="outlined" startIcon={<DescriptionIcon />} onClick={() => exportAllBidsToWord(sortedBids)} size="small">
+              Export All (Word Zip)
+            </Button>
+          </>
+        )}
       </Box>
 
-      <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-        {displayedBids.map((bid) => (
-          <Box
-            key={bid.id}
-            sx={{
-              mb: 2,
-              p: 2,
-              border: '1px solid #ddd',
-              borderRadius: 2,
-              backgroundColor: 'white',
-            }}
-          >
-            <Typography variant="h6" sx={{ mb: 1 }}>{bid.customerName}</Typography>
-            <Chip
-              label={getBidStatus(bid).label}
-              color={getBidStatus(bid).color}
-              size="small"
-              sx={{ mb: 1 }}
-            />
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Amount: ${bid.amount}
-            </Typography>
-            <Typography variant="body2" sx={{ mb: 1 }}>{bid.description}</Typography>
-            {bid.materials && (
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Materials: {bid.materials}
-              </Typography>
-            )}
-            {bid.createdAt && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-                Created: {new Date(bid.createdAt).toLocaleDateString()}
-              </Typography>
-            )}
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Button
-                variant="outlined"
-                color="info"
-                size="small"
-                onClick={() => handleEdit(bid)}
-                fullWidth
-              >
-                Edit
-              </Button>
-              <Button
-                variant="outlined"
-                color="primary"
-                size="small"
-                onClick={() => handleGeneratePDF(bid)}
-                fullWidth
-              >
-                View PDF
-              </Button>
-              {!hasContract(bid.id) && (
-                <Button
-                  variant="outlined"
-                  color="success"
-                  size="small"
-                  onClick={() => handleCreateContract(bid)}
-                  fullWidth
-                >
-                  Create Contract
-                </Button>
-              )}
-              <Button
-                variant="outlined"
-                color="warning"
-                size="small"
-                onClick={() => handleCancelBid(bid)}
-                fullWidth
-                startIcon={<CancelIcon />}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<DescriptionIcon />}
-                onClick={() => exportBidToWord(bid)}
-                fullWidth
-              >
-                Word Doc
-              </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                size="small"
-                onClick={() => handleDelete(bid)}
-                fullWidth
-              >
-                Delete
-              </Button>
-            </Box>
-          </Box>
-        ))}
+      {/* Archive info banner */}
+      {showArchived && (
+        <Box sx={{ mb: 2, p: 2, bgcolor: '#f3e5f5', border: '1px solid #9c27b0', borderRadius: 2 }}>
+          <Typography variant="body2" color="purple">
+            🗄️ Bids are automatically archived 30 days after their last edit if not accepted. You can restore any bid to the active list, or permanently delete it from here.
+          </Typography>
+        </Box>
+      )}
 
+      {/* MOBILE VIEW */}
+      <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+        {displayedBids.map((bid) => {
+          const days = daysSinceEdit(bid);
+          const daysLeft = days !== null ? 30 - days : null;
+          const isExpiringSoon = !showArchived && daysLeft !== null && daysLeft <= 7 && daysLeft > 0;
+          const isSigned = bid.clientSignature && bid.contractorSignature;
+          return (
+            <Box key={bid.id} sx={{
+              mb: 2, p: 2, border: '1px solid', borderRadius: 2, backgroundColor: 'white',
+              borderColor: isExpiringSoon ? '#ff9800' : '#ddd',
+              bgcolor: isExpiringSoon ? '#fffde7' : 'white',
+            }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 1 }}>
+                <Typography variant="h6">{bid.customerName}</Typography>
+                {isSigned && <Chip label="✅ Signed" color="success" size="small" />}
+                {isExpiringSoon && <Chip label={`⚠️ ${daysLeft}d left`} color="warning" size="small" />}
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Amount: ${bid.amount}</Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>{bid.description}</Typography>
+              {bid.createdAt && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Created: {new Date(bid.createdAt).toLocaleDateString()}
+                  {bid.updatedAt && bid.updatedAt !== bid.createdAt && ` · Edited: ${new Date(bid.updatedAt).toLocaleDateString()}`}
+                </Typography>
+              )}
+              {showArchived && bid.archivedAt && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Archived: {new Date(bid.archivedAt).toLocaleDateString()}
+                  {bid.archivedBy === 'auto' ? ' (auto)' : ' (manual)'}
+                </Typography>
+              )}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {!showArchived && (<>
+                  <Button variant="outlined" color="info" size="small" onClick={() => handleEdit(bid)} fullWidth>Edit</Button>
+                  <Button variant="outlined" color="primary" size="small" onClick={() => handleGeneratePDF(bid)} fullWidth>View PDF</Button>
+                  <Button variant="outlined" color="success" size="small" onClick={() => handleCreateContract(bid)} fullWidth>Create Contract</Button>
+                  <Button variant="outlined" size="small" startIcon={<DescriptionIcon />} onClick={() => exportBidToWord(bid)} fullWidth>Word Doc</Button>
+                  <Button variant="outlined" color="warning" size="small" onClick={() => handleArchive(bid)} fullWidth>Archive</Button>
+                  <Button variant="outlined" color="error" size="small" onClick={() => handleDelete(bid)} fullWidth>Delete</Button>
+                </>)}
+                {showArchived && (<>
+                  <Button variant="outlined" color="success" size="small" onClick={() => handleRestore(bid)} fullWidth>↩ Restore</Button>
+                  <Button variant="outlined" color="error" size="small" onClick={() => handleDelete(bid)} fullWidth>Delete Permanently</Button>
+                </>)}
+              </Box>
+            </Box>
+          );
+        })}
         {displayedBids.length === 0 && (
           <Box sx={{ textAlign: 'center', py: 8 }}>
             <Typography variant="h6" color="text.secondary">
-              {searchQuery.trim() ? `No bids matching "${searchQuery}"` : 'No Bids Yet'}
+              {searchQuery.trim() ? `No bids matching "${searchQuery}"` : showArchived ? 'No archived bids' : 'No Bids Yet'}
             </Typography>
-            {!searchQuery.trim() && (
-              <>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                  Create your first bid to get started
-                </Typography>
-                <Button variant="contained" onClick={() => navigate('/create-bid')}>
-                  Create Bid
-                </Button>
-              </>
+            {!showArchived && !searchQuery.trim() && (
+              <Button variant="contained" onClick={() => navigate('/create-bid')} sx={{ mt: 2 }}>Create Bid</Button>
             )}
           </Box>
         )}
       </Box>
 
+      {/* DESKTOP VIEW */}
       <Box sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            background: "white",
-          }}
-        >
+        <table style={{ width: "100%", borderCollapse: "collapse", background: "white" }}>
           <thead>
-            <tr
-              style={{
-                background: "#f2f2f2",
-                textAlign: "left",
-                borderBottom: "2px solid #ccc",
-              }}
-            >
+            <tr style={{ background: "#f2f2f2", textAlign: "left", borderBottom: "2px solid #ccc" }}>
               <th style={{ padding: 10 }}>Customer</th>
-              <th style={{ padding: 10 }}>Status</th>
-              <th style={{ padding: 10 }}>Amount ($)</th>
+              <th style={{ padding: 10 }}>Amount</th>
               <th style={{ padding: 10 }}>Description</th>
-              <th style={{ padding: 10 }}>Materials</th>
               <th style={{ padding: 10 }}>Date</th>
+              {showArchived && <th style={{ padding: 10 }}>Archived</th>}
               <th style={{ padding: 10 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {displayedBids.map((bid) => (
-              <tr key={bid.id} style={{ borderBottom: "1px solid #ddd" }}>
-                <td style={{ padding: 10 }}>{bid.customerName}</td>
-                <td style={{ padding: 10 }}>
-                  <Chip
-                    label={getBidStatus(bid).label}
-                    color={getBidStatus(bid).color}
-                    size="small"
-                  />
-                </td>
-                <td style={{ padding: 10 }}>${bid.amount}</td>
-                <td style={{ padding: 10 }}>{bid.description}</td>
-                <td style={{ padding: 10 }}>{bid.materials}</td>
-                <td style={{ padding: 10 }}>
-                  {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : '—'}
-                </td>
-                <td style={{ padding: 10 }}>
-                  <Button
-                    variant="outlined"
-                    color="info"
-                    size="small"
-                    onClick={() => handleEdit(bid)}
-                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    color="primary"
-                    size="small"
-                    onClick={() => handleGeneratePDF(bid)}
-                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
-                  >
-                    View PDF
-                  </Button>
-                  {!hasContract(bid.id) && (
-                    <Button
-                      variant="outlined"
-                      color="success"
-                      size="small"
-                      onClick={() => handleCreateContract(bid)}
-                      sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
-                    >
-                      Create Contract
-                    </Button>
+            {displayedBids.map((bid) => {
+              const days = daysSinceEdit(bid);
+              const daysLeft = days !== null ? 30 - days : null;
+              const isExpiringSoon = !showArchived && daysLeft !== null && daysLeft <= 7 && daysLeft > 0;
+              const isSigned = bid.clientSignature && bid.contractorSignature;
+              return (
+                <tr key={bid.id} style={{ borderBottom: "1px solid #ddd", backgroundColor: isExpiringSoon ? '#fffde7' : 'white' }}>
+                  <td style={{ padding: 10 }}>
+                    <strong>{bid.customerName}</strong>
+                    {isSigned && <Chip label="✅ Signed" color="success" size="small" sx={{ ml: 1 }} />}
+                    {isExpiringSoon && <Chip label={`⚠️ ${daysLeft}d left`} color="warning" size="small" sx={{ ml: 1 }} />}
+                  </td>
+                  <td style={{ padding: 10 }}>${bid.amount}</td>
+                  <td style={{ padding: 10 }}>{bid.description}</td>
+                  <td style={{ padding: 10 }}>
+                    {bid.createdAt ? new Date(bid.createdAt).toLocaleDateString() : '—'}
+                    {bid.updatedAt && bid.updatedAt !== bid.createdAt && (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Edited: {new Date(bid.updatedAt).toLocaleDateString()}
+                      </Typography>
+                    )}
+                  </td>
+                  {showArchived && (
+                    <td style={{ padding: 10 }}>
+                      {bid.archivedAt ? new Date(bid.archivedAt).toLocaleDateString() : '—'}
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {bid.archivedBy === 'auto' ? 'Auto-archived' : 'Manual'}
+                      </Typography>
+                    </td>
                   )}
-                  <Button
-                    variant="outlined"
-                    color="warning"
-                    size="small"
-                    onClick={() => handleCancelBid(bid)}
-                    startIcon={<CancelIcon />}
-                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<DescriptionIcon />}
-                    onClick={() => exportBidToWord(bid)}
-                    sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}
-                  >
-                    Word
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    size="small"
-                    onClick={() => handleDelete(bid)}
-                  >
-                    Delete
-                  </Button>
-                </td>
-              </tr>
-            ))}
-
+                  <td style={{ padding: 10 }}>
+                    {!showArchived && (<>
+                      <Button variant="outlined" color="info" size="small" onClick={() => handleEdit(bid)} sx={{ mr: 1, mb: 1 }}>Edit</Button>
+                      <Button variant="outlined" color="primary" size="small" onClick={() => handleGeneratePDF(bid)} sx={{ mr: 1, mb: 1 }}>PDF</Button>
+                      <Button variant="outlined" color="success" size="small" onClick={() => handleCreateContract(bid)} sx={{ mr: 1, mb: 1 }}>Contract</Button>
+                      <Button variant="outlined" size="small" startIcon={<DescriptionIcon />} onClick={() => exportBidToWord(bid)} sx={{ mr: 1, mb: 1 }}>Word</Button>
+                      <Button variant="outlined" color="warning" size="small" onClick={() => handleArchive(bid)} sx={{ mr: 1, mb: 1 }}>Archive</Button>
+                      <Button variant="outlined" color="error" size="small" onClick={() => handleDelete(bid)}>Delete</Button>
+                    </>)}
+                    {showArchived && (<>
+                      <Button variant="outlined" color="success" size="small" onClick={() => handleRestore(bid)} sx={{ mr: 1 }}>↩ Restore</Button>
+                      <Button variant="outlined" color="error" size="small" onClick={() => handleDelete(bid)}>Delete Permanently</Button>
+                    </>)}
+                  </td>
+                </tr>
+              );
+            })}
             {displayedBids.length === 0 && (
               <tr>
-                <td colSpan="7" style={{ padding: 40, textAlign: 'center' }}>
+                <td colSpan={showArchived ? 6 : 5} style={{ padding: 40, textAlign: 'center' }}>
                   <Typography variant="h6" color="text.secondary">
-                    {searchQuery.trim() ? `No bids matching "${searchQuery}"` : 'No Bids Yet'}
+                    {searchQuery.trim() ? `No bids matching "${searchQuery}"` : showArchived ? 'No archived bids' : 'No Bids Yet'}
                   </Typography>
-                  {!searchQuery.trim() && (
-                    <>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                        Create your first bid to get started
-                      </Typography>
-                      <Button variant="contained" onClick={() => navigate('/create-bid')}>
-                        Create Bid
-                      </Button>
-                    </>
+                  {!showArchived && !searchQuery.trim() && (
+                    <Button variant="contained" onClick={() => navigate('/create-bid')} sx={{ mt: 2 }}>Create Bid</Button>
                   )}
                 </td>
               </tr>
@@ -636,29 +518,83 @@ function BidsList() {
 }
 
 // ------------------------- HOME REDIRECT COMPONENT -------------------------
+// ── ForcePasswordChange ───────────────────────────────────────────────────────
+// Shown when mustChangePassword === true. Clears the flag then proceeds to NDA.
+function ForcePasswordChange() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [newPassword, setNewPassword]     = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading]             = useState(false);
+  const [error, setError]                 = useState('');
+
+  const handleSubmit = async () => {
+    setError('');
+    if (newPassword.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    if (newPassword !== confirmPassword) { setError('Passwords do not match.'); return; }
+    try {
+      setLoading(true);
+      const { updatePassword } = await import('firebase/auth');
+      await updatePassword(user, newPassword);
+      // Clear the flag in Firestore
+      const { doc, updateDoc } = await import('firebase/firestore');
+      await updateDoc(doc(db, 'users', user.uid), { mustChangePassword: false });
+      // Navigate to NDA (firstLogin gate will pick it up)
+      navigate('/nda-signing');
+    } catch (err) {
+      if (err.code === 'auth/requires-recent-login') {
+        setError('Session expired. Please log out and log back in, then try again.');
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5' }}>
+      <Card sx={{ maxWidth: 420, width: '100%', mx: 2 }}>
+        <CardContent sx={{ p: 4 }}>
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
+            <LockIcon sx={{ fontSize: 48, color: 'warning.main', mb: 1 }} />
+            <Typography variant="h5" fontWeight="bold">Set Your Password</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Your account was created with a temporary password. Please set a new one before continuing.
+            </Typography>
+          </Box>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          <TextField
+            fullWidth label="New Password" type="password" sx={{ mb: 2 }}
+            value={newPassword} onChange={e => setNewPassword(e.target.value)}
+            helperText="Minimum 6 characters" />
+          <TextField
+            fullWidth label="Confirm New Password" type="password" sx={{ mb: 3 }}
+            value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+          <Button fullWidth variant="contained" size="large" onClick={handleSubmit} disabled={loading}>
+            {loading ? <CircularProgress size={24} color="inherit" /> : 'Set Password & Continue'}
+          </Button>
+        </CardContent>
+      </Card>
+    </Box>
+  );
+}
+
 function HomeRedirect() {
   const { userRole } = useAuth();
+  const navigate = useNavigate();
 
-  if (!userRole) return null;
+  useEffect(() => {
+    if (userRole === 'crew') {
+      navigate('/time-clock', { replace: true });
+    }
+  }, [userRole, navigate]);
 
-  if (userRole === 'crew' || userRole === 'user') {
-    return <Navigate to="/time-clock" replace />;
+  if (userRole === 'crew') {
+    return null;
   }
 
   return <EnhancedDashboard />;
-}
-
-// ------------------------- ADMIN ROUTE PROTECTION -------------------------
-function AdminRoute({ children }) {
-  const { userRole } = useAuth();
-
-  if (!userRole) return null;
-
-  if (userRole !== 'admin' && userRole !== 'god') {
-    return <Navigate to="/time-clock" replace />;
-  }
-
-  return children;
 }
 
 // ------------------------- APP CHROME -------------------------
@@ -677,6 +613,38 @@ function AppContent() {
   useEffect(() => {
     window.dispatchEvent(new Event('refreshBadges'));
   }, [location.pathname]);
+
+  useEffect(() => {
+    let lastVersion = null;
+
+    const checkForUpdate = async () => {
+      try {
+        const res = await fetch('/version.txt?t=' + Date.now());
+        if (res.ok) {
+          const version = await res.text();
+          if (lastVersion && version !== lastVersion) {
+            window.location.reload();
+          }
+          lastVersion = version;
+        }
+      } catch (e) {
+        // ignore network errors
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkForUpdate();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    checkForUpdate();
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -704,7 +672,13 @@ function AppContent() {
 
     const currentPath = location.pathname;
 
-    if (currentPath === '/nda-signing' || currentPath.startsWith('/public/')) {
+    if (currentPath === '/nda-signing' || currentPath === '/change-password' || currentPath.startsWith('/public/')) {
+      return;
+    }
+
+    // Must change password BEFORE NDA
+    if (userData.mustChangePassword === true) {
+      navigate('/change-password');
       return;
     }
 
@@ -719,10 +693,16 @@ function AppContent() {
 
   let menuItems = [];
 
-  if (userRole === 'admin' || userRole === 'god') {
+  if (userRole === 'crew') {
+    menuItems = [
+      { label: "Time Clock", path: "/time-clock", notificationKey: null },
+      { label: "My Profile", path: "/profile", notificationKey: null },
+      { label: "My Hours", path: "/my-hours", notificationKey: null },
+    ];
+  } else {
     menuItems = [
       { label: "Dashboard", path: "/", notificationKey: null },
-      { label: "Time Clock", path: "/time-clock", notificationKey: null },
+      { label: "Time Clock", path: "/time-clock", notificationKey: null }, // added for admin/god
       { label: "Bids", path: "/bids", notificationKey: "bids" },
       { label: "Create Bid", path: "/create-bid", notificationKey: null },
       { label: "Contracts", path: "/contracts", notificationKey: "contracts" },
@@ -730,7 +710,8 @@ function AppContent() {
       { label: "Jobs", path: "/jobs", notificationKey: "jobs" },
       { label: "Notes", path: "/notes", notificationKey: "notes" },
       { label: "Customers", path: "/customers", notificationKey: "customers" },
-      { label: "Calendar", path: "/calendar", notificationKey: null },
+      { label: "Schedule", path: "/schedule-dashboard", notificationKey: "schedules" },
+      { label: "Calendar", path: "/calendar-view", notificationKey: null },
       { label: "Maintenance", path: "/maintenance", notificationKey: null },
       { label: "Payments", path: "/payments-dashboard", notificationKey: "payments" },
       { label: "Expenses", path: "/expenses-manager", notificationKey: "expenses" },
@@ -744,12 +725,6 @@ function AppContent() {
         { label: "Audit Log", path: "/audit-log", notificationKey: null },
       ] : []),
       { label: "My Profile", path: "/profile", notificationKey: null },
-    ];
-  } else {
-    menuItems = [
-      { label: "Time Clock", path: "/time-clock", notificationKey: null },
-      { label: "My Profile", path: "/profile", notificationKey: null },
-      { label: "My Hours", path: "/my-hours", notificationKey: null },
     ];
   }
 
@@ -976,9 +951,38 @@ function AppContent() {
       )}
 
       <Routes>
+        <Route path="/change-password" element={<ForcePasswordChange />} />
         <Route path="/time-clock" element={<TimeClock />} />
         <Route path="/my-hours" element={<MyHours />} />
         <Route path="/profile" element={<UserProfile />} />
+        <Route path="/approve-time" element={<ApproveTime />} />
+        <Route path="/" element={<HomeRedirect />} />
+        <Route path="/bids" element={<BidsList />} />
+        <Route path="/bid/:id" element={<BidEditor />} />
+        <Route path="/create-bid" element={<CreateBid />} />
+        <Route path="/contracts" element={<ContractsDashboard />} />
+        <Route path="/contract/:id" element={<ContractEditor />} />
+        <Route path="/invoices" element={<InvoicesDashboard />} />
+        <Route path="/invoice/:id" element={<InvoiceEditor />} />
+        <Route path="/jobs" element={<JobsManager />} />
+        <Route path="/notes" element={<NotesManager />} />
+        <Route path="/customers" element={<CustomersDashboard />} />
+        <Route path="/customer-edit/:id" element={<CustomerEditor />} />
+        <Route path="/customer/:id" element={<CustomerProfile />} />
+        <Route path="/schedule-job" element={<ScheduleJob />} />
+        <Route path="/schedule-dashboard" element={<ScheduleDashboard />} />
+        <Route path="/calendar-view" element={<CalendarView />} />
+        <Route path="/maintenance" element={<MaintenanceDashboard />} />
+        <Route path="/maintenance/:id" element={<MaintenanceEditor />} />
+        <Route path="/notification-settings" element={<NotificationSettings />} />
+        <Route path="/audit-log" element={<AuditLog />} />
+        <Route path="/payment-tracker/:id" element={<PaymentTracker />} />
+        <Route path="/payments-dashboard" element={<PaymentsDashboard />} />
+        <Route path="/crew-manager" element={<CrewManager />} />
+        <Route path="/equipment-manager" element={<EquipmentManager />} />
+        <Route path="/employees" element={<EmployeeAccountManager currentUser={user} currentUserRole={userRole} />} />
+        <Route path="/nda/:crewId" element={<NDAEditor />} />
+        <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
         <Route
           path="/nda-signing"
           element={
@@ -997,49 +1001,16 @@ function AppContent() {
             />
           }
         />
-
-        <Route path="/public/nda/:crewId" element={<NDASigningPage />} />
+        <Route path="/expenses-manager" element={<ExpensesManager />} />
+        <Route path="/crew-payroll" element={<IntegratedPayroll />} />
+        <Route path="/crew-payment-history" element={<CrewPaymentHistory />} />
+        <Route path="/tax-report" element={<TaxReport />} />
+        <Route path="/job-expenses/:id" element={<JobExpenses />} />
         <Route path="/public/sign/:contractId" element={<ContractSigningPage />} />
         <Route path="/public/sign-bid/:bidId" element={<BidSigningPage />} />
+        <Route path="/sign-bid/:bidId" element={<BidSigningPage />} />
         <Route path="/public/pay/:invoiceId" element={<PaymentPortal />} />
         <Route path="/public/invite/:token" element={<InviteSignup />} />
-
-        <Route path="/" element={<HomeRedirect />} />
-        <Route path="/dashboard" element={<HomeRedirect />} />
-
-        <Route path="/approve-time" element={<AdminRoute><ApproveTime /></AdminRoute>} />
-        <Route path="/bids" element={<AdminRoute><BidsList /></AdminRoute>} />
-        <Route path="/bid/:id" element={<AdminRoute><BidEditor /></AdminRoute>} />
-        <Route path="/create-bid" element={<AdminRoute><CreateBid /></AdminRoute>} />
-        <Route path="/contracts" element={<AdminRoute><ContractsDashboard /></AdminRoute>} />
-        <Route path="/contract/:id" element={<AdminRoute><ContractEditor /></AdminRoute>} />
-        <Route path="/invoices" element={<AdminRoute><InvoicesDashboard /></AdminRoute>} />
-        <Route path="/invoice/:id" element={<AdminRoute><InvoiceEditor /></AdminRoute>} />
-        <Route path="/jobs" element={<AdminRoute><JobsManager /></AdminRoute>} />
-        <Route path="/notes" element={<AdminRoute><NotesManager /></AdminRoute>} />
-        <Route path="/customers" element={<AdminRoute><CustomersDashboard /></AdminRoute>} />
-        <Route path="/migration" element={<AdminRoute><MigrationDashboard /></AdminRoute>} />
-        <Route path="/customer-edit/:id" element={<AdminRoute><CustomerEditor /></AdminRoute>} />
-        <Route path="/customer/:id" element={<AdminRoute><CustomerProfile /></AdminRoute>} />
-        <Route path="/migrate-tokens" element={<AdminRoute><MigrationPage /></AdminRoute>} />
-        <Route path="/schedule-dashboard" element={<AdminRoute><ScheduleDashboard /></AdminRoute>} />
-        <Route path="/calendar" element={<AdminRoute><CalendarView /></AdminRoute>} />
-        <Route path="/calendar-view" element={<AdminRoute><CalendarView /></AdminRoute>} />
-        <Route path="/maintenance" element={<AdminRoute><MaintenanceDashboard /></AdminRoute>} />
-        <Route path="/maintenance/:id" element={<AdminRoute><MaintenanceEditor /></AdminRoute>} />
-        <Route path="/notification-settings" element={<AdminRoute><NotificationSettings /></AdminRoute>} />
-        <Route path="/audit-log" element={<AdminRoute><AuditLog /></AdminRoute>} />
-        <Route path="/payment-tracker/:id" element={<AdminRoute><PaymentTracker /></AdminRoute>} />
-        <Route path="/payments-dashboard" element={<AdminRoute><PaymentsDashboard /></AdminRoute>} />
-        <Route path="/crew-manager" element={<AdminRoute><CrewManager /></AdminRoute>} />
-        <Route path="/equipment-manager" element={<AdminRoute><EquipmentManager /></AdminRoute>} />
-        <Route path="/employees" element={<AdminRoute><EmployeeAccountManager currentUser={user} currentUserRole={userRole} /></AdminRoute>} />
-        <Route path="/nda/:crewId" element={<AdminRoute><NDAEditor /></AdminRoute>} />
-        <Route path="/expenses-manager" element={<AdminRoute><ExpensesManager /></AdminRoute>} />
-        <Route path="/crew-payroll" element={<AdminRoute><IntegratedPayroll /></AdminRoute>} />
-        <Route path="/crew-payment-history" element={<AdminRoute><CrewPaymentHistory /></AdminRoute>} />
-        <Route path="/tax-report" element={<AdminRoute><TaxReport /></AdminRoute>} />
-        <Route path="/job-expenses/:id" element={<AdminRoute><JobExpenses /></AdminRoute>} />
       </Routes>
     </>
   );
@@ -1052,7 +1023,8 @@ export default function App() {
       <Router>
         <AppContent />
       </Router>
-
+      
+      {/* Version display in bottom-right corner */}
       <VersionDisplay />
     </AuthProvider>
   );

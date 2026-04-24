@@ -28,13 +28,13 @@ import {
   FormControlLabel,
   Radio,
   TextField,
+  InputAdornment,
   Alert,
   Checkbox,
   FormGroup,
   Grid,
   Divider,
   CircularProgress,
-  InputAdornment,
 } from "@mui/material";
 import {
   collection,
@@ -46,7 +46,6 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { markAsViewed } from "./useNotificationCounts";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import SortIcon from "@mui/icons-material/Sort";
@@ -63,6 +62,7 @@ import CancelIcon from "@mui/icons-material/Cancel";
 import generateContractPDF from "./pdf/generateContractPDF";
 import logo from "./logo.svg";
 import { cascadeCancelJob, buildCancelSummary, buildCancelConfirmationMessage } from "./utils/cascadeCancel";
+import { markAsViewed } from "./useNotificationCounts";
 
 
 export default function ContractsDashboard() {
@@ -118,9 +118,6 @@ export default function ContractsDashboard() {
   useEffect(() => {
     fetchContracts();
     markAsViewed('contracts');
-  }, []);
-  useEffect(() => {
-   
   }, []);
 
   const parseContractDate = (contract) => {
@@ -520,18 +517,6 @@ export default function ContractsDashboard() {
     return !!contract.scheduleId || !!contract.scheduledDate;
   };
 
-  const getContractTypeLabel = (contract) => {
-    if (contract.type === 'maintenance_agreement') return 'Maintenance Agreement';
-    if (contract.type === 'maintenance') return 'Maintenance';
-    if (contract.source === 'bid_signed') return 'General Service';
-    return 'General Service';
-  };
-
-  const getContractTypeColor = (contract) => {
-    if (contract.type === 'maintenance_agreement') return '#7b1fa2';
-    return '#1565c0';
-  };
-
   const canCancelContract = (contract) => {
     return contract.status !== "cancelled" && contract.status !== "completed";
   };
@@ -569,59 +554,17 @@ export default function ContractsDashboard() {
   }
 
   // ============================================
-  // SORT / YEAR FILTER (shared)
-  // ============================================
+  // Client search filter
   const displayedContracts = clientSearch.trim()
-    ? sortedContracts.filter(c =>
-        (c.clientName || '').toLowerCase().includes(clientSearch.trim().toLowerCase())
+    ? sortedContracts.filter((c) =>
+        (c.clientName || c.customerName || "").toLowerCase().includes(clientSearch.trim().toLowerCase())
       )
     : sortedContracts;
 
-  const SortYearControls = () => (
-    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
-      <Typography variant="h5">Contracts Dashboard ({displayedContracts.length})</Typography>
-      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "center" }}>
-        <TextField
-          size="small"
-          placeholder="Search by client name…"
-          value={clientSearch}
-          onChange={(e) => setClientSearch(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            ),
-          }}
-          sx={{ minWidth: 220 }}
-        />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel id="year-label">Year</InputLabel>
-          <Select labelId="year-label" value={selectedYear} label="Year" onChange={(e) => setSelectedYear(e.target.value)}>
-            <MenuItem value="all">All Years</MenuItem>
-            {getAvailableYears().map((year) => (
-              <MenuItem key={year} value={year}>{year}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel id="sort-label">
-            <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} /> Sort By
-          </InputLabel>
-          <Select labelId="sort-label" value={sortOrder} label="Sort By" onChange={(e) => setSortOrder(e.target.value)}>
-            <MenuItem value="newest">Newest First</MenuItem>
-            <MenuItem value="oldest">Oldest First</MenuItem>
-            <MenuItem value="name-asc">Name (A-Z)</MenuItem>
-            <MenuItem value="name-desc">Name (Z-A)</MenuItem>
-            <MenuItem value="amount-high">Highest Amount</MenuItem>
-            <MenuItem value="amount-low">Lowest Amount</MenuItem>
-            <MenuItem value="status-unsigned">Unsigned First</MenuItem>
-            <MenuItem value="status-signed">Signed First</MenuItem>
-          </Select>
-        </FormControl>
-      </Box>
-    </Box>
-  );
+  // SORT / YEAR FILTER (shared)
+  // ============================================
+  // SortYearControls inlined at each usage site to prevent search focus loss
+  // (defining as a sub-component inside the parent causes remount on every keystroke)
 
   // ============================================
   // SCHEDULE DIALOG (shared between mobile/desktop)
@@ -894,7 +837,49 @@ export default function ContractsDashboard() {
   if (isMobile) {
     return (
       <Box sx={{ p: 2 }}>
-        <SortYearControls />
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
+        <Typography variant="h5">Contracts Dashboard ({displayedContracts.length})</Typography>
+        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <TextField
+            size="small"
+            placeholder="Search client..."
+            value={clientSearch}
+            onChange={(e) => setClientSearch(e.target.value)}
+            sx={{ minWidth: { xs: "100%", sm: 220 } }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel id="year-label-mobile">Year</InputLabel>
+            <Select labelId="year-label-mobile" value={selectedYear} label="Year" onChange={(e) => setSelectedYear(e.target.value)}>
+              <MenuItem value="all">All Years</MenuItem>
+              {getAvailableYears().map((year) => (
+                <MenuItem key={year} value={year}>{year}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel id="sort-label-mobile">
+              <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} /> Sort By
+            </InputLabel>
+            <Select labelId="sort-label-mobile" value={sortOrder} label="Sort By" onChange={(e) => setSortOrder(e.target.value)}>
+              <MenuItem value="newest">Newest First</MenuItem>
+              <MenuItem value="oldest">Oldest First</MenuItem>
+              <MenuItem value="name-asc">Name (A-Z)</MenuItem>
+              <MenuItem value="name-desc">Name (Z-A)</MenuItem>
+              <MenuItem value="amount-high">Highest Amount</MenuItem>
+              <MenuItem value="amount-low">Lowest Amount</MenuItem>
+              <MenuItem value="status-unsigned">Unsigned First</MenuItem>
+              <MenuItem value="status-signed">Signed First</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+      </Box>
 
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 2 }}>
           {displayedContracts.map((contract) => (
@@ -921,16 +906,10 @@ export default function ContractsDashboard() {
                   Date: {formatDate(contract)}
                 </Typography>
                 <Typography variant="body1" color="text.secondary" gutterBottom>
-                  Amount: ${Number(contract.amount || 0).toFixed(2)}
+                  {contract.type === 'maintenance_agreement' ? '🌿 Maintenance' : '🔨 Standard'} · Amount: ${Number(contract.amount || 0).toFixed(2)}
                 </Typography>
                 <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                   <Chip label={getStatusLabel(contract)} color={getStatusColor(contract)} sx={{ mt: 1 }} />
-                  <Chip
-                    label={getContractTypeLabel(contract)}
-                    size="small"
-                    variant="outlined"
-                    sx={{ mt: 1, borderColor: getContractTypeColor(contract), color: getContractTypeColor(contract), fontWeight: 600 }}
-                  />
                   {isScheduled(contract) && (
                     <Chip label={`📅 ${contract.scheduledDate || "Scheduled"}`} color="info" variant="outlined" sx={{ mt: 1 }} />
                   )}
@@ -951,7 +930,7 @@ export default function ContractsDashboard() {
                 <Button variant="outlined" fullWidth startIcon={<EditIcon />} onClick={() => handleViewEdit(contract.id)}>
                   View / Edit
                 </Button>
-                {isFullySigned(contract) && !isScheduled(contract) && contract.type !== 'maintenance_agreement' && (
+                {isFullySigned(contract) && !isScheduled(contract) && (
                   <Button variant="contained" color="success" fullWidth startIcon={<CalendarTodayIcon />} onClick={() => handleOpenScheduleDialog(contract)}>
                     Schedule Job
                   </Button>
@@ -988,13 +967,56 @@ export default function ContractsDashboard() {
   // ============================================
   return (
     <Box sx={{ p: 3 }}>
-      <SortYearControls />
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3, flexWrap: "wrap", gap: 2 }}>
+        <Typography variant="h5">Contracts Dashboard ({displayedContracts.length})</Typography>
+        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <TextField
+            size="small"
+            placeholder="Search client..."
+            value={clientSearch}
+            onChange={(e) => setClientSearch(e.target.value)}
+            sx={{ minWidth: { xs: "100%", sm: 220 } }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel id="year-label-desktop">Year</InputLabel>
+            <Select labelId="year-label-desktop" value={selectedYear} label="Year" onChange={(e) => setSelectedYear(e.target.value)}>
+              <MenuItem value="all">All Years</MenuItem>
+              {getAvailableYears().map((year) => (
+                <MenuItem key={year} value={year}>{year}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel id="sort-label-desktop">
+              <SortIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} /> Sort By
+            </InputLabel>
+            <Select labelId="sort-label-desktop" value={sortOrder} label="Sort By" onChange={(e) => setSortOrder(e.target.value)}>
+              <MenuItem value="newest">Newest First</MenuItem>
+              <MenuItem value="oldest">Oldest First</MenuItem>
+              <MenuItem value="name-asc">Name (A-Z)</MenuItem>
+              <MenuItem value="name-desc">Name (Z-A)</MenuItem>
+              <MenuItem value="amount-high">Highest Amount</MenuItem>
+              <MenuItem value="amount-low">Lowest Amount</MenuItem>
+              <MenuItem value="status-unsigned">Unsigned First</MenuItem>
+              <MenuItem value="status-signed">Signed First</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+      </Box>
 
       <TableContainer component={Paper} sx={{ mt: 2, borderRadius: 2, overflowX: "auto", boxShadow: 3 }}>
         <Table>
           <TableHead>
             <TableRow sx={{ backgroundColor: "#f5f5f5" }}>
               <TableCell sx={{ fontWeight: "bold" }}>Client</TableCell>
+              <TableCell sx={{ fontWeight: "bold" }}>Type</TableCell>
               <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
               <TableCell sx={{ fontWeight: "bold" }}>Amount</TableCell>
               <TableCell sx={{ fontWeight: "bold" }}>Status</TableCell>
@@ -1018,17 +1040,23 @@ export default function ContractsDashboard() {
                 >
                   {contract.clientName || "Unnamed Client"}
                 </TableCell>
+                <TableCell>
+                  <Chip
+                    label={contract.type === 'maintenance_agreement' ? 'Maintenance' : 'Standard'}
+                    size="small"
+                    sx={{
+                      backgroundColor: contract.type === 'maintenance_agreement' ? '#E8F5E9' : '#E3F2FD',
+                      color: contract.type === 'maintenance_agreement' ? '#1B5E20' : '#0D47A1',
+                      fontWeight: 'bold',
+                      fontSize: '0.7rem',
+                    }}
+                  />
+                </TableCell>
                 <TableCell>{formatDate(contract)}</TableCell>
                 <TableCell>${Number(contract.amount || 0).toFixed(2)}</TableCell>
                 <TableCell>
                   <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                     <Chip label={getStatusLabel(contract)} color={getStatusColor(contract)} size="small" />
-                    <Chip
-                      label={getContractTypeLabel(contract)}
-                      size="small"
-                      variant="outlined"
-                      sx={{ borderColor: getContractTypeColor(contract), color: getContractTypeColor(contract), fontWeight: 600 }}
-                    />
                     {isScheduled(contract) && (
                       <Chip label={`📅 ${contract.scheduledDate || "Scheduled"}`} color="info" variant="outlined" size="small" />
                     )}
@@ -1049,7 +1077,7 @@ export default function ContractsDashboard() {
                   <Button variant="outlined" size="small" startIcon={<EditIcon />} onClick={() => handleViewEdit(contract.id)} sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}>
                     View / Edit
                   </Button>
-                  {isFullySigned(contract) && !isScheduled(contract) && contract.type !== 'maintenance_agreement' && (
+                  {isFullySigned(contract) && !isScheduled(contract) && (
                     <Button variant="contained" color="success" size="small" startIcon={<CalendarTodayIcon />} onClick={() => handleOpenScheduleDialog(contract)} sx={{ mr: 1, mb: { xs: 1, lg: 0 } }}>
                       Schedule
                     </Button>

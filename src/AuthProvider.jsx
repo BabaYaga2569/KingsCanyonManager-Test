@@ -35,7 +35,18 @@ export const AuthProvider = ({ children }) => {
           const userDoc = await getDoc(userDocRef);
           
           if (userDoc.exists()) {
-            const role = userDoc.data().role || 'user';
+            const userData = userDoc.data();
+            // ── Instant disable check ─────────────────────────────────
+            // If account marked inactive in Firestore, force sign out immediately
+            if (userData.active === false) {
+              console.log('Account is inactive — forcing sign out');
+              await signOut(auth);
+              setUser(null);
+              setUserRole(null);
+              setLoading(false);
+              return;
+            }
+            const role = userData.role || 'user';
             console.log('User role:', role);
             setUserRole(role);
           } else {

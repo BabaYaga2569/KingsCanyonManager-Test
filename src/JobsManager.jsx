@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   collection,
   getDocs,
-  getDoc,
   updateDoc,
   deleteDoc,
   doc,
+  serverTimestamp,
+  query,
+  where,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "./firebase";
@@ -48,7 +50,8 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PersonIcon from "@mui/icons-material/Person";
 import DownloadIcon from "@mui/icons-material/Download";
 import SearchIcon from "@mui/icons-material/Search";
-import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
+import ArchiveIcon from "@mui/icons-material/Archive";
+import UnarchiveIcon from "@mui/icons-material/Unarchive";
 import { exportJobsToExcel, exportJobsToCSV } from "./utils/kclExportUtils";
 import Swal from "sweetalert2";
 import { markAsViewed } from "./useNotificationCounts";
@@ -61,9 +64,10 @@ export default function JobsManager() {
   const [sortOrder, setSortOrder] = useState("oldest");
   const [jobTypeFilter, setJobTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [invoiceMap, setInvoiceMap] = useState({});
-  const [paymentMap, setPaymentMap] = useState({});
+  const [invoiceMap, setInvoiceMap] = useState({});   // jobId -> invoice
+  const [paymentMap, setPaymentMap] = useState({});   // invoiceId -> {totalPaid, balance}
   const [customerMap, setCustomerMap] = useState({});
+  const [archiveFilter, setArchiveFilter] = useState("active");
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [expandedClients, setExpandedClients] = useState({});
@@ -94,6 +98,8 @@ export default function JobsManager() {
   const galleryInputRef = useRef(null);
 
   const normalizeStatus = (status) => (status || "").trim().toLowerCase();
+
+  const isArchived = (job) => job?.archived === true;
 
   const getJobDate = (job) => {
     const raw = job?.createdAt || job?.startDate || 0;
@@ -231,6 +237,12 @@ export default function JobsManager() {
   useEffect(() => {
     let filtered = [...jobs];
 
+    if (archiveFilter === "active") {
+      filtered = filtered.filter((job) => !isArchived(job));
+    } else if (archiveFilter === "archived") {
+      filtered = filtered.filter((job) => isArchived(job));
+    }
+
     if (jobTypeFilter !== "all") {
       filtered = filtered.filter((job) => job.jobType === jobTypeFilter);
     }
@@ -262,7 +274,7 @@ export default function JobsManager() {
 
     const sorted = [...filtered].sort((a, b) => compareJobs(a, b, sortOrder));
     setSortedJobs(sorted);
-  }, [jobs, sortOrder, jobTypeFilter, statusFilter, searchTerm]);
+  }, [jobs, sortOrder, jobTypeFilter, statusFilter, archiveFilter, searchTerm]);
 
   const fetchJobs = async () => {
     try {
@@ -279,7 +291,7 @@ export default function JobsManager() {
         .filter((user) => user.active !== false);
       setEmployees(activeEmployees);
 
-      // Load customers for address on job cards
+      // Load customers for address display on job cards
       try {
         const customersSnap = await getDocs(collection(db, "customers"));
         const custMap = {};
@@ -293,7 +305,7 @@ export default function JobsManager() {
         console.warn("Could not load customers:", e);
       }
 
-      // Load invoices + payments for job card payment status
+      // Load invoices and payments to show payment status on job cards
       try {
         const invoicesSnap = await getDocs(collection(db, "invoices"));
         const allInvoices = invoicesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -326,9 +338,110 @@ export default function JobsManager() {
     }
   };
 
+  const handleArchiveJob = async (job) => {
+    const result = await Swal.fire({
+      title: `Archive ${job.clientName}'s job?`,
+      text: "This job will be hidden from the default jobs view, but not deleted.",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Archive",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#ed6c02",
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await updateDoc(doc(db, "jobs", job.id), {
+        archived: true,
+        archivedAt: serverTimestamp(),
+      });
+
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id ? { ...j, archived: true, archivedAt: new Date() } : j
+        )
+      );
+
+      Swal.fire("Archived!", "Job has been archived.", "success");
+    } catch (error) {
+      console.error("Error archiving job:", error);
+      Swal.fire("Error", "Failed to archive job.", "error");
+    }
+  };
+
+  const handleRestoreJob = async (job) => {
+    try {
+      await updateDoc(doc(db, "jobs", job.id), {
+        archived: false,
+        archivedAt: null,
+      });
+
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id ? { ...j, archived: false, archivedAt: null } : j
+        )
+      );
+
+      Swal.fire("Restored!", "Job has been restored.", "success");
+    } catch (error) {
+      console.error("Error restoring job:", error);
+      Swal.fire("Error", "Failed to restore job.", "error");
+    }
+  };
+
   const handleStatusChange = async (jobId, newStatus) => {
     try {
       const job = jobs.find(j => j.id === jobId);
+
+      // ── Gate: cannot activate without a schedule ─────────────────────────
+      if (newStatus === 'Active') {
+        // Check schedules collection for any entry linked to this job's contract
+        let hasSchedule = false;
+
+        if (job?.contractId) {
+          const schedSnap = await getDocs(
+            query(collection(db, 'schedules'), where('contractId', '==', job.contractId))
+          );
+          if (!schedSnap.empty) hasSchedule = true;
+        }
+
+        // Also check by jobId directly in case schedules link that way
+        if (!hasSchedule && job?.id) {
+          const schedSnap2 = await getDocs(
+            query(collection(db, 'schedules'), where('jobId', '==', job.id))
+          );
+          if (!schedSnap2.empty) hasSchedule = true;
+        }
+
+        // Also check if the job itself has a scheduledDate set
+        if (!hasSchedule && job?.scheduledDate) hasSchedule = true;
+
+        if (!hasSchedule) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Cannot Activate Job',
+            html: `
+              <p>This job must be scheduled before it can be activated.</p>
+              <p style="margin-top:12px; color:#555;">
+                <strong>Required:</strong> Go to <strong>Schedule</strong>, assign a date and crew to this job, then come back to activate it.
+              </p>
+              <p style="margin-top:8px; color:#1565c0; font-size:0.9em;">
+                This ensures crew always has a confirmed schedule before showing up on site.
+              </p>
+            `,
+            confirmButtonText: 'Go to Schedule',
+            showCancelButton: true,
+            cancelButtonText: 'OK',
+            confirmButtonColor: '#1565c0',
+          }).then(result => {
+            if (result.isConfirmed) window.location.href = '/schedule-dashboard';
+          });
+          return;
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────
+
       await updateDoc(doc(db, "jobs", jobId), { status: newStatus });
       await logAction(AUDIT_ACTIONS.JOB_STATUS_CHANGED, { jobId, clientName: job?.clientName, oldStatus: job?.status, newStatus }, user, userRole);
       setJobs((prev) =>
@@ -735,112 +848,6 @@ export default function JobsManager() {
     }
   };
 
-  const handleScheduleJob = async (job) => {
-    const jobType = job.jobType || "General Service";
-
-    // ── Quick Weed Service ───────────────────────────────────────────────────
-    // Small recurring job — no bid or contract required, schedule immediately
-    if (jobType === "Quick Weed Service") {
-      navigate(`/schedule${job.contractId ? `?contractId=${job.contractId}` : ""}`);
-      return;
-    }
-
-    // ── Emergency ────────────────────────────────────────────────────────────
-    // Bypass full flow — schedule immediately
-    if (jobType === "Emergency") {
-      navigate(`/schedule${job.contractId ? `?contractId=${job.contractId}` : ""}`);
-      return;
-    }
-
-    // ── Maintenance ──────────────────────────────────────────────────────────
-    // Customer must have a signed standing contract on file (matched by clientName)
-    if (jobType === "Maintenance") {
-      try {
-        const contractsSnap = await getDocs(collection(db, "contracts"));
-        const standingContract = contractsSnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .find(
-            (c) =>
-              (c.clientName || "").toLowerCase() === (job.clientName || "").toLowerCase() &&
-              c.clientSignature &&
-              c.status !== "cancelled"
-          );
-
-        if (!standingContract) {
-          Swal.fire({
-            icon: "warning",
-            title: "No Signed Contract on File",
-            html: `<p><strong>${job.clientName}</strong> does not have a signed standing contract on file.</p>
-                   <p style="margin-top:12px; color:#555;">
-                     <strong>Required for Maintenance jobs:</strong><br/>
-                     A signed service contract must exist before scheduling recurring visits.
-                   </p>
-                   <p style="margin-top:12px; color:#1565c0;">
-                     Create a maintenance contract, have the customer sign it,<br/>
-                     then come back to schedule their visits.
-                   </p>`,
-            confirmButtonText: "OK, Got It",
-            confirmButtonColor: "#1565c0",
-          });
-          return;
-        }
-      } catch (err) {
-        console.warn("Could not check standing contract:", err.message);
-      }
-      navigate(`/schedule${job.contractId ? `?contractId=${job.contractId}` : ""}`);
-      return;
-    }
-
-    // ── General Service (standard flow) ─────────────────────────────────────
-    // Hard block: job must have a linked contract AND customer must have signed it
-    if (!job.contractId) {
-      Swal.fire({
-        icon: "warning",
-        title: "No Contract Linked",
-        html: `<p>This job has no linked contract.</p>
-               <p style="margin-top:12px; color:#555;">
-                 <strong>Required flow:</strong><br/>
-                 Bid Accepted → Customer Signs Contract → Schedule Job
-               </p>
-               <p style="margin-top:12px; color:#1565c0;">
-                 Create and send a contract to the customer first.
-               </p>`,
-        confirmButtonText: "OK, Got It",
-        confirmButtonColor: "#1565c0",
-      });
-      return;
-    }
-
-    try {
-      const contractSnap = await getDoc(doc(db, "contracts", job.contractId));
-      if (!contractSnap.exists() || !contractSnap.data().clientSignature) {
-        const clientName = contractSnap.exists()
-          ? contractSnap.data().clientName
-          : job.clientName;
-        Swal.fire({
-          icon: "warning",
-          title: "Contract Not Signed Yet",
-          html: `<p><strong>${clientName}</strong> has not signed the contract yet.</p>
-                 <p style="margin-top:12px; color:#555;">
-                   <strong>Required flow:</strong><br/>
-                   Bid Accepted → Customer Signs Contract → Schedule Job
-                 </p>
-                 <p style="margin-top:12px; color:#1565c0;">
-                   Send the contract signing link to the customer first,<br/>
-                   then come back to schedule once they've signed.
-                 </p>`,
-          confirmButtonText: "OK, Got It",
-          confirmButtonColor: "#1565c0",
-        });
-        return;
-      }
-    } catch (err) {
-      console.warn("Could not load contract for schedule check:", err.message);
-    }
-
-    navigate(`/schedule?contractId=${job.contractId}`);
-  };
-
   if (loading) {
     return (
       <Typography sx={{ mt: 4, textAlign: "center" }}>
@@ -873,6 +880,20 @@ export default function JobsManager() {
           />
 
           <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel id="archive-filter-label">Archive View</InputLabel>
+            <Select
+              labelId="archive-filter-label"
+              value={archiveFilter}
+              label="Archive View"
+              onChange={(e) => setArchiveFilter(e.target.value)}
+            >
+              <MenuItem value="active">Active Jobs</MenuItem>
+              <MenuItem value="archived">Archived Jobs</MenuItem>
+              <MenuItem value="all">All Jobs</MenuItem>
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel id="filter-label">
               <FilterListIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: "middle" }} />
               Filter by Type
@@ -887,7 +908,6 @@ export default function JobsManager() {
               <MenuItem value="Quick Weed Service">Quick Weed Service</MenuItem>
               <MenuItem value="Maintenance">Maintenance</MenuItem>
               <MenuItem value="General Service">General Service</MenuItem>
-              <MenuItem value="Emergency">Emergency</MenuItem>
             </Select>
           </FormControl>
 
@@ -954,7 +974,7 @@ export default function JobsManager() {
           <Typography variant="body2" color="text.secondary">
             {searchTerm
               ? "No jobs match your search."
-              : jobTypeFilter !== "all" || statusFilter !== "all"
+              : jobTypeFilter !== "all" || statusFilter !== "all" || archiveFilter !== "active"
                 ? "No jobs found for the selected filters. Try changing the filters."
                 : "Jobs will appear here after you create them"}
           </Typography>
@@ -1027,9 +1047,10 @@ export default function JobsManager() {
 
                       const ageDays = getJobAgeDays(job);
                       const staleLevel = getStaleLevel(job);
+                      const archived = isArchived(job);
 
                       return (
-                        <Card key={job.id} sx={{ boxShadow: 1, border: hasMultiple ? "1px solid #e0e0e0" : "none" }}>
+                        <Card key={job.id} sx={{ boxShadow: 1, border: hasMultiple ? "1px solid #e0e0e0" : "none", opacity: archived ? 0.88 : 1 }}>
                           <CardContent>
                             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "start", mb: 1.5 }}>
                               <Box>
@@ -1050,6 +1071,9 @@ export default function JobsManager() {
                                 )}
 
                                 <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
+                                  {archived && (
+                                    <Chip label="Archived" size="small" color="default" variant="outlined" />
+                                  )}
                                   {staleLevel === "stale" && (
                                     <Chip label="30+ days old" size="small" color="warning" variant="outlined" />
                                   )}
@@ -1097,10 +1121,10 @@ export default function JobsManager() {
                             {/* Address box */}
                             {(() => {
                               const customer = customerMap[job.customerId];
-                              const addr = customer?.address || job.address || null;
+                              const addr = customer?.address || job.address || job.clientAddress || null;
                               if (!addr) return null;
                               return (
-                                <Box sx={{ mb: 2, p: 1, bgcolor: "#f3f8ff", borderRadius: 1, borderLeft: "3px solid #42a5f5", display: "flex", alignItems: "center", gap: 0.5 }}>
+                                <Box sx={{ mb: 2, p: 1, bgcolor: "#f3f8ff", borderRadius: 1, borderLeft: "3px solid #42a5f5", display: "flex", alignItems: "center", gap: 1 }}>
                                   <Typography variant="caption" sx={{ fontSize: "0.78rem" }}>
                                     📍 {addr}
                                   </Typography>
@@ -1115,6 +1139,7 @@ export default function JobsManager() {
                               const materials = parseFloat(job.totalExpenses || 0);
                               const hasRevenue = revenue > 0;
 
+                              // Payment status chip
                               const paymentChip = pmt && pmt.paymentCount > 0 ? (
                                 <Box sx={{ mb: 1, p: 1, bgcolor: pmt.isPaid ? "#e8f5e9" : "#fff8e1", borderRadius: 1, borderLeft: `3px solid ${pmt.isPaid ? "#4caf50" : "#ff9800"}`, display: "flex", justifyContent: "space-between" }}>
                                   <Typography variant="caption" fontWeight="bold" color={pmt.isPaid ? "success.main" : "warning.dark"}>
@@ -1179,7 +1204,6 @@ export default function JobsManager() {
                                 <MenuItem value="Quick Weed Service">Quick Weed Service</MenuItem>
                                 <MenuItem value="Maintenance">Maintenance</MenuItem>
                                 <MenuItem value="General Service">General Service</MenuItem>
-                                <MenuItem value="Emergency">Emergency</MenuItem>
                               </Select>
                             </FormControl>
 
@@ -1220,16 +1244,31 @@ export default function JobsManager() {
                             <Button variant="contained" color="primary" onClick={() => navigate(`/job-expenses/${job.id}`)} fullWidth size="small">
                               View Expenses & Profit
                             </Button>
-                            <Button
-                              variant="contained"
-                              color="success"
-                              startIcon={<CalendarTodayIcon />}
-                              onClick={() => handleScheduleJob(job)}
-                              fullWidth
-                              size="small"
-                            >
-                              Schedule Job
-                            </Button>
+
+                            {archived ? (
+                              <Button
+                                variant="contained"
+                                color="success"
+                                startIcon={<UnarchiveIcon />}
+                                onClick={() => handleRestoreJob(job)}
+                                fullWidth
+                                size="small"
+                              >
+                                Restore Job
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outlined"
+                                color="warning"
+                                startIcon={<ArchiveIcon />}
+                                onClick={() => handleArchiveJob(job)}
+                                fullWidth
+                                size="small"
+                              >
+                                Archive Job
+                              </Button>
+                            )}
+
                             <Button variant="outlined" color="error" onClick={() => handleDeleteJob(job.id, job.clientName)} fullWidth size="small">
                               Delete Job
                             </Button>

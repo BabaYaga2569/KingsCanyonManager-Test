@@ -213,26 +213,8 @@ export default function MaintenanceDashboard() {
         }
       }
 
-      // Find the current month's job card for this maintenance contract
-      const currentMonthYear = moment().format('YYYY-MM');
-      let monthlyJobId = null;
-      try {
-        const jobsQuery = query(
-          collection(db, 'jobs'),
-          where('maintenanceContractId', '==', contract.id),
-          where('monthYear', '==', currentMonthYear)
-        );
-        const jobsSnap = await getDocs(jobsQuery);
-        if (!jobsSnap.empty) {
-          monthlyJobId = jobsSnap.docs[0].id;
-        }
-      } catch (err) {
-        console.warn('Could not find monthly job card:', err);
-      }
-
       // Build service description
-      const monthLabel = moment().format('MMMM YYYY');
-      const description = `Monthly Maintenance - ${monthLabel}\n${contract.servicesIncluded || 'Standard maintenance service'}`;
+      const description = `Monthly Maintenance - ${getFrequencyDisplay(contract.frequency)}\n${contract.servicesIncluded || 'Standard maintenance service'}`;
 
       const invoiceData = {
         customerId: customerId,
@@ -251,35 +233,19 @@ export default function MaintenanceDashboard() {
         tax: 0,
         status: 'Sent',
         invoiceDate: moment().format('YYYY-MM-DD'),
-        dueDate: moment().endOf('month').format('YYYY-MM-DD'),
         createdAt: new Date().toISOString(),
         maintenanceContractId: contract.id,
-        monthlyJobId: monthlyJobId,   // links invoice to the monthly job card
-        monthYear: currentMonthYear,
         type: 'maintenance',
         paymentToken: generateSecureToken(),
       };
 
       const invoiceRef = await addDoc(collection(db, 'invoices'), invoiceData);
 
-      // Back-link the invoice to the monthly job card so profitability tracking works
-      if (monthlyJobId) {
-        try {
-          await updateDoc(doc(db, 'jobs', monthlyJobId), {
-            invoiceId: invoiceRef.id,
-            invoicedAt: new Date().toISOString(),
-            invoiceStatus: 'Sent',
-          });
-        } catch (err) {
-          console.warn('Could not link invoice to monthly job:', err);
-        }
-      }
-
       Swal.fire({
         icon: 'success',
         title: 'Invoice Created!',
-        html: `$${contract.monthlyRate} invoice for ${contract.customerName}<br><small style="color:#555">${monthLabel}</small>`,
-        timer: 2500,
+        text: `$${contract.monthlyRate} invoice for ${contract.customerName}`,
+        timer: 2000,
         showConfirmButton: false,
       });
 
@@ -406,7 +372,18 @@ export default function MaintenanceDashboard() {
       case "active": return "success";
       case "paused": return "warning";
       case "cancelled": return "error";
+      case "pending_signature": return "info";
       default: return "default";
+    }
+  };
+
+  const getStatusLabel = (status) => {
+    switch (status) {
+      case "active": return "✅ Active";
+      case "paused": return "⏸ Paused";
+      case "cancelled": return "❌ Cancelled";
+      case "pending_signature": return "⏳ Awaiting Signature";
+      default: return status || "Unknown";
     }
   };
 
@@ -432,9 +409,10 @@ export default function MaintenanceDashboard() {
               onChange={(e) => setFilterStatus(e.target.value)}
             >
               <MenuItem value="all">All Contracts</MenuItem>
-              <MenuItem value="active">Active Only</MenuItem>
-              <MenuItem value="paused">Paused Only</MenuItem>
-              <MenuItem value="cancelled">Cancelled</MenuItem>
+              <MenuItem value="pending_signature">⏳ Awaiting Signature</MenuItem>
+              <MenuItem value="active">✅ Active Only</MenuItem>
+              <MenuItem value="paused">⏸ Paused Only</MenuItem>
+              <MenuItem value="cancelled">❌ Cancelled</MenuItem>
             </Select>
           </FormControl>
 
@@ -525,10 +503,10 @@ export default function MaintenanceDashboard() {
                 {/* Status and Frequency */}
                 <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
                   <Chip
-                    label={contract.status || "active"}
+                    label={getStatusLabel(contract.status)}
                     color={getStatusColor(contract.status)}
                     size="small"
-                    sx={{ fontWeight: "bold", textTransform: "capitalize" }}
+                    sx={{ fontWeight: "bold" }}
                   />
                   <Chip
                     label={getFrequencyDisplay(contract.frequency)}
@@ -554,19 +532,32 @@ export default function MaintenanceDashboard() {
                   {contract.servicesIncluded || "Standard maintenance"}
                 </Typography>
 
-                {/* Schedule Info */}
-                <Box sx={{ mb: 1, p: 1, bgcolor: "#f5f5f5", borderRadius: 1 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    <strong>Next Visit:</strong> {contract.nextVisitDate ? moment(contract.nextVisitDate).format("MMM DD, YYYY") : "Not scheduled"}
-                  </Typography>
-                  <Typography variant="caption" color="primary.main" sx={{ fontWeight: 600 }}>
-                    {contract.scheduledVisitsCount || 0} visits scheduled ahead
-                  </Typography>
-                </Box>
+                {/* Schedule Info — only show when active */}
+                {contract.status === "active" && (
+                  <Box sx={{ mb: 1, p: 1, bgcolor: "#f5f5f5", borderRadius: 1 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Next Visit:</strong> {contract.nextVisitDate ? moment(contract.nextVisitDate).format("MMM DD, YYYY") : "Not scheduled"}
+                    </Typography>
+                    <Typography variant="caption" color="primary.main" sx={{ fontWeight: 600 }}>
+                      {contract.scheduledVisitsCount || 0} visits scheduled ahead
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Pending signature banner */}
+                {contract.status === "pending_signature" && (
+                  <Box sx={{ mb: 1, p: 1, bgcolor: "#e3f2fd", borderRadius: 1, border: "1px solid #90caf9" }}>
+                    <Typography variant="body2" color="info.dark">
+                      📄 Awaiting client signature. Go to <strong>Contracts</strong> to send the signing link.
+                    </Typography>
+                  </Box>
+                )}
 
                 {/* Start Date */}
                 <Typography variant="caption" color="text.secondary">
-                  Started: {moment(contract.startDate).format("MMM DD, YYYY")}
+                  {contract.startDate
+                    ? `Proposed start: ${moment(contract.startDate).format("MMM DD, YYYY")}`
+                    : "Start date: TBD after signing"}
                 </Typography>
               </CardContent>
 
@@ -578,6 +569,19 @@ export default function MaintenanceDashboard() {
                 >
                   Edit
                 </Button>
+
+                {/* View Contract button — shown when awaiting signature */}
+                {contract.status === "pending_signature" && (
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="info"
+                    onClick={() => navigate("/contracts")}
+                  >
+                    View Contract →
+                  </Button>
+                )}
+
                 <Button
                   size="small"
                   startIcon={<CalendarMonthIcon />}
@@ -592,26 +596,34 @@ export default function MaintenanceDashboard() {
                   startIcon={contract.status === "active" ? <PauseIcon /> : <PlayArrowIcon />}
                   onClick={() => handleToggleStatus(contract.id, contract.status)}
                   color={contract.status === "active" ? "warning" : "success"}
+                  disabled={contract.status === "pending_signature" || contract.status === "cancelled"}
                 >
                   {contract.status === "active" ? "Pause" : "Resume"}
                 </Button>
-                <Button
-                  size="small"
-                  startIcon={<ReceiptIcon />}
-                  onClick={() => handleCreateInvoice(contract)}
-                  color="success"
-                >
-                  Invoice
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<PaymentIcon />}
-                  onClick={() => handleCollectPayment(contract)}
-                  color="success"
-                  variant="contained"
-                >
-                  Pay
-                </Button>
+
+                {/* Invoice and Pay — only when active */}
+                {contract.status === "active" && (
+                  <>
+                    <Button
+                      size="small"
+                      startIcon={<ReceiptIcon />}
+                      onClick={() => handleCreateInvoice(contract)}
+                      color="success"
+                    >
+                      Invoice
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={<PaymentIcon />}
+                      onClick={() => handleCollectPayment(contract)}
+                      color="success"
+                      variant="contained"
+                    >
+                      Pay
+                    </Button>
+                  </>
+                )}
+
                 <Button
                   size="small"
                   startIcon={<DeleteIcon />}
